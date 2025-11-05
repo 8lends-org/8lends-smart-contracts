@@ -193,6 +193,8 @@ contract RewardSystem is Initializable, UUPSUpgradeable, OwnableUpgradeable, Ree
         emit InvestmentRecorded(_user, _amount, _projectId);
     }
 
+
+
     /// @notice Activate project rewards (called when transitioning to Stage.Funded)
     /// @param _projectId Project ID
     function activateProjectRewards(uint256 _projectId, uint256 _totalInvested) external onlyFundraise {
@@ -201,31 +203,22 @@ contract RewardSystem is Initializable, UUPSUpgradeable, OwnableUpgradeable, Ree
         emit ProjectRewardsActivated(_projectId, block.timestamp);
 
         if (_totalInvested > 0) {
-            uint256 tokensNeededForRewards = rewardTokensAmount[_projectId];
-            uint256 burnUSD = (_totalInvested * burnPercentage) / BASIS_POINTS;
+            uint256 tokensForMint = rewardTokensAmount[_projectId];
             
-            if (tokensNeededForRewards > 0 || burnUSD > 0) {
-                address[] memory path = new address[](2);
-                path[0] = address(usdc);
-                path[1] = address(token);
-                
-                // Calculate tokens needed for burn
-                uint256 tokensNeededForBurn = 0;
-                if (burnUSD > 0) {
-                    try uniswapRouter.getAmountsOut(burnUSD, path) returns (uint256[] memory _amounts) {
-                        tokensNeededForBurn = _amounts[1];
-                    } catch {
-                        revert("Failed to calculate tokens for burn");
-                    }
-                }
-                
-                // Buy max(tokensNeededForRewards, tokensNeededForBurn) tokens
-                uint256 tokensToBuy = tokensNeededForRewards > tokensNeededForBurn ? tokensNeededForRewards : tokensNeededForBurn;
-                
-                if (tokensToBuy > 0) {
-                    // Calculate max USDC needed to buy exact amount of tokens
+            // Mint rewarded tokens to RewardSystem contract
+            if (tokensForMint > 0) {
+                Token(token).mintReward(address(this), tokensForMint);
+
+                // Buy back tokens from pool (USDC -> Token) and burn them
+                // Burn exactly the same amount as minted to keep totalSupply unchanged
+                if (burnPercentage > 0) {
+                    address[] memory path = new address[](2);
+                    path[0] = address(usdc);
+                    path[1] = address(token);
+                    
+                    // Calculate how much USDC is needed to buy tokensForMint tokens
                     uint256 exactUSDNeeded;
-                    try uniswapRouter.getAmountsIn(tokensToBuy, path) returns (uint256[] memory _amounts) {
+                    try uniswapRouter.getAmountsIn(tokensForMint, path) returns (uint256[] memory _amounts) {
                         exactUSDNeeded = _amounts[0];
                     } catch {
                         revert("Failed to calculate USDC needed for tokens");
@@ -233,17 +226,16 @@ contract RewardSystem is Initializable, UUPSUpgradeable, OwnableUpgradeable, Ree
                     
                     // Add 1% slippage tolerance
                     uint256 maxUSDNeeded = (exactUSDNeeded * 101) / 100;
-                    
                     if (maxUSDNeeded > usdc.balanceOf(address(this))) {
                         revert("Not enough USDC to buy tokens");
                     }
                     
-                    // Approve Uniswap to spend USDC
                     usdc.approve(address(uniswapRouter), maxUSDNeeded);
                     
                     // Buy exact amount of tokens from pool (USDC -> Token)
-                    try uniswapRouter.swapTokensForExactTokens(tokensToBuy, maxUSDNeeded, path, address(this), block.timestamp) returns (uint256[] memory) {
-                        // Tokens are now on contract, ready for distribution as rewards
+                    try uniswapRouter.swapTokensForExactTokens(tokensForMint, maxUSDNeeded, path, address(this), block.timestamp) returns (uint256[] memory) {
+                        // Burn received tokens to keep totalSupply unchanged
+                        Token(token).burn(tokensForMint);
                     } catch {
                         revert("Failed to buy back tokens: pool has no liquidity");
                     }

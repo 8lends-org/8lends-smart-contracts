@@ -172,7 +172,9 @@ contract Fundraise is Initializable, UUPSUpgradeable, OwnableUpgradeable, Merkle
 
         project.innerStruct.loanToken.safeTransferFrom(msg.sender, address(this), _amount);
 
-        IRewardSystem(rewardSystem).recordInvestment(msg.sender, _amount, _inviter, _pid);
+        if (rewardSystem != address(0)) {
+            IRewardSystem(rewardSystem).recordInvestment(msg.sender, _amount, _inviter, _pid);
+        }
 
         project.totalInvested += _amount;
         investorInfo[msg.sender][_pid].investedAmount += _amount;
@@ -253,7 +255,9 @@ contract Fundraise is Initializable, UUPSUpgradeable, OwnableUpgradeable, Merkle
 
             if (platformFee > 0) project.innerStruct.loanToken.safeTransfer(treasury, platformFee);
 
-            IRewardSystem(rewardSystem).activateProjectRewards(_projectId, project.totalInvested);
+            if (rewardSystem != address(0)) {
+                IRewardSystem(rewardSystem).activateProjectRewards(_projectId, project.totalInvested);
+            }
 
             emit ProjectFunded(_projectId, project.innerStruct.borrower, project.totalInvested, platformFee);
             emit ProjectStatusChanged(_projectId, uint8(Stage.Funded));
