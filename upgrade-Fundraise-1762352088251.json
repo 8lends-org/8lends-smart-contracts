@@ -1,0 +1,21 @@
+{
+  "network": "base",
+  "chainId": "8453",
+  "contractName": "Fundraise",
+  "proxyAddress": "0xf435A133D6cDCb81061F18a4763560f9931DB57D",
+  "currentImplementation": "0x7517C9a31a61Badc7aB2E891084354e768FeD63b",
+  "newImplementation": "0xE8d17729c1dBee6B6F4FD4E328f2b9DeF6665a9C",
+  "owner": "0x46D539e9384A3E79EAb8Be35786B246A6b6e89D0",
+  "calldata": "0x4f1ef286000000000000000000000000e8d17729c1dbee6b6f4fd4e328f2b9def6665a9c00000000000000000000000000000000000000000000000000000000000000400000000000000000000000000000000000000000000000000000000000000000",
+  "value": "0",
+  "timestamp": "2025-11-05T14:14:48.251Z",
+  "safeUrl": "https://app.safe.global/",
+  "instructions": {
+    "step1": "Open Safe at https://app.safe.global/",
+    "step2": "Go to Apps -> Transaction Builder",
+    "step3": "Enter transaction data",
+    "step4": "Add transaction and review",
+    "step5": "Create batch and collect signatures",
+    "step6": "Execute when threshold is reached"
+  }
+}

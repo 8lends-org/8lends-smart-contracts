@@ -478,16 +478,18 @@ contract RewardSystem is Initializable, UUPSUpgradeable, OwnableUpgradeable, Ree
     /// @param _users Array of user addresses
     /// @param _amounts Array of token amounts to distribute
     /// @param _projectId Project ID
-    /// @param _buyFromPool If true, buy tokens from pool; if false, mint tokens
     function distributeVestingTokens(
         address[] calldata _users,
         uint256[] calldata _amounts,
-        uint256 _projectId,
-        bool _buyFromPool
+        uint256 _projectId
     ) external onlyOwner {
         require(_users.length == _amounts.length, "Arrays length mismatch");
         require(_users.length > 0, "Empty arrays");
-        require(projectVestingStartTime[_projectId] > 0, "Project rewards not activated");
+
+        if(projectVestingStartTime[_projectId] == 0) {
+            projectVestingStartTime[_projectId] = block.timestamp;
+            emit ProjectRewardsActivated(_projectId, block.timestamp);
+        }
 
         uint256 totalAmount = 0;
         for (uint256 i = 0; i < _users.length; i++) {
@@ -503,37 +505,27 @@ contract RewardSystem is Initializable, UUPSUpgradeable, OwnableUpgradeable, Ree
         
         rewardTokensAmount[_projectId] += totalAmount;
 
-        // Get or create tokens - always buy/mint full amount
-        if (_buyFromPool) {
-            // Buy tokens from pool
-            address[] memory path = new address[](2);
-            path[0] = address(usdc);
-            path[1] = address(token);
 
-            uint256 exactUSDNeeded;
-            try uniswapRouter.getAmountsIn(totalAmount, path) returns (uint256[] memory amounts) {
-                exactUSDNeeded = amounts[0];
-            } catch {
-                revert("Failed to calculate USDC needed for tokens");
-            }
-
-            // Add 1% slippage tolerance
-            uint256 maxUSDNeeded = (exactUSDNeeded * 101) / 100;
-
-            if (maxUSDNeeded > usdc.balanceOf(address(this))) {
-                revert("Not enough USDC to buy tokens");
-            }
-
-            usdc.approve(address(uniswapRouter), maxUSDNeeded);
-
-            try uniswapRouter.swapTokensForExactTokens(totalAmount, maxUSDNeeded, path, address(this), block.timestamp) returns (uint256[] memory) {
-                // Tokens purchased
-            } catch {
-                revert("Failed to buy tokens from pool");
-            }
-        } else {
-            // Mint tokens
-            Token(token).mintReward(address(this), totalAmount);
+        // Buy tokens from pool
+        address[] memory path = new address[](2);
+        path[0] = address(usdc);
+        path[1] = address(token);
+        uint256 exactUSDNeeded;
+        try uniswapRouter.getAmountsIn(totalAmount, path) returns (uint256[] memory amounts) {
+            exactUSDNeeded = amounts[0];
+        } catch {
+            revert("Failed to calculate USDC needed for tokens");
+        }
+        // Add 1% slippage tolerance
+        uint256 maxUSDNeeded = (exactUSDNeeded * 101) / 100;
+        if (maxUSDNeeded > usdc.balanceOf(address(this))) {
+            revert("Not enough USDC to buy tokens");
+        }
+        usdc.approve(address(uniswapRouter), maxUSDNeeded);
+        try uniswapRouter.swapTokensForExactTokens(totalAmount, maxUSDNeeded, path, address(this), block.timestamp) returns (uint256[] memory) {
+            // Tokens purchased
+        } catch {
+            revert("Failed to buy tokens from pool");
         }
     }
 

@@ -43,8 +43,11 @@ async function main() {
 
   console.log("Adding managers to ManagerRegistry...");
 
+  const nonce = await ethers.provider.getTransactionCount(await signer.getAddress());
+  console.log("Nonce:", nonce);
+
   // Add managers in batch
-  const tx = await ManagerRegistry.setManagerStatusBatch(managersAddresses, statuses);
+  const tx = await ManagerRegistry.setManagerStatusBatch(managersAddresses, statuses, { nonce });
   console.log("Transaction hash:", tx.hash);
 
   await tx.wait();
