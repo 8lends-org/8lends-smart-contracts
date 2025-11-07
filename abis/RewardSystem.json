@@ -407,11 +407,6 @@
         "internalType": "uint256",
         "name": "_projectId",
         "type": "uint256"
-      },
-      {
-        "internalType": "bool",
-        "name": "_buyFromPool",
-        "type": "bool"
       }
     ],
     "name": "distributeVestingTokens",
