@@ -20,5 +20,5 @@ ignition/deployments/chain-31337
 scripts/config/
 
 .DS_Store
-
+distribution/
 

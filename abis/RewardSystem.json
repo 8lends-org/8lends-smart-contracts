@@ -404,9 +404,9 @@
         "type": "uint256[]"
       },
       {
-        "internalType": "uint256",
-        "name": "_projectId",
-        "type": "uint256"
+        "internalType": "uint256[]",
+        "name": "_projectIds",
+        "type": "uint256[]"
       }
     ],
     "name": "distributeVestingTokens",
@@ -823,6 +823,24 @@
   {
     "inputs": [
       {
+        "internalType": "address[]",
+        "name": "_users",
+        "type": "address[]"
+      },
+      {
+        "internalType": "uint256[]",
+        "name": "_projectIds",
+        "type": "uint256[]"
+      }
+    ],
+    "name": "sendTokensForProjectToUserBatch",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
         "internalType": "address",
         "name": "_user",
         "type": "address"
@@ -834,6 +852,24 @@
       }
     ],
     "name": "sendUSDCForProjectToUser",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "address[]",
+        "name": "_users",
+        "type": "address[]"
+      },
+      {
+        "internalType": "uint256[]",
+        "name": "_projectIds",
+        "type": "uint256[]"
+      }
+    ],
+    "name": "sendUSDCForProjectToUserBatch",
     "outputs": [],
     "stateMutability": "nonpayable",
     "type": "function"

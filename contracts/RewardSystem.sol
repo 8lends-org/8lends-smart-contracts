@@ -477,59 +477,55 @@ contract RewardSystem is Initializable, UUPSUpgradeable, OwnableUpgradeable, Ree
     /// @notice Distribute vesting tokens to multiple users (owner only)
     /// @param _users Array of user addresses
     /// @param _amounts Array of token amounts to distribute
-    /// @param _projectId Project ID
+    /// @param _projectIds Array of project IDs for each user
     function distributeVestingTokens(
         address[] calldata _users,
         uint256[] calldata _amounts,
-        uint256 _projectId
+        uint256[] calldata _projectIds
     ) external onlyOwner {
-        require(_users.length == _amounts.length, "Arrays length mismatch");
+        require(_users.length == _amounts.length, "Users and amounts length mismatch");
+        require(_users.length == _projectIds.length, "Users and projectIds length mismatch");
         require(_users.length > 0, "Empty arrays");
-
-        if(projectVestingStartTime[_projectId] == 0) {
-            projectVestingStartTime[_projectId] = block.timestamp;
-            emit ProjectRewardsActivated(_projectId, block.timestamp);
-        }
 
         uint256 totalAmount = 0;
         for (uint256 i = 0; i < _users.length; i++) {
             require(_users[i] != address(0), "Invalid user address");
             require(_amounts[i] > 0, "Invalid amount");
             
+            uint256 projectId = _projectIds[i];
+            
+            // Activate project vesting if not activated yet
+            if(projectVestingStartTime[projectId] == 0) {
+                projectVestingStartTime[projectId] = block.timestamp;
+                emit ProjectRewardsActivated(projectId, block.timestamp);
+            }
+            
             totalAmount += _amounts[i];
             
             // Update ReferralData for each user
-            ReferralData storage refData = projectReferrals[_users[i]][_projectId];
+            ReferralData storage refData = projectReferrals[_users[i]][projectId];
             refData.totalRewardsTokens += _amounts[i];
-        }
-        
-        rewardTokensAmount[_projectId] += totalAmount;
-
-
-        // Buy tokens from pool
-        address[] memory path = new address[](2);
-        path[0] = address(usdc);
-        path[1] = address(token);
-        uint256 exactUSDNeeded;
-        try uniswapRouter.getAmountsIn(totalAmount, path) returns (uint256[] memory amounts) {
-            exactUSDNeeded = amounts[0];
-        } catch {
-            revert("Failed to calculate USDC needed for tokens");
-        }
-        // Add 1% slippage tolerance
-        uint256 maxUSDNeeded = (exactUSDNeeded * 101) / 100;
-        if (maxUSDNeeded > usdc.balanceOf(address(this))) {
-            revert("Not enough USDC to buy tokens");
-        }
-        usdc.approve(address(uniswapRouter), maxUSDNeeded);
-        try uniswapRouter.swapTokensForExactTokens(totalAmount, maxUSDNeeded, path, address(this), block.timestamp) returns (uint256[] memory) {
-            // Tokens purchased
-        } catch {
-            revert("Failed to buy tokens from pool");
+            rewardTokensAmount[projectId] += _amounts[i];
         }
     }
 
     function withdraw(address _token, uint256 _amount, address _recepient) external onlyOwner {
         IERC20(_token).safeTransfer(_recepient, _amount);
+    }
+
+    function sendTokensForProjectToUserBatch(address[] calldata _users, uint256[] calldata _projectIds) external onlyManager {
+        require(_users.length == _projectIds.length, "Users and projectIds length mismatch");
+        require(_users.length > 0, "Empty arrays");
+        for (uint256 i = 0; i < _users.length; i++) {
+            this.sendTokensForProjectToUser(_users[i], _projectIds[i]);
+        }
+    }
+
+    function sendUSDCForProjectToUserBatch(address[] calldata _users, uint256[] calldata _projectIds) external onlyManager {
+        require(_users.length == _projectIds.length, "Users and projectIds length mismatch");
+        require(_users.length > 0, "Empty arrays");
+        for (uint256 i = 0; i < _users.length; i++) {
+            this.sendUSDCForProjectToUser(_users[i], _projectIds[i]);
+        }
     }
 }
