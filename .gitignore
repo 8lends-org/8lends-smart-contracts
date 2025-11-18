@@ -22,3 +22,6 @@ scripts/config/
 .DS_Store
 distribution/
 
+parse_invest_events.json
+period_invest_stats.json
+PRE-preliminary-20251113T060623Z.pdf
