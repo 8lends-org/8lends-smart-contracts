@@ -155,7 +155,7 @@ contract Fundraise is Initializable, UUPSUpgradeable, OwnableUpgradeable, Merkle
             }
         }
         require(project.innerStruct.stage == Stage.Open, "Project is closed yet");
-        if (block.timestamp > project.openStageEndAt) {
+        if (block.timestamp >= project.openStageEndAt) {
             if (project.totalInvested > project.softCap) {
                 project.innerStruct.stage = Stage.PreFunded;
                 project.openStageEndAt = block.timestamp;
