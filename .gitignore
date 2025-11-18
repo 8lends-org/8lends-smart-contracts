@@ -22,6 +22,11 @@ scripts/config/
 .DS_Store
 distribution/
 
+
+distribution/8lends-points-2025-11-09.json
+distribution/parse.ts
+distribution/projects_wallets.json
 parse_invest_events.json
 period_invest_stats.json
+.gitignore
 PRE-preliminary-20251113T060623Z.pdf
