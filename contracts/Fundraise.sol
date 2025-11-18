@@ -134,6 +134,7 @@ contract Fundraise is Initializable, UUPSUpgradeable, OwnableUpgradeable, Merkle
 
         address signer = ecrecover(ethSignedMessageHash, v, r, s);
 
+        require(signer != address(0), "Invalid signature");
         require(signer == trustedSigner, "Not a trusted signer");
         whitelistRoots[_pid] = _rootHash;
         _invest(_pid, _amount, _inviter);
@@ -155,8 +156,8 @@ contract Fundraise is Initializable, UUPSUpgradeable, OwnableUpgradeable, Merkle
             }
         }
         require(project.innerStruct.stage == Stage.Open, "Project is closed yet");
-        if (block.timestamp >= project.openStageEndAt) {
-            if (project.totalInvested > project.softCap) {
+        if (block.timestamp > project.openStageEndAt) {
+            if (project.totalInvested >= project.softCap) {
                 project.innerStruct.stage = Stage.PreFunded;
                 project.openStageEndAt = block.timestamp;
                 emit ProjectStatusChanged(_pid, uint8(Stage.PreFunded));
