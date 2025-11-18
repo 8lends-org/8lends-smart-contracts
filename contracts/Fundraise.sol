@@ -132,6 +132,9 @@ contract Fundraise is Initializable, UUPSUpgradeable, OwnableUpgradeable, Merkle
         );
         (bytes32 r, bytes32 s, uint8 v) = splitSignature(_sig);
 
+        // Prevent signature malleability (as in OpenZeppelin ECDSA)
+        require(uint256(s) <= 0x7FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF5D576E7357A4501DDFE92F46681B20A0, "Invalid signature 's' value");
+
         address signer = ecrecover(ethSignedMessageHash, v, r, s);
 
         require(signer != address(0), "Invalid signature");
