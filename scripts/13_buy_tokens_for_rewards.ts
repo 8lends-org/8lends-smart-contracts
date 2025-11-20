@@ -2,17 +2,21 @@ import dotenv from "dotenv";
 import { ethers } from "hardhat";
 import { readFileSync } from "fs";
 import { join } from "path";
+import { formatUnits } from "ethers";
 
 dotenv.config();
 
 // Swap parameters (can be changed)
 // The exact amount of tokens to buy is obtained from the environment variable
 const TOKEN_AMOUNT_TO_BUY = process.env.TOKEN_AMOUNT_TO_BUY;
+const USDC_AMOUNT_TO_BUY = process.env.USDC_AMOUNT_TO_BUY;
 
 // Uniswap V2 Router ABI
 const UNISWAP_ROUTER_ABI = [
     "function swapTokensForExactTokens(uint amountOut, uint amountInMax, address[] calldata path, address to, uint deadline) external returns (uint[] memory amounts)",
+    "function swapExactTokensForTokens(uint amountIn, uint amountOutMin, address[] calldata path, address to, uint deadline) external returns (uint[] memory amounts)",
     "function getAmountsIn(uint amountOut, address[] memory path) public view returns (uint[] memory amounts)",
+    "function getAmountsOut(uint amountIn, address[] memory path) public view returns (uint[] memory amounts)",
 ];
 
 // ERC20 Token ABI
@@ -89,73 +93,147 @@ async function main(): Promise<void> {
     // Maximum allowed slippage in percent (0.5%)
     const SLIPPAGE_TOLERANCE = 0.5;
 
-    if (!TOKEN_AMOUNT_TO_BUY) {
-        throw new Error("❌ TOKEN_AMOUNT_TO_BUY is not set");
+    if (!TOKEN_AMOUNT_TO_BUY && !USDC_AMOUNT_TO_BUY) {
+        throw new Error("❌ TOKEN_AMOUNT_TO_BUY or USDC_AMOUNT_TO_BUY is not set");
     }
-    const amountOut = ethers.parseUnits(TOKEN_AMOUNT_TO_BUY, tokenDecimals);
 
-    // Prepare token swap path (USDC -> TOKEN)
-    const path = [config.usdc, config.token];
-    console.log("path:", path);
-    console.log("amountOut:", amountOut);
+    if(TOKEN_AMOUNT_TO_BUY) {
+        const amountOut = ethers.parseUnits(TOKEN_AMOUNT_TO_BUY, tokenDecimals);
+        
 
-    // Get required amount of USDC for desired amount of tokens
-    const amountsIn = await uniswapRouter.getAmountsIn(amountOut, path);
-    const expectedAmountIn = amountsIn[0];
+        // Prepare token swap path (USDC -> TOKEN)
+        const path = [config.usdc, config.token];
+        console.log("path:", path);
+        console.log("amountOut:", amountOut);
 
-    console.log(`📊 Expected USDC needed: ${ethers.formatUnits(expectedAmountIn, usdcDecimals)} USDC`);
+        // Get required amount of USDC for desired amount of tokens
+        const amountsIn = await uniswapRouter.getAmountsIn(amountOut, path);
+        const expectedAmountIn = amountsIn[0];
 
-    // Calculate the maximum allowed USDC to spend, including slippage
-    const amountInMax = (expectedAmountIn * BigInt(Math.floor((100 + SLIPPAGE_TOLERANCE) * 100))) / 10000n;
-    console.log(`📊 Maximum USDC (${SLIPPAGE_TOLERANCE}% slippage): ${ethers.formatUnits(amountInMax, usdcDecimals)} USDC\n`);
+        console.log(`📊 Expected USDC needed: ${ethers.formatUnits(expectedAmountIn, usdcDecimals)} USDC`);
 
-    if (usdcBalance < amountInMax) {
-        throw new Error(
-            `❌ Insufficient USDC balance. Need max ${ethers.formatUnits(amountInMax, usdcDecimals)} USDC, have ${ethers.formatUnits(usdcBalance, usdcDecimals)} USDC`
+        // Calculate the maximum allowed USDC to spend, including slippage
+        const amountInMax = (expectedAmountIn * BigInt(Math.floor((100 + SLIPPAGE_TOLERANCE) * 100))) / 10000n;
+        console.log(`📊 Maximum USDC (${SLIPPAGE_TOLERANCE}% slippage): ${ethers.formatUnits(amountInMax, usdcDecimals)} USDC\n`);
+
+        if (usdcBalance < amountInMax) {
+            throw new Error(
+                `❌ Insufficient USDC balance. Need max ${ethers.formatUnits(amountInMax, usdcDecimals)} USDC, have ${ethers.formatUnits(usdcBalance, usdcDecimals)} USDC`
+            );
+        }
+
+        // Approve USDC for the router (using the max amount accounting for slippage)
+        console.log(`🔓 Approving ${ethers.formatUnits(amountInMax, usdcDecimals)} USDC for Uniswap Router...`);
+        const approveTx = await usdcContract.approve(config.uniswapV2Router, amountInMax, { nonce });
+        console.log(`   ⏳ Approve transaction sent: ${approveTx.hash}`);
+        await approveTx.wait();
+        nonce++;
+        console.log(`   ✅ Approve confirmed\n`);
+
+        // Execute token swap
+        // Deadline is 20 minutes from current Unix timestamp
+        const deadline = Math.floor(Date.now() / 1000) + 60 * 20;
+
+        console.log(`🔄 Buying exactly ${TOKEN_AMOUNT_TO_BUY} ${tokenSymbol} for USDC...`);
+
+        const swapTx = await uniswapRouter.swapTokensForExactTokens(
+            amountOut,
+            amountInMax,
+            path,
+            config.RewardSystem,
+            deadline
         );
+
+        console.log(`   ⏳ Swap transaction sent: ${swapTx.hash}`);
+        const receipt = await swapTx.wait();
+        nonce++;
+        console.log(`   ✅ Swap confirmed in block ${receipt?.blockNumber}`);
+        console.log(`   ⛽ Gas used: ${receipt?.gasUsed.toString()}\n`);
+
+        // Check balances after swap
+        const tokenBalanceAfter = await tokenContract.balanceOf(config.RewardSystem);
+        const usdcBalanceAfter = await usdcContract.balanceOf(signerAddress);
+        const tokensReceived = tokenBalanceAfter - tokenBalanceBefore;
+        const usdcSpent = usdcBalance - usdcBalanceAfter;
+
+        console.log("=".repeat(80));
+        console.log(`✅ Swap completed successfully!`);
+        console.log(`🪙 ${tokenSymbol} Balance After: ${ethers.formatUnits(tokenBalanceAfter, tokenDecimals)} ${tokenSymbol}`);
+        console.log(`💎 Tokens Received: ${ethers.formatUnits(tokensReceived, tokenDecimals)} ${tokenSymbol}`);
+        console.log(`💵 USDC Spent: ${ethers.formatUnits(usdcSpent, usdcDecimals)} USDC`);
+        console.log(`💰 USDC Balance After: ${ethers.formatUnits(usdcBalanceAfter, usdcDecimals)} USDC`);
+        console.log("=".repeat(80) + "\n");
+    }else if(USDC_AMOUNT_TO_BUY) {
+        const amountIn = ethers.parseUnits(USDC_AMOUNT_TO_BUY, usdcDecimals);
+        const path = [config.usdc, config.token];
+        console.log("path:", path);
+        console.log("amountIn:", amountIn);
+
+        if (usdcBalance < amountIn) {
+            throw new Error(
+                `❌ Insufficient USDC balance. Need ${ethers.formatUnits(amountIn, usdcDecimals)} USDC, have ${ethers.formatUnits(usdcBalance, usdcDecimals)} USDC`
+            );
+        }
+
+        // Get expected amount of tokens for desired amount of USDC
+        const amountsOut = await uniswapRouter.getAmountsOut(amountIn, path);
+        const expectedAmountOut = amountsOut[1];
+
+        console.log(`📊 Expected tokens to receive: ${ethers.formatUnits(expectedAmountOut, tokenDecimals)} ${tokenSymbol}`);
+
+        // Calculate the minimum allowed tokens to receive, including slippage
+        const amountOutMin = (expectedAmountOut * BigInt(Math.floor((100 - SLIPPAGE_TOLERANCE) * 100))) / 10000n;
+        console.log(`📊 Minimum tokens (${SLIPPAGE_TOLERANCE}% slippage): ${ethers.formatUnits(amountOutMin, tokenDecimals)} ${tokenSymbol}\n`);
+
+
+
+        console.log("amountIn:", formatUnits(amountIn, usdcDecimals), "USDC");
+        console.log("amountOutMin:", formatUnits(amountOutMin, tokenDecimals), tokenSymbol);
+
+
+
+        // Approve USDC for the router
+        console.log(`🔓 Approving ${ethers.formatUnits(amountIn, usdcDecimals)} USDC for Uniswap Router...`);
+        const approveTx = await usdcContract.approve(config.uniswapV2Router, amountIn, { nonce });
+        console.log(`   ⏳ Approve transaction sent: ${approveTx.hash}`);
+        await approveTx.wait();
+        nonce++;
+        console.log(`   ✅ Approve confirmed\n`);
+
+        // Execute token swap
+        const deadline = Math.floor(Date.now() / 1000) + 60 * 20;
+
+        console.log(`🔄 Spending exactly ${USDC_AMOUNT_TO_BUY} USDC to buy ${tokenSymbol}...`);
+
+
+        const swapTx = await uniswapRouter.swapExactTokensForTokens(
+            amountIn,
+            amountOutMin,
+            path,
+            config.RewardSystem,
+            deadline
+        );
+
+        console.log(`   ⏳ Swap transaction sent: ${swapTx.hash}`);
+        const receipt = await swapTx.wait();
+        nonce++;
+        console.log(`   ✅ Swap confirmed in block ${receipt?.blockNumber}`);
+        console.log(`   ⛽ Gas used: ${receipt?.gasUsed.toString()}\n`);
+
+        // Check balances after swap
+        const tokenBalanceAfter = await tokenContract.balanceOf(config.RewardSystem);
+        const usdcBalanceAfter = await usdcContract.balanceOf(signerAddress);
+        const tokensReceived = tokenBalanceAfter - tokenBalanceBefore;
+        const usdcSpent = usdcBalance - usdcBalanceAfter;
+
+        console.log("=".repeat(80));
+        console.log(`✅ Swap completed successfully!`);
+        console.log(`🪙 ${tokenSymbol} Balance After: ${ethers.formatUnits(tokenBalanceAfter, tokenDecimals)} ${tokenSymbol}`);
+        console.log(`💎 Tokens Received: ${ethers.formatUnits(tokensReceived, tokenDecimals)} ${tokenSymbol}`);
+        console.log(`💵 USDC Spent: ${ethers.formatUnits(usdcSpent, usdcDecimals)} USDC`);
+        console.log(`💰 USDC Balance After: ${ethers.formatUnits(usdcBalanceAfter, usdcDecimals)} USDC`);
+        console.log("=".repeat(80) + "\n");
     }
-
-    // Approve USDC for the router (using the max amount accounting for slippage)
-    console.log(`🔓 Approving ${ethers.formatUnits(amountInMax, usdcDecimals)} USDC for Uniswap Router...`);
-    const approveTx = await usdcContract.approve(config.uniswapV2Router, amountInMax, { nonce });
-    console.log(`   ⏳ Approve transaction sent: ${approveTx.hash}`);
-    await approveTx.wait();
-    nonce++;
-    console.log(`   ✅ Approve confirmed\n`);
-
-    // Execute token swap
-    // Deadline is 20 minutes from current Unix timestamp
-    const deadline = Math.floor(Date.now() / 1000) + 60 * 20;
-
-    console.log(`🔄 Buying exactly ${TOKEN_AMOUNT_TO_BUY} ${tokenSymbol} for USDC...`);
-
-    const swapTx = await uniswapRouter.swapTokensForExactTokens(
-        amountOut,
-        amountInMax,
-        path,
-        config.RewardSystem,
-        deadline
-    );
-
-    console.log(`   ⏳ Swap transaction sent: ${swapTx.hash}`);
-    const receipt = await swapTx.wait();
-    nonce++;
-    console.log(`   ✅ Swap confirmed in block ${receipt?.blockNumber}`);
-    console.log(`   ⛽ Gas used: ${receipt?.gasUsed.toString()}\n`);
-
-    // Check balances after swap
-    const tokenBalanceAfter = await tokenContract.balanceOf(config.RewardSystem);
-    const usdcBalanceAfter = await usdcContract.balanceOf(signerAddress);
-    const tokensReceived = tokenBalanceAfter - tokenBalanceBefore;
-    const usdcSpent = usdcBalance - usdcBalanceAfter;
-
-    console.log("=".repeat(80));
-    console.log(`✅ Swap completed successfully!`);
-    console.log(`🪙 ${tokenSymbol} Balance After: ${ethers.formatUnits(tokenBalanceAfter, tokenDecimals)} ${tokenSymbol}`);
-    console.log(`💎 Tokens Received: ${ethers.formatUnits(tokensReceived, tokenDecimals)} ${tokenSymbol}`);
-    console.log(`💵 USDC Spent: ${ethers.formatUnits(usdcSpent, usdcDecimals)} USDC`);
-    console.log(`💰 USDC Balance After: ${ethers.formatUnits(usdcBalanceAfter, usdcDecimals)} USDC`);
-    console.log("=".repeat(80) + "\n");
 }
 
 main().catch((error) => {

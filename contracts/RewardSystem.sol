@@ -198,46 +198,47 @@ contract RewardSystem is Initializable, UUPSUpgradeable, OwnableUpgradeable, Ree
     /// @notice Activate project rewards (called when transitioning to Stage.Funded)
     /// @param _projectId Project ID
     function activateProjectRewards(uint256 _projectId, uint256 _totalInvested) external onlyFundraise {
-        require(projectVestingStartTime[_projectId] == 0, "Rewards already activated");
-        projectVestingStartTime[_projectId] = block.timestamp;
-        emit ProjectRewardsActivated(_projectId, block.timestamp);
+        if(projectVestingStartTime[_projectId] == 0) {
+            projectVestingStartTime[_projectId] = block.timestamp;
+            emit ProjectRewardsActivated(_projectId, block.timestamp);
 
-        if (_totalInvested > 0) {
-            uint256 tokensForMint = rewardTokensAmount[_projectId];
-            
-            // Mint rewarded tokens to RewardSystem contract
-            if (tokensForMint > 0) {
-                Token(token).mintReward(address(this), tokensForMint);
+            if (_totalInvested > 0) {
+                uint256 tokensForMint = rewardTokensAmount[_projectId];
+                
+                // Mint rewarded tokens to RewardSystem contract
+                if (tokensForMint > 0) {
+                    Token(token).mintReward(address(this), tokensForMint);
 
-                // Buy back tokens from pool (USDC -> Token) and burn them
-                // Burn exactly the same amount as minted to keep totalSupply unchanged
-                if (burnPercentage > 0) {
-                    address[] memory path = new address[](2);
-                    path[0] = address(usdc);
-                    path[1] = address(token);
-                    
-                    // Calculate how much USDC is needed to buy tokensForMint tokens
-                    uint256 exactUSDNeeded;
-                    try uniswapRouter.getAmountsIn(tokensForMint, path) returns (uint256[] memory _amounts) {
-                        exactUSDNeeded = _amounts[0];
-                    } catch {
-                        revert("Failed to calculate USDC needed for tokens");
-                    }
-                    
-                    // Add 1% slippage tolerance
-                    uint256 maxUSDNeeded = (exactUSDNeeded * 101) / 100;
-                    if (maxUSDNeeded > usdc.balanceOf(address(this))) {
-                        revert("Not enough USDC to buy tokens");
-                    }
-                    
-                    usdc.approve(address(uniswapRouter), maxUSDNeeded);
-                    
-                    // Buy exact amount of tokens from pool (USDC -> Token)
-                    try uniswapRouter.swapTokensForExactTokens(tokensForMint, maxUSDNeeded, path, address(this), block.timestamp) returns (uint256[] memory) {
-                        // Burn received tokens to keep totalSupply unchanged
-                        Token(token).burn(tokensForMint);
-                    } catch {
-                        revert("Failed to buy back tokens: pool has no liquidity");
+                    // Buy back tokens from pool (USDC -> Token) and burn them
+                    // Burn exactly the same amount as minted to keep totalSupply unchanged
+                    if (burnPercentage > 0) {
+                        address[] memory path = new address[](2);
+                        path[0] = address(usdc);
+                        path[1] = address(token);
+                        
+                        // Calculate how much USDC is needed to buy tokensForMint tokens
+                        uint256 exactUSDNeeded;
+                        try uniswapRouter.getAmountsIn(tokensForMint, path) returns (uint256[] memory _amounts) {
+                            exactUSDNeeded = _amounts[0];
+                        } catch {
+                            revert("Failed to calculate USDC needed for tokens");
+                        }
+                        
+                        // Add 1% slippage tolerance
+                        uint256 maxUSDNeeded = (exactUSDNeeded * 101) / 100;
+                        if (maxUSDNeeded > usdc.balanceOf(address(this))) {
+                            revert("Not enough USDC to buy tokens");
+                        }
+                        
+                        usdc.approve(address(uniswapRouter), maxUSDNeeded);
+                        
+                        // Buy exact amount of tokens from pool (USDC -> Token)
+                        try uniswapRouter.swapTokensForExactTokens(tokensForMint, maxUSDNeeded, path, address(this), block.timestamp) returns (uint256[] memory) {
+                            // Burn received tokens to keep totalSupply unchanged
+                            Token(token).burn(tokensForMint);
+                        } catch {
+                            revert("Failed to buy back tokens: pool has no liquidity");
+                        }
                     }
                 }
             }
@@ -487,7 +488,6 @@ contract RewardSystem is Initializable, UUPSUpgradeable, OwnableUpgradeable, Ree
         require(_users.length == _projectIds.length, "Users and projectIds length mismatch");
         require(_users.length > 0, "Empty arrays");
 
-        uint256 totalAmount = 0;
         for (uint256 i = 0; i < _users.length; i++) {
             require(_users[i] != address(0), "Invalid user address");
             require(_amounts[i] > 0, "Invalid amount");
@@ -500,12 +500,26 @@ contract RewardSystem is Initializable, UUPSUpgradeable, OwnableUpgradeable, Ree
                 emit ProjectRewardsActivated(projectId, block.timestamp);
             }
             
-            totalAmount += _amounts[i];
-            
             // Update ReferralData for each user
             ReferralData storage refData = projectReferrals[_users[i]][projectId];
             refData.totalRewardsTokens += _amounts[i];
             rewardTokensAmount[projectId] += _amounts[i];
+        }
+    }
+
+
+    function distributeTokens(address[] calldata _users, uint256[] calldata _amounts) external onlyOwner {
+        require(_users.length == _amounts.length, "Users and amounts length mismatch");
+        require(_users.length > 0, "Empty arrays");
+        for (uint256 i = 0; i < _users.length; i++) {
+            require(_users[i] != address(0), "Invalid user address");
+            require(_amounts[i] > 0, "Invalid amount");
+            require(Token(token).balanceOf(address(this)) >= _amounts[i], "Not enough tokens to distribute");
+
+            address claimAddress = IManagerRegistry(managerRegistry).getInvestorClaimAddress(_users[i]);
+            IManagerRegistry(managerRegistry).setPoolStatusForReward(claimAddress, true);
+            IERC20(address(token)).safeTransfer(claimAddress, _amounts[i]);
+            IManagerRegistry(managerRegistry).setPoolStatusForReward(claimAddress, false);
         }
     }
 
@@ -526,6 +540,24 @@ contract RewardSystem is Initializable, UUPSUpgradeable, OwnableUpgradeable, Ree
         require(_users.length > 0, "Empty arrays");
         for (uint256 i = 0; i < _users.length; i++) {
             this.sendUSDCForProjectToUser(_users[i], _projectIds[i]);
+        }
+    }
+
+    function claimTokensForProjectBatch(uint256[] calldata _projectIds) external nonReentrant {
+        require(_projectIds.length > 0, "Empty arrays");
+        require(_projectIds.length <= 500, "Too many projects");
+        
+        for (uint256 i = 0; i < _projectIds.length; i++) {
+            try this.claimTokensForProject(_projectIds[i]) {} catch {}
+        }
+    }
+
+    function claimUSDCForProjectBatch(uint256[] calldata _projectIds) external nonReentrant {
+        require(_projectIds.length > 0, "Empty arrays");
+        require(_projectIds.length <= 500, "Too many projects");
+        
+        for (uint256 i = 0; i < _projectIds.length; i++) {
+            try this.claimUSDCForProject(_projectIds[i]) {} catch {}
         }
     }
 }
