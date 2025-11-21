@@ -65,6 +65,7 @@ contract RewardSystem is Initializable, UUPSUpgradeable, OwnableUpgradeable, Ree
     event VestingTokensClaimed(address indexed user, uint256 amount, uint256 projectId);
     event WelcomeBonusRecorded(address indexed user, uint256 amount);
     event ReferralBonusRecorded(address indexed user, uint256 amount, address indexed child, uint256 projectId);
+    event ProjectRewardsDeactivated(uint256 indexed projectId);
 
     modifier onlyManager() {
         require(IManagerRegistry(managerRegistry).isManager(msg.sender), "Not a manager");
@@ -494,17 +495,16 @@ contract RewardSystem is Initializable, UUPSUpgradeable, OwnableUpgradeable, Ree
             
             uint256 projectId = _projectIds[i];
             
-            // Activate project vesting if not activated yet
-            if(projectVestingStartTime[projectId] == 0) {
-                projectVestingStartTime[projectId] = block.timestamp;
-                emit ProjectRewardsActivated(projectId, block.timestamp);
-            }
-            
             // Update ReferralData for each user
             ReferralData storage refData = projectReferrals[_users[i]][projectId];
             refData.totalRewardsTokens += _amounts[i];
             rewardTokensAmount[projectId] += _amounts[i];
         }
+    }
+
+    function deactivateProject(uint256 _projectId) external onlyOwner {
+        projectVestingStartTime[_projectId] = 0;
+        emit ProjectRewardsDeactivated(_projectId);
     }
 
 
