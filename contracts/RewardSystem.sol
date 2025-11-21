@@ -543,7 +543,7 @@ contract RewardSystem is Initializable, UUPSUpgradeable, OwnableUpgradeable, Ree
         }
     }
 
-    function claimTokensForProjectBatch(uint256[] calldata _projectIds) external nonReentrant {
+    function claimTokensForProjectBatch(uint256[] calldata _projectIds) external {
         require(_projectIds.length > 0, "Empty arrays");
         require(_projectIds.length <= 500, "Too many projects");
         
@@ -552,7 +552,7 @@ contract RewardSystem is Initializable, UUPSUpgradeable, OwnableUpgradeable, Ree
         }
     }
 
-    function claimUSDCForProjectBatch(uint256[] calldata _projectIds) external nonReentrant {
+    function claimUSDCForProjectBatch(uint256[] calldata _projectIds) external {
         require(_projectIds.length > 0, "Empty arrays");
         require(_projectIds.length <= 500, "Too many projects");
         
