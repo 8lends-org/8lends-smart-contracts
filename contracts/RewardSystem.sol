@@ -639,5 +639,9 @@ contract RewardSystem is Initializable, UUPSUpgradeable, OwnableUpgradeable, Ree
         }
     }
 
+    function mintRewardsForProject(uint256 _projectId) external onlyOwner {
+        _mintRewardsForProject(_projectId);
+    }
+
 
 }
