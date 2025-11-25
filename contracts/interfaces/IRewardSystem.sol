@@ -3,7 +3,7 @@ pragma solidity ^0.8.23;
 
 interface IRewardSystem {
     function recordInvestment(address _user, uint256 _amount, address _inviter, uint256 _projectId) external;
-    function activateProjectRewards(uint256 _projectId, uint256 _burnFee) external;
+    function activateProjectRewards(uint256 _projectId, uint256 _totalInvested) external;
     function claimUSDCForProject(uint256 _projectId) external;
     function claimTokensForProject(uint256 _projectId) external;
     function sendUSDCForProjectToUser(address _user, uint256 _projectId) external;

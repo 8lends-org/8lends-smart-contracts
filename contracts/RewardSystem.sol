@@ -202,46 +202,8 @@ contract RewardSystem is Initializable, UUPSUpgradeable, OwnableUpgradeable, Ree
         if(projectVestingStartTime[_projectId] == 0) {
             projectVestingStartTime[_projectId] = block.timestamp;
             emit ProjectRewardsActivated(_projectId, block.timestamp);
-
             if (_totalInvested > 0) {
-                uint256 tokensForMint = rewardTokensAmount[_projectId];
-                
-                // Mint rewarded tokens to RewardSystem contract
-                if (tokensForMint > 0) {
-                    Token(token).mintReward(address(this), tokensForMint);
-
-                    // Buy back tokens from pool (USDC -> Token) and burn them
-                    // Burn exactly the same amount as minted to keep totalSupply unchanged
-                    if (burnPercentage > 0) {
-                        address[] memory path = new address[](2);
-                        path[0] = address(usdc);
-                        path[1] = address(token);
-                        
-                        // Calculate how much USDC is needed to buy tokensForMint tokens
-                        uint256 exactUSDNeeded;
-                        try uniswapRouter.getAmountsIn(tokensForMint, path) returns (uint256[] memory _amounts) {
-                            exactUSDNeeded = _amounts[0];
-                        } catch {
-                            revert("Failed to calculate USDC needed for tokens");
-                        }
-                        
-                        // Add 1% slippage tolerance
-                        uint256 maxUSDNeeded = (exactUSDNeeded * 101) / 100;
-                        if (maxUSDNeeded > usdc.balanceOf(address(this))) {
-                            revert("Not enough USDC to buy tokens");
-                        }
-                        
-                        usdc.approve(address(uniswapRouter), maxUSDNeeded);
-                        
-                        // Buy exact amount of tokens from pool (USDC -> Token)
-                        try uniswapRouter.swapTokensForExactTokens(tokensForMint, maxUSDNeeded, path, address(this), block.timestamp) returns (uint256[] memory) {
-                            // Burn received tokens to keep totalSupply unchanged
-                            Token(token).burn(tokensForMint);
-                        } catch {
-                            revert("Failed to buy back tokens: pool has no liquidity");
-                        }
-                    }
-                }
+                _mintRewardsForProject(_projectId);
             }
         }
     }
@@ -629,4 +591,53 @@ contract RewardSystem is Initializable, UUPSUpgradeable, OwnableUpgradeable, Ree
             emit BonusUSDCClaimed(msg.sender, claimableAmount, projectId);
         }
     }
+    
+    function mintRewardsTWAP(uint256 _amount) external onlyOwner {
+        _mintRewards(_amount);
+    }
+
+    function _mintRewards(uint256 tokensForMint) internal {
+        Token(token).mintReward(address(this), tokensForMint);
+        
+        // Buy back tokens from pool (USDC -> Token) and burn them
+        // Burn exactly the same amount as minted to keep totalSupply unchanged
+        if (burnPercentage > 0) {
+            address[] memory path = new address[](2);
+            path[0] = address(usdc);
+            path[1] = address(token);
+            
+            // Calculate how much USDC is needed to buy tokensForMint tokens
+            uint256 exactUSDNeeded;
+            try uniswapRouter.getAmountsIn(tokensForMint, path) returns (uint256[] memory _amounts) {
+                exactUSDNeeded = _amounts[0];
+            } catch {
+                revert("Failed to calculate USDC needed for tokens");
+            }
+            
+            // Add 1% slippage tolerance
+            uint256 maxUSDNeeded = (exactUSDNeeded * 101) / 100;
+            if (maxUSDNeeded > usdc.balanceOf(address(this))) {
+                revert("Not enough USDC to buy tokens");
+            }
+            
+            usdc.approve(address(uniswapRouter), maxUSDNeeded);
+            
+            // Buy exact amount of tokens from pool (USDC -> Token)
+            try uniswapRouter.swapTokensForExactTokens(tokensForMint, maxUSDNeeded, path, address(this), block.timestamp) returns (uint256[] memory) {
+                // Burn received tokens to keep totalSupply unchanged
+                Token(token).burn(tokensForMint);
+            } catch {
+                revert("Failed to buy back tokens: pool has no liquidity");
+            }
+        }
+    }
+
+    function _mintRewardsForProject(uint256 _projectId) internal {
+        uint256 tokensForMint = rewardTokensAmount[_projectId];
+        if (tokensForMint > 0) {
+            _mintRewards(tokensForMint);
+        }
+    }
+
+
 }
