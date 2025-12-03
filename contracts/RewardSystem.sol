@@ -423,6 +423,37 @@ contract RewardSystem is Initializable, UUPSUpgradeable, OwnableUpgradeable, Ree
         );
     }
 
+    /// @notice Get total rewards across multiple projects for a user
+    /// @param _user User address
+    /// @param _projectIds Array of project IDs to check
+    /// @return totalUSDC Total USDC rewards across all projects
+    /// @return totalTokens Total token rewards across all projects
+    /// @return claimedTokens Total claimed tokens across all projects
+    /// @return claimableTokens Total claimable tokens across all projects
+    function getProjectsRewardsTotal(address _user, uint256[] calldata _projectIds) 
+        external 
+        view 
+        returns (uint256 totalUSDC, uint256 totalTokens, uint256 claimedTokens, uint256 claimableTokens) 
+    {
+        require(_projectIds.length > 0, "Empty project IDs array");
+        require(_projectIds.length <= 500, "Too many projects");
+        
+        totalUSDC = 0;
+        totalTokens = 0;
+        claimedTokens = 0;
+        claimableTokens = 0;
+        
+        for (uint256 i = 0; i < _projectIds.length; i++) {
+            uint256 projectId = _projectIds[i];
+            ReferralData storage refData = projectReferrals[_user][projectId];
+            
+            totalUSDC += refData.totalRewardsUSDC;
+            totalTokens += refData.totalRewardsTokens;
+            claimedTokens += refData.vestingClaimedAmount;
+            claimableTokens += _calculateVestingAmountForProject(_user, projectId);
+        }
+    }
+
     /// @notice Authorize contract upgrade (owner only)
     function _authorizeUpgrade(address newImplementation) internal override onlyOwner {}
 
@@ -468,7 +499,6 @@ contract RewardSystem is Initializable, UUPSUpgradeable, OwnableUpgradeable, Ree
         projectVestingStartTime[_projectId] = 0;
         emit ProjectRewardsDeactivated(_projectId);
     }
-
 
     function distributeTokens(address[] calldata _users, uint256[] calldata _amounts) external onlyOwner {
         require(_users.length == _amounts.length, "Users and amounts length mismatch");
@@ -642,6 +672,4 @@ contract RewardSystem is Initializable, UUPSUpgradeable, OwnableUpgradeable, Ree
     function mintRewardsForProject(uint256 _projectId) external onlyOwner {
         _mintRewardsForProject(_projectId);
     }
-
-
 }

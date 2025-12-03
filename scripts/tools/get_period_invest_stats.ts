@@ -40,8 +40,8 @@ interface PeriodResults {
 }
 
 async function main(): Promise<void> {
-  const startDate = new Date("2025-11-11T00:00:00Z");
-  const endDate = new Date("2025-11-18T23:59:59Z");
+  const startDate = new Date("2025-11-26T03:00:00Z");
+  const endDate = new Date("2025-12-02T09:25:00Z");
   
   const startTimestamp = Math.floor(startDate.getTime() / 1000);
   const endTimestamp = Math.floor(endDate.getTime() / 1000);
@@ -83,7 +83,7 @@ async function main(): Promise<void> {
 
   const filter = fundraise.filters.Invest();
   const CHUNK_SIZE = 10000;
-  const outputPath = "./period_invest_stats.json";
+  const outputPath = `./period_invest_stats_${startDate.toISOString().split('T')[0]}_${endDate.toISOString().split('T')[0]}.json`;
 
   const investorStatsMap = new Map<string, InvestorStats>();
   let totalEvents = 0;

@@ -16,6 +16,16 @@ dotenv.config();
  */
 const BATCH_SIZE = 500;
 
+const FILE_NAME = process.env.FILE_NAME;
+if(!FILE_NAME) {
+    throw new Error("FILE_NAME is not set");
+}
+
+const TOTAL_TOKENS = Number(process.env.TOTAL_TOKENS);
+if(!TOTAL_TOKENS) {
+    throw new Error("TOTAL_TOKENS is not set");
+}
+
 interface WalletDistribution {
     wallet: string;
     investedUSDCAmount: number;
@@ -62,14 +72,15 @@ async function main(): Promise<void> {
 
     // Load the wallet distribution data from JSON
     const data: { address: string, totalAmount: number }[] = JSON.parse(
-        fs.readFileSync(path.join(__dirname, "../period_invest_stats.json"), "utf8")
+        fs.readFileSync(path.join(__dirname, `../${FILE_NAME}`), "utf8")
     )["investors"];
 
-
-    const TOTAL_TOKENS = Number(process.env.TOTAL_TOKENS);
-    if(!TOTAL_TOKENS) {
-        throw new Error("TOTAL_TOKENS is not set");
+    if(data.length === 0) {
+        throw new Error("No data found in the file");
     }
+
+
+
 
     for(const item of data) {
         const wallet = item.address;
