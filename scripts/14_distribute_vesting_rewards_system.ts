@@ -4,18 +4,30 @@ import fs from "fs";
 import path from "path";
 import { readJsonFile } from "./helpers";
 
+interface WalletDistribution {
+    project_id: number;
+    wallet: string;
+    amount: number;
+}
+
 dotenv.config();
 
 /**
  * Number of addresses in one batch to avoid gas limit issues
  */
 const BATCH_SIZE = 500;
-
-interface WalletDistribution {
-    project_id: number;
-    wallet: string;
-    amount: number;
+const FILE_PATH = process.env.FILE_PATH;
+if(!FILE_PATH) {
+    throw new Error("❌ FILE_PATH is not set");
 }
+    // Load the wallet distribution data from JSON
+    const walletsData: WalletDistribution[] = JSON.parse(
+        fs.readFileSync(path.join(__dirname, `../${FILE_PATH}`), "utf8")
+    );
+
+    console.log(`📊 Loaded ${walletsData.length} wallet distributions\n`);
+
+
 
 /**
  * Main function to distribute vesting tokens to wallet distributions.
@@ -48,12 +60,7 @@ async function main(): Promise<void> {
         throw new Error("❌ Not the owner of RewardSystem contract");
     }
 
-    // Load the wallet distribution data from JSON
-    const walletsData: WalletDistribution[] = JSON.parse(
-        fs.readFileSync(path.join(__dirname, "../distribution/projects_wallets.json"), "utf8")
-    );
 
-    console.log(`📊 Loaded ${walletsData.length} wallet distributions\n`);
 
     // Prepare data arrays for distribution
     const addresses: string[] = [];
@@ -65,6 +72,16 @@ async function main(): Promise<void> {
         // Convert amount to wei (tokens with 18 decimals)
         amounts.push(ethers.parseEther(item.amount.toString()));
         projectIds.push(item.project_id);
+    }
+
+    if(addresses.length === 0) {
+        throw new Error("❌ No addresses found in the file");
+    }
+    if(amounts.length!== addresses.length) {
+        throw new Error("❌ Amounts and addresses length mismatch");
+    }
+    if(projectIds.length!== addresses.length) {
+        throw new Error("❌ Project IDs and addresses length mismatch");
     }
 
     let nonce: number = await ethers.provider.getTransactionCount(await signer.getAddress());

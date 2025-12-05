@@ -14,11 +14,12 @@ contract ManagerRegistry is Initializable, OwnableUpgradeable, UUPSUpgradeable {
     address public fundraiseAddress;
     address public treasuryAddress;
     mapping(address => address) public investorClaimAddresses; // investor => claimAddress
+    address public rewards2Address;
     
     event ManagerUpdated(address manager, bool status);
     event PoolUpdated(address pool, bool status);
     event InvestorClaimAddressSet(address indexed investor, address indexed claimAddress);
-
+    event Rewards2AddressSet(address indexed rewards2Address);
     /// @custom:oz-upgrades-unsafe-allow constructor
     constructor() {
         _disableInitializers();
@@ -92,6 +93,13 @@ contract ManagerRegistry is Initializable, OwnableUpgradeable, UUPSUpgradeable {
         emit InvestorClaimAddressSet(_investor, _claimAddress);
     }
 
+    /// @notice Set rewards2 address
+    /// @param _rewards2Address Rewards2 address
+    function setRewards2Address(address _rewards2Address) external onlyOwner {
+        rewards2Address = _rewards2Address;
+        emit Rewards2AddressSet(_rewards2Address);
+    }
+
     /// @notice Get investor claim address (returns original address if not set)
     /// @param _investor Investor address
     /// @return Address for receiving payouts
@@ -136,6 +144,6 @@ contract ManagerRegistry is Initializable, OwnableUpgradeable, UUPSUpgradeable {
     /// @param _sender Reward system addr
     /// @return bool
     function isRewardSystem(address _sender) public view returns (bool) {
-        return rewardSystemAddress == _sender;
+        return rewardSystemAddress == _sender || rewards2Address == _sender;
     }
 }

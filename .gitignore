@@ -21,4 +21,6 @@ scripts/config/
 
 .DS_Store
 distribution/
-*.json
+
+parse*
+period*

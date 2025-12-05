@@ -179,6 +179,19 @@
       {
         "indexed": true,
         "internalType": "address",
+        "name": "rewards2Address",
+        "type": "address"
+      }
+    ],
+    "name": "Rewards2AddressSet",
+    "type": "event"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": true,
+        "internalType": "address",
         "name": "implementation",
         "type": "address"
       }
@@ -437,6 +450,19 @@
     "type": "function"
   },
   {
+    "inputs": [],
+    "name": "rewards2Address",
+    "outputs": [
+      {
+        "internalType": "address",
+        "name": "",
+        "type": "address"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
     "inputs": [
       {
         "internalType": "address",
@@ -545,6 +571,19 @@
       }
     ],
     "name": "setPoolStatusForReward",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "address",
+        "name": "_rewards2Address",
+        "type": "address"
+      }
+    ],
+    "name": "setRewards2Address",
     "outputs": [],
     "stateMutability": "nonpayable",
     "type": "function"
