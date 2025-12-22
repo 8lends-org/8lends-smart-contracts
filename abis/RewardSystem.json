@@ -194,6 +194,25 @@
       {
         "indexed": false,
         "internalType": "uint256",
+        "name": "percentage",
+        "type": "uint256"
+      }
+    ],
+    "name": "ProjectAdditionalUnlockSet",
+    "type": "event"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": true,
+        "internalType": "uint256",
+        "name": "projectId",
+        "type": "uint256"
+      },
+      {
+        "indexed": false,
+        "internalType": "uint256",
         "name": "timestamp",
         "type": "uint256"
       }
@@ -788,6 +807,25 @@
   {
     "inputs": [
       {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
+      }
+    ],
+    "name": "projectAdditionalUnlockPercentage",
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
         "internalType": "address",
         "name": "",
         "type": "address"
@@ -1048,6 +1086,42 @@
       }
     ],
     "name": "setParameters",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "_projectId",
+        "type": "uint256"
+      },
+      {
+        "internalType": "uint256",
+        "name": "_percentage",
+        "type": "uint256"
+      }
+    ],
+    "name": "setProjectAdditionalUnlock",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256[]",
+        "name": "_projectIds",
+        "type": "uint256[]"
+      },
+      {
+        "internalType": "uint256[]",
+        "name": "_percentages",
+        "type": "uint256[]"
+      }
+    ],
+    "name": "setProjectAdditionalUnlockBatch",
     "outputs": [],
     "stateMutability": "nonpayable",
     "type": "function"

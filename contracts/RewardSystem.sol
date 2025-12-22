@@ -56,6 +56,7 @@ contract RewardSystem is Initializable, UUPSUpgradeable, OwnableUpgradeable, Ree
     mapping(address => address[]) public userReferrals; // inviter -> list of referred users
     mapping(uint256 => uint256) public rewardTokensAmount; // projectId -> available token amount for claim
     mapping(uint256 => uint256) public rewardTokensClaimedAmount; // projectId -> claimed token amount
+    mapping(uint256 => uint256) public projectAdditionalUnlockPercentage; // projectId -> additional unlock percentage (in BASIS_POINTS)
 
     // Events
     event UserRegistered(address indexed user, address indexed inviter);
@@ -66,6 +67,7 @@ contract RewardSystem is Initializable, UUPSUpgradeable, OwnableUpgradeable, Ree
     event WelcomeBonusRecorded(address indexed user, uint256 amount);
     event ReferralBonusRecorded(address indexed user, uint256 amount, address indexed child, uint256 projectId);
     event ProjectRewardsDeactivated(uint256 indexed projectId);
+    event ProjectAdditionalUnlockSet(uint256 indexed projectId, uint256 percentage);
 
     modifier onlyManager() {
         require(IManagerRegistry(managerRegistry).isManager(msg.sender), "Not a manager");
@@ -376,8 +378,20 @@ contract RewardSystem is Initializable, UUPSUpgradeable, OwnableUpgradeable, Ree
         }
 
         uint256 totalUnlocked = (refData.totalRewardsTokens * weeksUnlocked * weeklyUnlock) / BASIS_POINTS;
+        
+        // Add additional unlock percentage if set
+        uint256 additionalUnlockPercentage = projectAdditionalUnlockPercentage[_projectId];
+        if (additionalUnlockPercentage > 0) {
+            uint256 additionalUnlock = (refData.totalRewardsTokens * additionalUnlockPercentage) / BASIS_POINTS;
+            totalUnlocked += additionalUnlock;
+        }
+        
         if (totalUnlocked > refData.totalRewardsTokens) {
             totalUnlocked = refData.totalRewardsTokens;
+        }
+
+        if (totalUnlocked <= refData.vestingClaimedAmount) {
+            return 0;
         }
 
         return totalUnlocked - refData.vestingClaimedAmount;
@@ -498,6 +512,27 @@ contract RewardSystem is Initializable, UUPSUpgradeable, OwnableUpgradeable, Ree
     function deactivateProject(uint256 _projectId) external onlyOwner {
         projectVestingStartTime[_projectId] = 0;
         emit ProjectRewardsDeactivated(_projectId);
+    }
+
+    /// @notice Set additional unlock percentage for multiple projects
+    /// @param _projectIds Array of project IDs
+    /// @param _percentages Array of additional unlock percentages (in BASIS_POINTS, e.g., 100000 = 10%)
+    /// @dev This unlocks additional percentage of total tokens on top of normal vesting schedule for all specified projects
+    function setProjectAdditionalUnlockBatch(uint256[] calldata _projectIds, uint256[] calldata _percentages) external onlyManager {
+        require(_projectIds.length == _percentages.length, "Arrays length mismatch");
+        require(_projectIds.length > 0, "Empty arrays");
+        require(_projectIds.length <= 500, "Too many projects");
+        
+        for (uint256 i = 0; i < _projectIds.length; i++) {
+            uint256 projectId = _projectIds[i];
+            uint256 percentage = _percentages[i];
+            
+            require(percentage <= BASIS_POINTS, "Percentage cannot exceed 100%");
+            require(projectVestingStartTime[projectId] > 0, "Project rewards not activated");
+            
+            projectAdditionalUnlockPercentage[projectId] = percentage;
+            emit ProjectAdditionalUnlockSet(projectId, percentage);
+        }
     }
 
     function distributeTokens(address[] calldata _users, uint256[] calldata _amounts) external onlyOwner {

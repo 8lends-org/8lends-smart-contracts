@@ -29,6 +29,13 @@ const config: HardhatUserConfig = {
         ]
     },
     networks: {
+        ethereum: {
+            chainId: 1,
+            url: process.env.ETHEREUM_RPC_URL,
+            accounts: {
+                mnemonic: process.env.OWNER_MNEMONIC_PROD,
+            }
+        },
         base: {
             chainId: 8453,
             url: process.env.BASE_RPC_URL,
