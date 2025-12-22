@@ -345,27 +345,27 @@
     "outputs": [
       {
         "internalType": "uint256",
-        "name": "totalAvailable",
+        "name": "tokensAll",
         "type": "uint256"
       },
       {
         "internalType": "uint256",
-        "name": "totalClaimable",
+        "name": "tokensClaimable",
         "type": "uint256"
       },
       {
         "internalType": "uint256",
-        "name": "totalClaimed",
+        "name": "tokensClaimed",
         "type": "uint256"
       },
       {
         "internalType": "uint256",
-        "name": "userBalance",
+        "name": "tokensBalance",
         "type": "uint256"
       },
       {
         "internalType": "uint256",
-        "name": "userBalanceUSDC",
+        "name": "USDCBalance",
         "type": "uint256"
       }
     ],

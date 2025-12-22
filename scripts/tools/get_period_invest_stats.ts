@@ -40,8 +40,8 @@ interface PeriodResults {
 }
 
 async function main(): Promise<void> {
-  const startDate = new Date("2025-11-26T03:00:00Z");
-  const endDate = new Date("2025-12-02T09:25:00Z");
+  const startDate = new Date("2025-12-02T09:25:00Z");
+  const endDate = new Date("2025-12-11T10:00:00Z");
   
   const startTimestamp = Math.floor(startDate.getTime() / 1000);
   const endTimestamp = Math.floor(endDate.getTime() / 1000);

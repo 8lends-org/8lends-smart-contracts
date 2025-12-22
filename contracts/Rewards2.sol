@@ -301,16 +301,16 @@ contract Rewards2 is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentra
 
     /// @notice Get total claimable amount across all vestings
     /// @param _user User address
-    function getBalances(address _user) external view returns (uint256 totalAvailable, uint256 totalClaimable, uint256 totalClaimed, uint256 userBalance, uint256 userBalanceUSDC) {
-        userBalance = token.balanceOf(_user);
-        userBalanceUSDC = usdc.balanceOf(_user);
+    function getBalances(address _user) external view returns (uint256 tokensAll, uint256 tokensClaimable, uint256 tokensClaimed, uint256 tokensBalance, uint256 USDCBalance) {
+        tokensBalance = token.balanceOf(_user);
+        USDCBalance = usdc.balanceOf(_user);
         uint256 count = userVestingCount[_user];
 
         for (uint256 i = 0; i < count; i++) {
             if (vestings[_user][i].isActive) {
-                totalClaimable += _calculateVestingAmount(_user, i);
-                totalClaimed += vestings[_user][i].claimedAmount;
-                totalAvailable += vestings[_user][i].totalAmount;
+                tokensClaimable += _calculateVestingAmount(_user, i);
+                tokensClaimed += vestings[_user][i].claimedAmount;
+                tokensAll += vestings[_user][i].totalAmount;
             }
         }
     }
