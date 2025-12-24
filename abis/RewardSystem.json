@@ -104,6 +104,19 @@
     "anonymous": false,
     "inputs": [
       {
+        "indexed": false,
+        "internalType": "uint256",
+        "name": "percentage",
+        "type": "uint256"
+      }
+    ],
+    "name": "AdditionalUnlockSet",
+    "type": "event"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
         "indexed": true,
         "internalType": "address",
         "name": "user",
@@ -194,25 +207,6 @@
       {
         "indexed": false,
         "internalType": "uint256",
-        "name": "percentage",
-        "type": "uint256"
-      }
-    ],
-    "name": "ProjectAdditionalUnlockSet",
-    "type": "event"
-  },
-  {
-    "anonymous": false,
-    "inputs": [
-      {
-        "indexed": true,
-        "internalType": "uint256",
-        "name": "projectId",
-        "type": "uint256"
-      },
-      {
-        "indexed": false,
-        "internalType": "uint256",
         "name": "timestamp",
         "type": "uint256"
       }
@@ -262,6 +256,37 @@
       }
     ],
     "name": "ReferralBonusRecorded",
+    "type": "event"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": true,
+        "internalType": "address",
+        "name": "sender",
+        "type": "address"
+      },
+      {
+        "indexed": false,
+        "internalType": "uint256",
+        "name": "tokensSold",
+        "type": "uint256"
+      },
+      {
+        "indexed": false,
+        "internalType": "uint256",
+        "name": "usdcReceived",
+        "type": "uint256"
+      },
+      {
+        "indexed": true,
+        "internalType": "address",
+        "name": "recipient",
+        "type": "address"
+      }
+    ],
+    "name": "TokensSold",
     "type": "event"
   },
   {
@@ -386,6 +411,19 @@
   },
   {
     "inputs": [],
+    "name": "additionalUnlockPercentage",
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
     "name": "burnPercentage",
     "outputs": [
       {
@@ -395,6 +433,19 @@
       }
     ],
     "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256[]",
+        "name": "_projectIds",
+        "type": "uint256[]"
+      }
+    ],
+    "name": "claimAndSellTokensForProjectBatch",
+    "outputs": [],
+    "stateMutability": "nonpayable",
     "type": "function"
   },
   {
@@ -807,25 +858,6 @@
   {
     "inputs": [
       {
-        "internalType": "uint256",
-        "name": "",
-        "type": "uint256"
-      }
-    ],
-    "name": "projectAdditionalUnlockPercentage",
-    "outputs": [
-      {
-        "internalType": "uint256",
-        "name": "",
-        "type": "uint256"
-      }
-    ],
-    "stateMutability": "view",
-    "type": "function"
-  },
-  {
-    "inputs": [
-      {
         "internalType": "address",
         "name": "",
         "type": "address"
@@ -1051,6 +1083,19 @@
     "inputs": [
       {
         "internalType": "uint256",
+        "name": "_percentage",
+        "type": "uint256"
+      }
+    ],
+    "name": "setAdditionalUnlock",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
         "name": "_referralPercentage",
         "type": "uint256"
       },
@@ -1086,42 +1131,6 @@
       }
     ],
     "name": "setParameters",
-    "outputs": [],
-    "stateMutability": "nonpayable",
-    "type": "function"
-  },
-  {
-    "inputs": [
-      {
-        "internalType": "uint256",
-        "name": "_projectId",
-        "type": "uint256"
-      },
-      {
-        "internalType": "uint256",
-        "name": "_percentage",
-        "type": "uint256"
-      }
-    ],
-    "name": "setProjectAdditionalUnlock",
-    "outputs": [],
-    "stateMutability": "nonpayable",
-    "type": "function"
-  },
-  {
-    "inputs": [
-      {
-        "internalType": "uint256[]",
-        "name": "_projectIds",
-        "type": "uint256[]"
-      },
-      {
-        "internalType": "uint256[]",
-        "name": "_percentages",
-        "type": "uint256[]"
-      }
-    ],
-    "name": "setProjectAdditionalUnlockBatch",
     "outputs": [],
     "stateMutability": "nonpayable",
     "type": "function"
@@ -1266,6 +1275,30 @@
         "internalType": "contract IERC20",
         "name": "",
         "type": "address"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "address",
+        "name": "",
+        "type": "address"
+      },
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
+      }
+    ],
+    "name": "userMaxAdditionalUnlockUsed",
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
       }
     ],
     "stateMutability": "view",

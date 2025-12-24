@@ -56,7 +56,10 @@ contract RewardSystem is Initializable, UUPSUpgradeable, OwnableUpgradeable, Ree
     mapping(address => address[]) public userReferrals; // inviter -> list of referred users
     mapping(uint256 => uint256) public rewardTokensAmount; // projectId -> available token amount for claim
     mapping(uint256 => uint256) public rewardTokensClaimedAmount; // projectId -> claimed token amount
-    mapping(uint256 => uint256) public projectAdditionalUnlockPercentage; // projectId -> additional unlock percentage (in BASIS_POINTS)
+    
+    // Additional unlock for sell operations (added at the end to preserve storage layout)
+    uint256 public additionalUnlockPercentage; // Additional unlock percentage for sell operations (in BASIS_POINTS)
+    mapping(address => mapping(uint256 => uint256)) public userMaxAdditionalUnlockUsed; // user -> projectId -> max additional unlock used
 
     // Events
     event UserRegistered(address indexed user, address indexed inviter);
@@ -67,7 +70,8 @@ contract RewardSystem is Initializable, UUPSUpgradeable, OwnableUpgradeable, Ree
     event WelcomeBonusRecorded(address indexed user, uint256 amount);
     event ReferralBonusRecorded(address indexed user, uint256 amount, address indexed child, uint256 projectId);
     event ProjectRewardsDeactivated(uint256 indexed projectId);
-    event ProjectAdditionalUnlockSet(uint256 indexed projectId, uint256 percentage);
+    event AdditionalUnlockSet(uint256 percentage);
+    event TokensSold(address indexed sender, uint256 tokensSold, uint256 usdcReceived, address indexed recipient);
 
     modifier onlyManager() {
         require(IManagerRegistry(managerRegistry).isManager(msg.sender), "Not a manager");
@@ -363,7 +367,11 @@ contract RewardSystem is Initializable, UUPSUpgradeable, OwnableUpgradeable, Ree
     }
 
     /// @notice Calculate claimable vesting tokens for project
-    function _calculateVestingAmountForProject(address _user, uint256 _projectId) internal view returns (uint256) {
+    /// @notice Calculate claimable vesting tokens
+    /// @param _user User address
+    /// @param _projectId Project ID
+    /// @param _includeCurrentBonus If true, uses current additionalUnlockPercentage for sell operation
+    function _calculateVestingAmountForProject(address _user, uint256 _projectId, bool _includeCurrentBonus) internal view returns (uint256) {
         ReferralData storage refData = projectReferrals[_user][_projectId];
         uint256 vestingStartTime = projectVestingStartTime[_projectId];
         if (vestingStartTime == 0) return 0;
@@ -379,10 +387,17 @@ contract RewardSystem is Initializable, UUPSUpgradeable, OwnableUpgradeable, Ree
 
         uint256 totalUnlocked = (refData.totalRewardsTokens * weeksUnlocked * weeklyUnlock) / BASIS_POINTS;
         
-        // Add additional unlock percentage if set
-        uint256 additionalUnlockPercentage = projectAdditionalUnlockPercentage[_projectId];
-        if (additionalUnlockPercentage > 0) {
-            uint256 additionalUnlock = (refData.totalRewardsTokens * additionalUnlockPercentage) / BASIS_POINTS;
+        // Calculate effective additional unlock
+        uint256 maxUsedAdditionalUnlock = userMaxAdditionalUnlockUsed[_user][_projectId];
+        uint256 effectiveAdditionalUnlock = maxUsedAdditionalUnlock;
+        
+        // If including current bonus (for sell operation), use max of current and saved
+        if (_includeCurrentBonus && additionalUnlockPercentage > maxUsedAdditionalUnlock) {
+            effectiveAdditionalUnlock = additionalUnlockPercentage;
+        }
+        
+        if (effectiveAdditionalUnlock > 0) {
+            uint256 additionalUnlock = (refData.totalRewardsTokens * effectiveAdditionalUnlock) / BASIS_POINTS;
             totalUnlocked += additionalUnlock;
         }
         
@@ -395,6 +410,11 @@ contract RewardSystem is Initializable, UUPSUpgradeable, OwnableUpgradeable, Ree
         }
 
         return totalUnlocked - refData.vestingClaimedAmount;
+    }
+
+    /// @notice Calculate claimable vesting tokens (regular claim)
+    function _calculateVestingAmountForProject(address _user, uint256 _projectId) internal view returns (uint256) {
+        return _calculateVestingAmountForProject(_user, _projectId, false);
     }
 
     /// @notice Get vesting information for project
@@ -514,25 +534,13 @@ contract RewardSystem is Initializable, UUPSUpgradeable, OwnableUpgradeable, Ree
         emit ProjectRewardsDeactivated(_projectId);
     }
 
-    /// @notice Set additional unlock percentage for multiple projects
-    /// @param _projectIds Array of project IDs
-    /// @param _percentages Array of additional unlock percentages (in BASIS_POINTS, e.g., 100000 = 10%)
-    /// @dev This unlocks additional percentage of total tokens on top of normal vesting schedule for all specified projects
-    function setProjectAdditionalUnlockBatch(uint256[] calldata _projectIds, uint256[] calldata _percentages) external onlyManager {
-        require(_projectIds.length == _percentages.length, "Arrays length mismatch");
-        require(_projectIds.length > 0, "Empty arrays");
-        require(_projectIds.length <= 500, "Too many projects");
-        
-        for (uint256 i = 0; i < _projectIds.length; i++) {
-            uint256 projectId = _projectIds[i];
-            uint256 percentage = _percentages[i];
-            
-            require(percentage <= BASIS_POINTS, "Percentage cannot exceed 100%");
-            require(projectVestingStartTime[projectId] > 0, "Project rewards not activated");
-            
-            projectAdditionalUnlockPercentage[projectId] = percentage;
-            emit ProjectAdditionalUnlockSet(projectId, percentage);
-        }
+    /// @notice Set additional unlock percentage for sell operations
+    /// @param _percentage Additional unlock percentage (in BASIS_POINTS, e.g., 300000 = 30%)
+    /// @dev This percentage is only applied when using claimAndSellTokensForProjectBatch
+    function setAdditionalUnlock(uint256 _percentage) external onlyManager {
+        require(_percentage <= BASIS_POINTS, "Percentage cannot exceed 100%");
+        additionalUnlockPercentage = _percentage;
+        emit AdditionalUnlockSet(_percentage);
     }
 
     function distributeTokens(address[] calldata _users, uint256[] calldata _amounts) external onlyOwner {
@@ -610,6 +618,8 @@ contract RewardSystem is Initializable, UUPSUpgradeable, OwnableUpgradeable, Ree
         require(_projectIds.length > 0, "Empty arrays");
         require(_projectIds.length <= 500, "Too many projects");
         
+        address claimAddress = IManagerRegistry(managerRegistry).getInvestorClaimAddress(msg.sender);
+
         for (uint256 i = 0; i < _projectIds.length; i++) {
             uint256 projectId = _projectIds[i];
             
@@ -623,14 +633,13 @@ contract RewardSystem is Initializable, UUPSUpgradeable, OwnableUpgradeable, Ree
             if (Token(token).balanceOf(address(this)) < claimableAmount) continue;
             
             refData.vestingClaimedAmount += claimableAmount;
+            rewardTokensClaimedAmount[projectId] += claimableAmount;
             
-            address claimAddress = IManagerRegistry(managerRegistry).getInvestorClaimAddress(msg.sender);
             
             IManagerRegistry(managerRegistry).setPoolStatusForReward(claimAddress, true);
             IERC20(address(token)).safeTransfer(claimAddress, claimableAmount);
             IManagerRegistry(managerRegistry).setPoolStatusForReward(claimAddress, false);
             
-            rewardTokensClaimedAmount[projectId] += claimableAmount;
             emit VestingTokensClaimed(msg.sender, claimableAmount, projectId);
         }
     }
@@ -656,7 +665,75 @@ contract RewardSystem is Initializable, UUPSUpgradeable, OwnableUpgradeable, Ree
             emit BonusUSDCClaimed(msg.sender, claimableAmount, projectId);
         }
     }
-    
+
+    /// @notice Claim vesting tokens and sell them for USDC (with additional unlock bonus)
+    /// @param _projectIds Array of project IDs
+    /// @dev Uses additionalUnlockPercentage bonus and updates userMaxAdditionalUnlockUsed
+    /// @dev Sells at market price without slippage protection
+    /// @dev Claims tokens in loop, then sells total amount in one swap for better price
+    function claimAndSellTokensForProjectBatch(uint256[] calldata _projectIds) external nonReentrant {
+        require(_projectIds.length > 0, "Empty array");
+        require(_projectIds.length <= 500, "Too many projects");
+        
+        address claimAddress = IManagerRegistry(managerRegistry).getInvestorClaimAddress(msg.sender);
+        uint256 totalClaimableAmount = 0;
+        
+        // Claim tokens for all projects
+        for (uint256 i = 0; i < _projectIds.length; i++) {
+            uint256 projectId = _projectIds[i];
+            
+            if (projectVestingStartTime[projectId] == 0) continue;
+            
+            ReferralData storage refData = projectReferrals[msg.sender][projectId];
+            if (refData.totalRewardsTokens == 0) continue;
+            
+            // Calculate claimable amount WITH additional unlock
+            uint256 claimableAmount = _calculateVestingAmountForProject(msg.sender, projectId, true);
+            if (claimableAmount == 0) continue;
+            if (Token(token).balanceOf(address(this)) < totalClaimableAmount + claimableAmount) continue;
+            
+            // Update state
+            refData.vestingClaimedAmount += claimableAmount;
+            rewardTokensClaimedAmount[projectId] += claimableAmount;
+            
+            // Update userMaxAdditionalUnlockUsed
+            if (additionalUnlockPercentage > userMaxAdditionalUnlockUsed[msg.sender][projectId]) {
+                userMaxAdditionalUnlockUsed[msg.sender][projectId] = additionalUnlockPercentage;
+            }
+            
+            totalClaimableAmount += claimableAmount;
+            emit VestingTokensClaimed(msg.sender, claimableAmount, projectId);
+        }
+        
+        // Sell all claimed tokens in one swap
+        if (totalClaimableAmount > 0) {
+            // Get expected USDC amount with 95% slippage tolerance (5% max slippage)
+            address[] memory path = new address[](2);
+            path[0] = address(token);
+            path[1] = address(usdc);
+            
+            uint256[] memory expectedAmounts = uniswapRouter.getAmountsOut(totalClaimableAmount, path);
+            uint256 minUsdcAmount = (expectedAmounts[1] * 95) / 100; // 5% slippage tolerance
+            
+            // Approve tokens for Uniswap router
+            IERC20(address(token)).approve(address(uniswapRouter), totalClaimableAmount);
+            
+            // Swap tokens for USDC with slippage protection
+            uint256[] memory amounts = uniswapRouter.swapExactTokensForTokens(
+                totalClaimableAmount,
+                minUsdcAmount, // Minimum USDC to receive (5% slippage protection)
+                path,
+                claimAddress,
+                block.timestamp
+            );
+            
+            // Reset approval for security
+            IERC20(address(token)).approve(address(uniswapRouter), 0);
+            
+            emit TokensSold(msg.sender, totalClaimableAmount, amounts[1], claimAddress);
+        }
+    }
+
     function mintRewardsTWAP(uint256 _amount) external onlyOwner {
         _mintRewards(_amount);
     }
