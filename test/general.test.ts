@@ -1181,8 +1181,8 @@ describe("🚀 8lends Protocol - General Flow Tests", function () {
       const claimableAmount = MAGIC_TOTLAL_TOKENS * 2600n / 10000n;
       
       const amountsOut = await router.getAmountsOut(claimableAmount, [await token.getAddress(), await usdcToken.getAddress()]);
-
-      await rewardSystem.connect(investor).claimAndSellTokensForProjectBatch([projectId]);
+      const minUsdcAmount = await rewardSystem.getClaimAndSellAmounts(await investor.getAddress(), [projectId]);
+      await rewardSystem.connect(investor).claimAndSellTokensForProjectBatch([projectId], minUsdcAmount.minUsdcAmount);
 
 
       const balanceAfter = await token.balanceOf(await investor.getAddress());
@@ -1245,7 +1245,8 @@ describe("🚀 8lends Protocol - General Flow Tests", function () {
       // Available: 55% (vesting) + 50% (additional) = 105% → cap at 100%
       // Already claimed: 33.5%
       // Will sell: 100% - 33.5% = 66.5%
-      await rewardSystem.connect(investor).claimAndSellTokensForProjectBatch([projectId]);
+      const minUsdcAmount = await rewardSystem.getClaimAndSellAmounts(await investor.getAddress(), [projectId]);
+      await rewardSystem.connect(investor).claimAndSellTokensForProjectBatch([projectId], minUsdcAmount.minUsdcAmount);
 
       await trackBalances("Sell remaining with 50% bonus");
       
@@ -1290,7 +1291,8 @@ describe("🚀 8lends Protocol - General Flow Tests", function () {
       await expect(rewardSystem.connect(investor).claimTokensForProject(projectId)).to.be.revertedWith("No tokens to claim");
 
       const balanceUsdcBefore = await usdcToken.balanceOf(await investor.getAddress());
-      await rewardSystem.connect(investor).claimAndSellTokensForProjectBatch([projectId]);
+      const minUsdcAmount = await rewardSystem.getClaimAndSellAmounts(await investor.getAddress(), [projectId]);
+      await rewardSystem.connect(investor).claimAndSellTokensForProjectBatch([projectId], minUsdcAmount.minUsdcAmount);
       const balanceUsdcAfter = await usdcToken.balanceOf(await investor.getAddress());
       expect(balanceUsdcAfter).to.be.equals(balanceUsdcBefore);
 
