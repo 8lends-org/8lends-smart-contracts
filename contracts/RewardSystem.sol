@@ -701,18 +701,18 @@ contract RewardSystem is Initializable, UUPSUpgradeable, OwnableUpgradeable, Ree
     /// @param _tokenAmount Amount of tokens to swap
     /// @return expectedUsdcAmount Expected USDC amount to receive (before slippage)
     /// @return minUsdcAmount Minimum USDC amount with 5% slippage protection
-    /// @return path Swap path (token -> usdc)
     function _calculateExpectedUsdcForTokens(uint256 _tokenAmount)
         internal
         view
-        returns (uint256 expectedUsdcAmount, uint256 minUsdcAmount, address[] memory path)
+        returns (uint256 expectedUsdcAmount, uint256 minUsdcAmount)
     {
-        path = new address[](2);
+
+        address[] memory path = new address[](2);
         path[0] = address(token);
         path[1] = address(usdc);
 
         if (_tokenAmount == 0) {
-            return (0, 0, path);
+            return (0, 0);
         }
 
         try uniswapRouter.getAmountsOut(_tokenAmount, path) returns (uint256[] memory amounts) {
@@ -747,15 +747,15 @@ contract RewardSystem is Initializable, UUPSUpgradeable, OwnableUpgradeable, Ree
         }
         
         // Calculate expected USDC amount for token swap (ignore path)
-        (expectedUsdcAmount, minUsdcAmount, ) = _calculateExpectedUsdcForTokens(totalTokensAmount);
+        (expectedUsdcAmount, minUsdcAmount ) = _calculateExpectedUsdcForTokens(totalTokensAmount);
     }
 
     /// @notice Claim vesting tokens and sell them for USDC (with additional unlock bonus)
     /// @param _projectIds Array of project IDs
+    /// @param _minUsdcAmount Minimum USDC amount to receive (slippage protection)
     /// @dev Uses additionalUnlockPercentage bonus and updates userMaxAdditionalUnlockUsed
-    /// @dev Sells at market price without slippage protection
     /// @dev Claims tokens in loop, then sells total amount in one swap for better price
-    function claimAndSellTokensForProjectBatch(uint256[] calldata _projectIds) external nonReentrant {
+    function claimAndSellTokensForProjectBatch(uint256[] calldata _projectIds, uint256 _minUsdcAmount) external nonReentrant {
         require(_projectIds.length > 0, "Empty array");
         require(_projectIds.length <= 500, "Too many projects");
         
@@ -787,7 +787,9 @@ contract RewardSystem is Initializable, UUPSUpgradeable, OwnableUpgradeable, Ree
         // Sell all claimed tokens in one swap
         if (totalClaimableAmount > 0) {
             // Calculate expected USDC amount with slippage protection and get swap path
-            (, uint256 minUsdcAmount, address[] memory path) = _calculateExpectedUsdcForTokens(totalClaimableAmount);
+            address[] memory path = new address[](2);
+            path[0] = address(token);
+            path[1] = address(usdc);
             
             // Approve tokens for Uniswap router
             IERC20(address(token)).approve(address(uniswapRouter), totalClaimableAmount);
@@ -795,7 +797,7 @@ contract RewardSystem is Initializable, UUPSUpgradeable, OwnableUpgradeable, Ree
             // Swap tokens for USDC with slippage protection
             uint256[] memory amounts = uniswapRouter.swapExactTokensForTokens(
                 totalClaimableAmount,
-                minUsdcAmount, // Minimum USDC to receive (5% slippage protection)
+                _minUsdcAmount, // Minimum USDC to receive (5% slippage protection)
                 path,
                 claimAddress,
                 block.timestamp

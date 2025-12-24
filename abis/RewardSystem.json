@@ -441,6 +441,11 @@
         "internalType": "uint256[]",
         "name": "_projectIds",
         "type": "uint256[]"
+      },
+      {
+        "internalType": "uint256",
+        "name": "_minUsdcAmount",
+        "type": "uint256"
       }
     ],
     "name": "claimAndSellTokensForProjectBatch",
