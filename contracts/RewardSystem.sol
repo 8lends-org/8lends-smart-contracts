@@ -666,6 +666,90 @@ contract RewardSystem is Initializable, UUPSUpgradeable, OwnableUpgradeable, Ree
         }
     }
 
+    /// @notice Calculate claimable tokens for sell operation for a single project (internal helper)
+    /// @param _user User address
+    /// @param _projectId Project ID
+    /// @param _currentTotalClaimed Already claimed tokens in current batch (for balance check)
+    /// @return claimableAmount Tokens available for claim and sell for this project
+    function _calculateClaimableForSellForProject(
+        address _user, 
+        uint256 _projectId,
+        uint256 _currentTotalClaimed
+    ) 
+        internal 
+        view 
+        returns (uint256 claimableAmount) 
+    {
+        // Check if vesting has started
+        if (projectVestingStartTime[_projectId] == 0) return 0;
+        
+        // Check if user has rewards for this project
+        ReferralData storage refData = projectReferrals[_user][_projectId];
+        if (refData.totalRewardsTokens == 0) return 0;
+        
+        // Calculate claimable amount WITH additional unlock
+        claimableAmount = _calculateVestingAmountForProject(_user, _projectId, true);
+        if (claimableAmount == 0) return 0;
+        
+        // Check if contract has enough balance
+        if (Token(token).balanceOf(address(this)) < _currentTotalClaimed + claimableAmount) return 0;
+        
+        return claimableAmount;
+    }
+
+    /// @notice Calculate expected USDC amount for token swap (internal helper)
+    /// @param _tokenAmount Amount of tokens to swap
+    /// @return expectedUsdcAmount Expected USDC amount to receive (before slippage)
+    /// @return minUsdcAmount Minimum USDC amount with 5% slippage protection
+    /// @return path Swap path (token -> usdc)
+    function _calculateExpectedUsdcForTokens(uint256 _tokenAmount)
+        internal
+        view
+        returns (uint256 expectedUsdcAmount, uint256 minUsdcAmount, address[] memory path)
+    {
+        path = new address[](2);
+        path[0] = address(token);
+        path[1] = address(usdc);
+
+        if (_tokenAmount == 0) {
+            return (0, 0, path);
+        }
+
+        try uniswapRouter.getAmountsOut(_tokenAmount, path) returns (uint256[] memory amounts) {
+            expectedUsdcAmount = amounts[1];
+            minUsdcAmount = (expectedUsdcAmount * 95) / 100; // 5% slippage tolerance
+        } catch {
+            // If pool doesn't exist or has no liquidity, return 0
+            expectedUsdcAmount = 0;
+            minUsdcAmount = 0;
+        }
+    }
+
+    /// @notice Calculate amounts for claim and sell batch operation
+    /// @param _user User address
+    /// @param _projectIds Array of project IDs
+    /// @return totalTokensAmount Total tokens that will be claimed and sold
+    /// @return expectedUsdcAmount Expected USDC amount to receive (before slippage)
+    /// @return minUsdcAmount Minimum USDC amount with 5% slippage protection
+    function getClaimAndSellAmounts(address _user, uint256[] calldata _projectIds)
+        external
+        view
+        returns (uint256 totalTokensAmount, uint256 expectedUsdcAmount, uint256 minUsdcAmount)
+    {
+        require(_projectIds.length > 0, "Empty array");
+        require(_projectIds.length <= 500, "Too many projects");
+        
+        // Calculate total claimable tokens for all projects
+        totalTokensAmount = 0;
+        for (uint256 i = 0; i < _projectIds.length; i++) {
+            uint256 claimable = _calculateClaimableForSellForProject(_user, _projectIds[i], totalTokensAmount);
+            totalTokensAmount += claimable;
+        }
+        
+        // Calculate expected USDC amount for token swap (ignore path)
+        (expectedUsdcAmount, minUsdcAmount, ) = _calculateExpectedUsdcForTokens(totalTokensAmount);
+    }
+
     /// @notice Claim vesting tokens and sell them for USDC (with additional unlock bonus)
     /// @param _projectIds Array of project IDs
     /// @dev Uses additionalUnlockPercentage bonus and updates userMaxAdditionalUnlockUsed
@@ -682,17 +766,12 @@ contract RewardSystem is Initializable, UUPSUpgradeable, OwnableUpgradeable, Ree
         for (uint256 i = 0; i < _projectIds.length; i++) {
             uint256 projectId = _projectIds[i];
             
-            if (projectVestingStartTime[projectId] == 0) continue;
-            
-            ReferralData storage refData = projectReferrals[msg.sender][projectId];
-            if (refData.totalRewardsTokens == 0) continue;
-            
-            // Calculate claimable amount WITH additional unlock
-            uint256 claimableAmount = _calculateVestingAmountForProject(msg.sender, projectId, true);
+            // Calculate claimable amount using helper function
+            uint256 claimableAmount = _calculateClaimableForSellForProject(msg.sender, projectId, totalClaimableAmount);
             if (claimableAmount == 0) continue;
-            if (Token(token).balanceOf(address(this)) < totalClaimableAmount + claimableAmount) continue;
             
             // Update state
+            ReferralData storage refData = projectReferrals[msg.sender][projectId];
             refData.vestingClaimedAmount += claimableAmount;
             rewardTokensClaimedAmount[projectId] += claimableAmount;
             
@@ -707,13 +786,8 @@ contract RewardSystem is Initializable, UUPSUpgradeable, OwnableUpgradeable, Ree
         
         // Sell all claimed tokens in one swap
         if (totalClaimableAmount > 0) {
-            // Get expected USDC amount with 95% slippage tolerance (5% max slippage)
-            address[] memory path = new address[](2);
-            path[0] = address(token);
-            path[1] = address(usdc);
-            
-            uint256[] memory expectedAmounts = uniswapRouter.getAmountsOut(totalClaimableAmount, path);
-            uint256 minUsdcAmount = (expectedAmounts[1] * 95) / 100; // 5% slippage tolerance
+            // Calculate expected USDC amount with slippage protection and get swap path
+            (, uint256 minUsdcAmount, address[] memory path) = _calculateExpectedUsdcForTokens(totalClaimableAmount);
             
             // Approve tokens for Uniswap router
             IERC20(address(token)).approve(address(uniswapRouter), totalClaimableAmount);
