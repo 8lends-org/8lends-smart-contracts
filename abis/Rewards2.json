@@ -105,6 +105,19 @@
     "inputs": [
       {
         "indexed": false,
+        "internalType": "uint256",
+        "name": "percentage",
+        "type": "uint256"
+      }
+    ],
+    "name": "AdditionalUnlockSet",
+    "type": "event"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": false,
         "internalType": "uint64",
         "name": "version",
         "type": "uint64"
@@ -279,7 +292,33 @@
   },
   {
     "inputs": [],
+    "name": "additionalUnlockPercentage",
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
     "name": "claim",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "_minUsdcAmount",
+        "type": "uint256"
+      }
+    ],
+    "name": "claimAndSellTokens",
     "outputs": [],
     "stateMutability": "nonpayable",
     "type": "function"
@@ -366,6 +405,59 @@
       {
         "internalType": "uint256",
         "name": "USDCBalance",
+        "type": "uint256"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "address",
+        "name": "_user",
+        "type": "address"
+      }
+    ],
+    "name": "getClaimAndSellAmounts",
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "totalTokensAmount",
+        "type": "uint256"
+      },
+      {
+        "internalType": "uint256",
+        "name": "expectedUsdcAmount",
+        "type": "uint256"
+      },
+      {
+        "internalType": "uint256",
+        "name": "minUsdcAmount",
+        "type": "uint256"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "_tokenAmount",
+        "type": "uint256"
+      }
+    ],
+    "name": "getUSDCForTokens",
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "expectedUsdcAmount",
+        "type": "uint256"
+      },
+      {
+        "internalType": "uint256",
+        "name": "minUsdcAmount",
         "type": "uint256"
       }
     ],
@@ -558,9 +650,27 @@
         "internalType": "address",
         "name": "_recipient",
         "type": "address"
+      },
+      {
+        "internalType": "uint256",
+        "name": "_minUsdcAmount",
+        "type": "uint256"
       }
     ],
     "name": "sellTokens",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "_percentage",
+        "type": "uint256"
+      }
+    ],
+    "name": "setAdditionalUnlock",
     "outputs": [],
     "stateMutability": "nonpayable",
     "type": "function"
@@ -689,6 +799,30 @@
         "internalType": "contract IERC20",
         "name": "",
         "type": "address"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "address",
+        "name": "",
+        "type": "address"
+      },
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
+      }
+    ],
+    "name": "userMaxAdditionalUnlockUsed",
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
       }
     ],
     "stateMutability": "view",
