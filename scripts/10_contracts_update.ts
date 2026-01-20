@@ -36,6 +36,9 @@ async function main() {
   const contract = await ethers.getContractAt(contractName!, config[contractKey] as string);
   const owner = await contract.owner();
   if (owner.toLowerCase() !== (await signer.getAddress()).toLowerCase()) {
+    console.log(`Contract: ${config[contractKey]}`);
+    console.log(`Owner: ${owner}`);
+    console.log(`Signer: ${await signer.getAddress()}`);
     throw new Error("Not the owner");
   }
 

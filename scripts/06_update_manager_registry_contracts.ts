@@ -21,6 +21,7 @@ async function main() {
   const treasuryAddress = config.Treasury;
   const poolAddress = config.pool;
   const tokenAddress = config.token;
+  const marketAddress = config.Market;
 
   if (!managerRegistryAddress) {
     throw new Error("ManagerRegistry contract not found in config");
@@ -38,6 +39,10 @@ async function main() {
     throw new Error("Treasury contract not found in config");
   }
 
+  if (!marketAddress) {
+    throw new Error("Market contract not found in config");
+  }
+
   console.log(`\nContract addresses:`);
   console.log(`ManagerRegistry: ${managerRegistryAddress}`);
   console.log(`RewardSystem: ${rewardSystemAddress}`);
@@ -45,6 +50,7 @@ async function main() {
   console.log(`Treasury: ${treasuryAddress}`);
   console.log(`Token: ${tokenAddress}`);
   console.log(`Pool: ${poolAddress}`);
+  console.log(`Market: ${marketAddress}`);
 
   // Connect to ManagerRegistry contract
   const managerRegistry = await ethers.getContractAt("ManagerRegistry", managerRegistryAddress);
@@ -55,70 +61,80 @@ async function main() {
     throw new Error("Not the owner of ManagerRegistry contract");
   }
 
-  console.log(`\nSetting contract addresses...`);
+  console.log(`\nChecking current contract addresses...`);
 
-  // Call setContractAddresses method
-  const tx = await managerRegistry.setContractAddresses(
-    rewardSystemAddress,
-    fundraiseAddress,
-    treasuryAddress
-  );
-
-  console.log(`Transaction hash: ${tx.hash}`);
-  console.log(`Waiting for confirmation...`);
-
-  const receipt = await tx.wait(5);
-  console.log(`✅ Contract addresses updated successfully!`);
-  console.log(`Gas used: ${receipt?.gasUsed.toString()}`);
-
-  // Check that addresses are set correctly
-  console.log(`\nVerifying addresses...`);
+  // Check current addresses
+  const currentMarketAddress = await managerRegistry.marketAddress();
   const currentRewardSystem = await managerRegistry.rewardSystemAddress();
   const currentFundraise = await managerRegistry.fundraiseAddress();
   const currentTreasury = await managerRegistry.treasuryAddress();
 
-  console.log(`Current RewardSystem: ${currentRewardSystem}`);
-  console.log(`Current Fundraise: ${currentFundraise}`);
-  console.log(`Current Treasury: ${currentTreasury}`);
+  // Check and update Market address if needed
+  if (currentMarketAddress.toLowerCase() !== marketAddress.toLowerCase()) {
+    console.log(`\nUpdating Market address...`);
+    console.log(`Current: ${currentMarketAddress}`);
+    console.log(`New: ${marketAddress}`);
+    const marketTx = await managerRegistry.setMarketAddress(marketAddress);
+    console.log(`Market transaction hash: ${marketTx.hash}`);
+    await marketTx.wait(5);
+    console.log(`✅ Market address set successfully!`);
+  } else {
+    console.log(`ℹ️  Market address already correct, skipping update`);
+  }
+
+  // Check and update contract addresses if needed
+  const needsUpdate = 
+    currentRewardSystem.toLowerCase() !== rewardSystemAddress.toLowerCase() ||
+    currentFundraise.toLowerCase() !== fundraiseAddress.toLowerCase() ||
+    currentTreasury.toLowerCase() !== treasuryAddress.toLowerCase();
+
+  if (needsUpdate) {
+    console.log(`\nUpdating contract addresses (some are different)...`);
+    console.log(`Current RewardSystem: ${currentRewardSystem}`);
+    console.log(`New RewardSystem: ${rewardSystemAddress}`);
+    console.log(`Current Fundraise: ${currentFundraise}`);
+    console.log(`New Fundraise: ${fundraiseAddress}`);
+    console.log(`Current Treasury: ${currentTreasury}`);
+    console.log(`New Treasury: ${treasuryAddress}`);
+
+    // Call setContractAddresses method
+    const tx = await managerRegistry.setContractAddresses(
+      rewardSystemAddress,
+      fundraiseAddress,
+      treasuryAddress
+    );
+
+    console.log(`Transaction hash: ${tx.hash}`);
+    console.log(`Waiting for confirmation...`);
+
+    const receipt = await tx.wait(5);
+    console.log(`✅ Contract addresses updated successfully!`);
+    console.log(`Gas used: ${receipt?.gasUsed.toString()}`);
+  } else {
+    console.log(`ℹ️  All contract addresses are already correct, skipping update`);
+  }
+
+  // Verify addresses after update (re-read after potential updates)
+  console.log(`\nVerifying addresses...`);
+  const verifiedRewardSystem = await managerRegistry.rewardSystemAddress();
+  const verifiedFundraise = await managerRegistry.fundraiseAddress();
+  const verifiedTreasury = await managerRegistry.treasuryAddress();
+
+  console.log(`Current RewardSystem: ${verifiedRewardSystem}`);
+  console.log(`Current Fundraise: ${verifiedFundraise}`);
+  console.log(`Current Treasury: ${verifiedTreasury}`);
 
   // Check correspondence
-  if (currentRewardSystem.toLowerCase() !== rewardSystemAddress.toLowerCase()) {
+  if (verifiedRewardSystem.toLowerCase() !== rewardSystemAddress.toLowerCase()) {
     throw new Error("RewardSystem address mismatch");
   }
-  if (currentFundraise.toLowerCase() !== fundraiseAddress.toLowerCase()) {
+  if (verifiedFundraise.toLowerCase() !== fundraiseAddress.toLowerCase()) {
     throw new Error("Fundraise address mismatch");
   }
-  if (currentTreasury.toLowerCase() !== treasuryAddress.toLowerCase()) {
+  if (verifiedTreasury.toLowerCase() !== treasuryAddress.toLowerCase()) {
     throw new Error("Treasury address mismatch");
   }
 
-  console.log(`✅ All addresses verified successfully!`);
-
-  // Set ManagerRegistry in Token contract
-  if (tokenAddress) {
-    console.log(`\nSetting ManagerRegistry in Token contract...`);
-    
-    const token = await ethers.getContractAt("Token", tokenAddress);
-    
-    // Check if ManagerRegistry is already set
-    const currentManagerRegistry = await token.managerRegistry();
-    if (currentManagerRegistry === "0x0000000000000000000000000000000000000000") {
-      const tokenTx = await token.setManagerRegistry(managerRegistryAddress);
-      console.log(`Token transaction hash: ${tokenTx.hash}`);
-      await tokenTx.wait(5);
-      console.log(`✅ ManagerRegistry set in Token contract!`);
-    } else {
-      console.log(`⚠️  ManagerRegistry already set in Token: ${currentManagerRegistry}`);
-    }
-  }
-
-  // Information about pool
-  if (poolAddress) {
-    console.log(
-      `\nNote: Pool address (${poolAddress}) is available but not set in ManagerRegistry.`
-    );
-    console.log(`To set pool status, use: setPoolStatus("${poolAddress}", true)`);
-  }
 }
 
 main().catch(error => {

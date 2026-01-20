@@ -94,7 +94,7 @@ const config: HardhatUserConfig = {
         runOnCompile: true,
         clear: true,
         flat: true,
-        only: [':Fundraise$', ':RewardSystem$', ':Treasury$', ':Token$', ':ManagerRegistry$', ':Rewards2$'],
+        only: [':Fundraise$', ':RewardSystem$', ':Treasury$', ':Token$', ':ManagerRegistry$', ':Rewards2$', ':Market$'],
         spacing: 2,
         format: 'json',
     },

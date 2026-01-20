@@ -42,7 +42,7 @@ interface IFundraise {
 
     function investorInfo(address _investor, uint256 _projectId) external view returns (InvestorInfo memory);
 
-    function transferInvestment(uint256 _projectId, address _from, address _to, uint256 _amount) external;
+    function transferInvestment(uint256 _projectId, address _from, address _to, bool _onlyFundedStage) external;
 
     function BASIS_POINTS() external view returns (uint256);
 }

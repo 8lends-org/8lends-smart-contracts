@@ -141,6 +141,19 @@
       {
         "indexed": true,
         "internalType": "address",
+        "name": "market",
+        "type": "address"
+      }
+    ],
+    "name": "MarketAddressSet",
+    "type": "event"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": true,
+        "internalType": "address",
         "name": "previousOwner",
         "type": "address"
       },
@@ -312,6 +325,25 @@
     "inputs": [
       {
         "internalType": "address",
+        "name": "addr",
+        "type": "address"
+      }
+    ],
+    "name": "isMarket",
+    "outputs": [
+      {
+        "internalType": "bool",
+        "name": "",
+        "type": "bool"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "address",
         "name": "_sender",
         "type": "address"
       }
@@ -379,6 +411,19 @@
         "internalType": "bool",
         "name": "",
         "type": "bool"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "marketAddress",
+    "outputs": [
+      {
+        "internalType": "address",
+        "name": "",
+        "type": "address"
       }
     ],
     "stateMutability": "view",
@@ -535,6 +580,19 @@
       }
     ],
     "name": "setManagerStatusBatch",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "address",
+        "name": "_market",
+        "type": "address"
+      }
+    ],
+    "name": "setMarketAddress",
     "outputs": [],
     "stateMutability": "nonpayable",
     "type": "function"

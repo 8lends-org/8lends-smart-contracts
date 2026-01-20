@@ -13,57 +13,58 @@ import "./interfaces/IFundraise.sol";
 contract Market is Initializable, UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuardUpgradeable {
     using SafeERC20 for IERC20;
 
-    enum ListingStatus {
+    enum SaleStatus {
         Active,
-        Cancelled,
-        Sold
+        Sold,
+        Cancelled
     }
 
-    struct Listing {
-        uint256 listingId;
+    struct Sale {
+        uint256 saleId;
         address seller;
+        address buyer;
         uint256 projectId;
-        uint256 investedAmount;
+        address marketCell;
         uint256 price;
+        uint256 fee;
+        uint256 maxReturn;
+        uint256 totalClaimed;
         uint256 createdAt;
-        ListingStatus status;
+        SaleStatus status;
     }
+
 
     address public managerRegistry;
-    address public fundraise;
 
-    mapping(address => mapping(uint256 => uint256)) public activeListingIds;
-    mapping(uint256 => Listing) public listings;
-    uint256 public listingCount;
+    uint256 public saleCount;
+    mapping(uint256 => Sale) public sales;
+    mapping(address => mapping(uint256 => uint256)) public activeSaleIds;
+    mapping(address => uint256[]) public soldSales;
+    mapping(address => uint256[]) public boughtSales;
 
-    event ListingCreated(
-        uint256 indexed listingId,
+    // 1% = 10000, same as Fundraise.BASIS_POINTS
+    uint256 public constant BASIS_POINTS = 1000000;
+    uint256 public platformFee;
+    mapping(address => uint256) public accumulatedFees;
+
+    event SaleCreated(
+        uint256 indexed saleId,
         address indexed seller,
         uint256 indexed projectId,
-        uint256 investedAmount,
+        address marketCell,
         uint256 price
     );
 
-    event ListingBought(
-        uint256 indexed listingId,
+    event SaleBought(
+        uint256 indexed saleId,
         address indexed buyer,
         address indexed seller,
-        uint256 projectId,
-        uint256 investedAmount,
-        uint256 price
+        uint256 projectId
     );
 
-    event ListingCancelled(
-        uint256 indexed listingId,
-        address indexed seller,
-        uint256 indexed projectId
-    );
-
-    event ListingPriceUpdated(
-        uint256 indexed listingId,
-        uint256 oldPrice,
-        uint256 newPrice
-    );
+    event SaleCancelled(uint256 indexed saleId, address indexed seller, uint256 indexed projectId);
+    event PlatformFeeUpdated(uint256 oldFee, uint256 newFee);
+    event FeeCollected(address indexed token, uint256 amount);
 
     modifier onlyManager() {
         require(IManagerRegistry(managerRegistry).isManager(msg.sender), "Not a manager");
@@ -83,151 +84,146 @@ contract Market is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentranc
         _disableInitializers();
     }
 
-    function initialize(address _managerRegistry, address _fundraise) public initializer {
+    function initialize(address _managerRegistry) public initializer {
         __Ownable_init(msg.sender);
         __ReentrancyGuard_init();
         __UUPSUpgradeable_init();
         managerRegistry = _managerRegistry;
-        fundraise = _fundraise;
+        platformFee = 0;
     }
 
-    /// @notice Create listing for selling investment
-    /// @param _projectId Project ID in Fundraise
+    /// @notice Get fundraise address from manager registry
+    /// @return fundraiseAddress Address of fundraise contract
+    function getFundraise() internal view returns (address fundraiseAddress) {
+        return IManagerRegistry(managerRegistry).fundraiseAddress();
+    }
+
+
+    /// @notice Sell investment - creates market cell and transfers investment to it
+    /// @param _projectId Project ID
     /// @param _price Price in loan tokens
-    /// @return listingId Created listing ID
-    function createListing(uint256 _projectId, uint256 _price) external returns (uint256 listingId) {
+    /// @return saleId Created sale ID
+    function sell(uint256 _projectId, uint256 _price) external nonReentrant returns (uint256 saleId) {
+        address fundraiseAddress = getFundraise();
         address seller = msg.sender;
-        require(activeListingIds[seller][_projectId] == 0, "Active listing exists");
-        IFundraise.InvestorInfo memory investor = IFundraise(fundraise).investorInfo(seller, _projectId);
+        require(activeSaleIds[seller][_projectId] == 0, "Active sale exists");
+        IFundraise.InvestorInfo memory investor = IFundraise(fundraiseAddress).investorInfo(seller, _projectId);
         require(investor.investedAmount > 0, "No investment found");
-        IFundraise.Project memory project = IFundraise(fundraise).projects(_projectId);
-        require(project.innerStruct.stage == IFundraise.Stage.Funded, "Project not funded");
+        require(_price > 0, "Price must be greater than zero");
+        IFundraise.Project memory project = IFundraise(fundraiseAddress).projects(_projectId);
+        require(project.innerStruct.stage == IFundraise.Stage.Funded, "Only funded projects can be sold");
         uint256 maxReturn = investor.investedAmount
-            + (investor.investedAmount * project.investorInterestRate / IFundraise(fundraise).BASIS_POINTS());
+            + (investor.investedAmount * project.investorInterestRate / BASIS_POINTS);
+        require(maxReturn >= investor.totalClaimed, "Total claimed exceeds max return");
         uint256 remainingForBuyer = maxReturn - investor.totalClaimed;
         require(_price <= remainingForBuyer, "Price exceeds buyer return");
-        listingId = ++listingCount;
-        listings[listingId] = Listing({
-            listingId: listingId,
+        saleId = ++saleCount;
+        
+        // Create address containing saleId: 0x{saleId}{zeros}{hash}
+        // Format: first 4 bytes = saleId, next 4 bytes = zeros (separator), last 12 bytes = from hash
+        // Address is 160 bits (20 bytes): [4 bytes saleId][4 bytes zeros][12 bytes hash]
+        bytes32 hash = keccak256(abi.encodePacked(saleId, seller, _projectId, address(this), block.chainid));
+        address marketCell = address(uint160(
+            (uint256(saleId) << 128) | (uint256(hash) & 0xFFFFFFFFFFFFFFFFFFFFFFFF)
+        ));
+        require(marketCell != address(0), "Market cell address cannot be zero");
+        IFundraise(fundraiseAddress).transferInvestment(_projectId, seller, marketCell, true);
+        sales[saleId] = Sale({
+            saleId: saleId,
             seller: seller,
+            buyer: address(0),
             projectId: _projectId,
-            investedAmount: investor.investedAmount,
+            marketCell: marketCell,
             price: _price,
+            fee: platformFee,
+            maxReturn: maxReturn,
+            totalClaimed: investor.totalClaimed,
             createdAt: block.timestamp,
-            status: ListingStatus.Active
+            status: SaleStatus.Active
         });
-        activeListingIds[seller][_projectId] = listingId;
-        emit ListingCreated(listingId, seller, _projectId, investor.investedAmount, _price);
-        return listingId;
+        activeSaleIds[seller][_projectId] = saleId;
+        emit SaleCreated(saleId, seller, _projectId, marketCell, _price);
+        return saleId;
     }
 
-    /// @notice Buy listing
-    /// @param _listingId Listing ID to buy
-    function buyListing(uint256 _listingId) external nonReentrant {
-        Listing storage listing = listings[_listingId];
-        require(listing.status == ListingStatus.Active, "Listing not active");
-        require(msg.sender != listing.seller, "Cannot buy own listing");
-        IFundraise.InvestorInfo memory currentInvestor = IFundraise(fundraise).investorInfo(
-            listing.seller,
-            listing.projectId
-        );
-        require(
-            currentInvestor.investedAmount == listing.investedAmount,
-            "Investment amount changed"
-        );
-        IFundraise.Project memory project = IFundraise(fundraise).projects(listing.projectId);
+    /// @notice Buy investment - transfers investment from market cell to buyer and payment to seller
+    /// @param _saleId Sale ID to buy
+    function buy(uint256 _saleId) external nonReentrant {
+        require(_saleId > 0 && _saleId <= saleCount, "Invalid sale ID");
+        address fundraiseAddress = getFundraise();
+        Sale storage sale = sales[_saleId];
+        require(sale.status == SaleStatus.Active, "Sale not active");
+        require(msg.sender != sale.seller, "Cannot buy own sale");
+        IFundraise.InvestorInfo memory marketCellInfo = IFundraise(fundraiseAddress).investorInfo(sale.marketCell, sale.projectId);
+        require(marketCellInfo.investedAmount > 0, "Market cell has no investment");
+        IFundraise.Project memory project = IFundraise(fundraiseAddress).projects(sale.projectId);
         IERC20 loanToken = project.innerStruct.loanToken;
-        loanToken.safeTransferFrom(msg.sender, listing.seller, listing.price);
-        IFundraise(fundraise).transferInvestment(
-            listing.projectId,
-            listing.seller,
-            msg.sender,
-            listing.investedAmount
-        );
-        listing.status = ListingStatus.Sold;
-        activeListingIds[listing.seller][listing.projectId] = 0;
-        emit ListingBought(
-            _listingId,
-            msg.sender,
-            listing.seller,
-            listing.projectId,
-            listing.investedAmount,
-            listing.price
-        );
-    }
-
-    /// @notice Cancel listing
-    /// @param _listingId Listing ID to cancel
-    function cancelListing(uint256 _listingId) external {
-        Listing storage listing = listings[_listingId];
-        require(msg.sender == listing.seller, "Not seller");
-        require(listing.status == ListingStatus.Active, "Listing not active");
-        listing.status = ListingStatus.Cancelled;
-        activeListingIds[listing.seller][listing.projectId] = 0;
-        emit ListingCancelled(_listingId, listing.seller, listing.projectId);
-    }
-
-    /// @notice Update listing price
-    /// @param _listingId Listing ID
-    /// @param _newPrice New price
-    function updateListingPrice(uint256 _listingId, uint256 _newPrice) external {
-        Listing storage listing = listings[_listingId];
-        require(msg.sender == listing.seller, "Not seller");
-        require(listing.status == ListingStatus.Active, "Listing not active");
-        IFundraise.InvestorInfo memory investor = IFundraise(fundraise).investorInfo(
-            listing.seller,
-            listing.projectId
-        );
-        IFundraise.Project memory project = IFundraise(fundraise).projects(listing.projectId);
-        uint256 maxReturn = listing.investedAmount
-            + (listing.investedAmount * project.investorInterestRate / IFundraise(fundraise).BASIS_POINTS());
-        uint256 remainingForBuyer = maxReturn - investor.totalClaimed;
-        require(_newPrice <= remainingForBuyer, "Price exceeds buyer return");
-        uint256 oldPrice = listing.price;
-        listing.price = _newPrice;
-        emit ListingPriceUpdated(_listingId, oldPrice, _newPrice);
-    }
-
-    /// @notice Check if listing can be created
-    /// @param _projectId Project ID
-    /// @param _seller Seller address
-    /// @return bool True if listing can be created
-    function canCreateListing(uint256 _projectId, address _seller) external view returns (bool) {
-        if (activeListingIds[_seller][_projectId] != 0) {
-            return false;
+        uint256 feeAmount = (sale.price * sale.fee) / BASIS_POINTS;
+        uint256 sellerAmount = sale.price - feeAmount;
+        loanToken.safeTransferFrom(msg.sender, address(this), feeAmount);
+        loanToken.safeTransferFrom(msg.sender, sale.seller, sellerAmount);
+        accumulatedFees[address(loanToken)] += feeAmount;
+        IFundraise(fundraiseAddress).transferInvestment(sale.projectId, sale.marketCell, msg.sender, false);
+        sale.buyer = msg.sender;
+        sale.status = SaleStatus.Sold;
+        activeSaleIds[sale.seller][sale.projectId] = 0;
+        boughtSales[msg.sender].push(_saleId);
+        soldSales[sale.seller].push(_saleId);
+        emit SaleBought(_saleId, msg.sender, sale.seller, sale.projectId);
+        if (feeAmount > 0) {
+            emit FeeCollected(address(loanToken), feeAmount);
         }
-        IFundraise.InvestorInfo memory investor = IFundraise(fundraise).investorInfo(_seller, _projectId);
-        if (investor.investedAmount == 0) {
-            return false;
-        }
-        IFundraise.Project memory project = IFundraise(fundraise).projects(_projectId);
-        return project.innerStruct.stage == IFundraise.Stage.Funded;
     }
 
-    /// @notice Get active listing for seller and project
-    /// @param _seller Seller address
-    /// @param _projectId Project ID
-    /// @return listing Active listing
-    function getActiveListing(address _seller, uint256 _projectId)
-        external
-        view
-        returns (Listing memory listing)
-    {
-        uint256 listingId = activeListingIds[_seller][_projectId];
-        require(listingId != 0, "No active listing");
-        return listings[listingId];
+    /// @notice Cancel sale - returns investment from market cell back to seller
+    /// @param _saleId Sale ID to cancel
+    function cancel(uint256 _saleId) external nonReentrant {
+        require(_saleId > 0 && _saleId <= saleCount, "Invalid sale ID");
+        address fundraiseAddress = getFundraise();
+        Sale storage sale = sales[_saleId];
+        require(msg.sender == sale.seller, "Not seller");
+        require(sale.status == SaleStatus.Active, "Sale not active");
+        IFundraise(fundraiseAddress).transferInvestment(sale.projectId, sale.marketCell, sale.seller, false);
+        sale.status = SaleStatus.Cancelled;
+        activeSaleIds[sale.seller][sale.projectId] = 0;
+        emit SaleCancelled(_saleId, sale.seller, sale.projectId);
     }
 
-    /// @notice Get listing by ID
-    /// @param _listingId Listing ID
-    /// @return listing Listing data
-    function getListing(uint256 _listingId) external view returns (Listing memory listing) {
-        return listings[_listingId];
+    /// @notice Set platform fee (owner only)
+    /// @param _fee Fee in basis points (1% = 10000)
+    function setPlatformFee(uint256 _fee) external onlyOwner {
+        require(_fee <= BASIS_POINTS, "Fee exceeds 100%");
+        uint256 oldFee = platformFee;
+        platformFee = _fee;
+        emit PlatformFeeUpdated(oldFee, _fee);
     }
 
-    /// @notice Set fundraise address
-    /// @param _fundraise New fundraise address
-    function setFundraise(address _fundraise) external onlyOwner {
-        fundraise = _fundraise;
+    /// @notice Withdraw accumulated fees (owner only)
+    /// @param _token Token address to withdraw
+    /// @param _to Address to send fees to
+    function withdrawFees(address _token, address _to) external onlyOwner {
+        require(_to != address(0), "Invalid recipient address");
+        uint256 amount = accumulatedFees[_token];
+        require(amount > 0, "No fees to withdraw");
+        accumulatedFees[_token] = 0;
+        IERC20(_token).safeTransfer(_to, amount);
+    }
+    
+    /// @notice Get sold sales for a user
+    /// @param _user User address
+    /// @return saleIds Array of sale IDs sold by user
+    function getSoldSales(address _user) external view returns (uint256[] memory) {
+        return soldSales[_user];
+    }
+
+    /// @notice Get bought sales for a user
+    /// @param _user User address
+    /// @return saleIds Array of sale IDs bought by user
+    function getBoughtSales(address _user) external view returns (uint256[] memory) {
+        return boughtSales[_user];
+    }
+
+    function getSale(uint256 _saleId) external view returns (Sale memory) {
+        return sales[_saleId];
     }
 }

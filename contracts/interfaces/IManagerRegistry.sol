@@ -8,6 +8,8 @@ interface IManagerRegistry {
     function isTreasury(address sender) external view returns (bool);
     function isRewardSystem(address sender) external view returns (bool);
     function isPool(address sender) external view returns (bool);
+    function isMarket(address sender) external view returns (bool);
+    function setMarketStatus(address _market, bool _status) external;
     function setManagerStatus(address _manager, bool _status) external;
     function setManagerStatusBatch(address[] memory _managers, bool[] memory _statuses) external;
     function setContractAddresses(address _rewardSystemAddress, address _fundraiseAddress, address _treasuryAddress)
