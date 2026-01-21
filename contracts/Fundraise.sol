@@ -24,7 +24,7 @@ contract Fundraise is Initializable, UUPSUpgradeable, OwnableUpgradeable, Merkle
     event ProjectStatusChanged(uint256 indexed projectId, uint8 status);
     event ProjectUpdated(uint256 indexed projectId);
     event InvestorClaimAddressSet(address indexed investor, address indexed claimAddress);
-    event InvestmentTransferred(uint256 indexed projectId, address indexed from, address indexed to);
+    event InvestmentTransferred(uint256 indexed projectId, address indexed from, address indexed to, uint256 amount, uint256 id);
 
     enum Stage {
         ComingSoon,
@@ -238,22 +238,26 @@ contract Fundraise is Initializable, UUPSUpgradeable, OwnableUpgradeable, Merkle
         emit ProjectStatusChanged(_projectId, uint8(Stage.Canceled));
     }
 
-    function transferInvestment(uint256 _projectId, address _from, address _to, bool onlyFundedStage) external {
+    function transferInvestment(uint256 _projectId, address _from, address _to, bool _isSell, uint256 _id) external {
         require(IManagerRegistry(managerRegistry).isMarket(msg.sender), "Not a market");
         Project storage project = projects[_projectId];
         require(_projectId < projectCount, "Project does not exist");
-        if(onlyFundedStage) {
+        if(_isSell) {
             require(project.innerStruct.stage == Stage.Funded, "Project is not funded");
         }
         require(_from != address(0), "From address is zero");
         require(_to != address(0), "To address is zero");
         require(_from != _to, "From and to are the same");
-        require(investorInfo[_from][_projectId].investedAmount > 0, "From not found in this project");
-        investorInfo[_to][_projectId].investedAmount += investorInfo[_from][_projectId].investedAmount;
-        investorInfo[_to][_projectId].totalClaimed += investorInfo[_from][_projectId].totalClaimed;
+        uint256 amountInvested = investorInfo[_from][_projectId].investedAmount;
+        uint256 amountClaimed = investorInfo[_from][_projectId].totalClaimed;
+
+        require(amountInvested > 0, "From not found in this project");
+
+        investorInfo[_to][_projectId].investedAmount += amountInvested;
+        investorInfo[_to][_projectId].totalClaimed += amountClaimed;
         investorInfo[_from][_projectId].investedAmount = 0;
         investorInfo[_from][_projectId].totalClaimed = 0;
-        emit InvestmentTransferred(_projectId, _from, _to);
+        emit InvestmentTransferred(_projectId, _from, _to, amountInvested, _id);
     }
 
 

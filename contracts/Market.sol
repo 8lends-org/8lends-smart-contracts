@@ -127,7 +127,7 @@ contract Market is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentranc
             (uint256(saleId) << 128) | (uint256(hash) & 0xFFFFFFFFFFFFFFFFFFFFFFFF)
         ));
         require(marketCell != address(0), "Market cell address cannot be zero");
-        IFundraise(fundraiseAddress).transferInvestment(_projectId, seller, marketCell, true);
+        IFundraise(fundraiseAddress).transferInvestment(_projectId, seller, marketCell, true, saleId);
         sales[saleId] = Sale({
             saleId: saleId,
             seller: seller,
@@ -163,7 +163,7 @@ contract Market is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentranc
         loanToken.safeTransferFrom(msg.sender, address(this), feeAmount);
         loanToken.safeTransferFrom(msg.sender, sale.seller, sellerAmount);
         accumulatedFees[address(loanToken)] += feeAmount;
-        IFundraise(fundraiseAddress).transferInvestment(sale.projectId, sale.marketCell, msg.sender, false);
+        IFundraise(fundraiseAddress).transferInvestment(sale.projectId, sale.marketCell, msg.sender, false, _saleId);
         sale.buyer = msg.sender;
         sale.status = SaleStatus.Sold;
         activeSaleIds[sale.seller][sale.projectId] = 0;
@@ -183,7 +183,7 @@ contract Market is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentranc
         Sale storage sale = sales[_saleId];
         require(msg.sender == sale.seller, "Not seller");
         require(sale.status == SaleStatus.Active, "Sale not active");
-        IFundraise(fundraiseAddress).transferInvestment(sale.projectId, sale.marketCell, sale.seller, false);
+        IFundraise(fundraiseAddress).transferInvestment(sale.projectId, sale.marketCell, sale.seller, false, _saleId);
         sale.status = SaleStatus.Cancelled;
         activeSaleIds[sale.seller][sale.projectId] = 0;
         emit SaleCancelled(_saleId, sale.seller, sale.projectId);

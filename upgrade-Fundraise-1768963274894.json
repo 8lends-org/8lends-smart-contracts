@@ -1,0 +1,21 @@
+{
+  "network": "sepolia",
+  "chainId": "11155111",
+  "contractName": "Fundraise",
+  "proxyAddress": "0x0De7B7E83F53cc0d0C30b9c3E7489c7daCc75718",
+  "currentImplementation": "0x0367baCBc94be0cC69345D4f80109c66F6d85AD0",
+  "newImplementation": "0x12f8714cB675d24390C3144ea8c1F41817E5766E",
+  "owner": "0x8d6e3DC16D8B8f9B88d20fc9CD6D12709ed4dc61",
+  "calldata": "0x4f1ef28600000000000000000000000012f8714cb675d24390c3144ea8c1f41817e5766e00000000000000000000000000000000000000000000000000000000000000400000000000000000000000000000000000000000000000000000000000000000",
+  "value": "0",
+  "timestamp": "2026-01-21T02:41:14.894Z",
+  "safeUrl": "https://app.safe.global/",
+  "instructions": {
+    "step1": "Open Safe at https://app.safe.global/",
+    "step2": "Go to Apps -> Transaction Builder",
+    "step3": "Enter transaction data",
+    "step4": "Add transaction and review",
+    "step5": "Create batch and collect signatures",
+    "step6": "Execute when threshold is reached"
+  }
+}
