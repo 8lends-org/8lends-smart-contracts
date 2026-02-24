@@ -9,7 +9,7 @@ Instructions for updating contracts when the owner is a Gnosis Safe multisig.
 Run the script to deploy a new implementation and generate data:
 
 ```bash
-CONTRACT=Fundraise npx hardhat run scripts/11_prepare_upgrade_for_multisig.ts --network base
+CONTRACT=Fundraise npx hardhat run scripts/prepare-upgrade-for-multisig.ts --network base
 ```
 
 The script will output:
@@ -48,14 +48,14 @@ The script will output:
 ### 5. Verification
 
 ```bash
-CONTRACT=Fundraise npx hardhat run scripts/12_verify_upgrade.ts --network base
+CONTRACT=Fundraise npx hardhat run scripts/verify-upgrade.ts --network base
 ```
 
 ## Example
 
 ```bash
 # 1. Prepare Fundraise upgrade on Base Mainnet
-CONTRACT=Fundraise npx hardhat run scripts/11_prepare_upgrade_for_multisig.ts --network base
+CONTRACT=Fundraise npx hardhat run scripts/prepare-upgrade-for-multisig.ts --network base
 
 # Output:
 # 📤 DATA FOR TRANSACTION BUILDER IN GNOSIS SAFE
@@ -70,7 +70,7 @@ CONTRACT=Fundraise npx hardhat run scripts/11_prepare_upgrade_for_multisig.ts --
 # 4. Execute transaction
 
 # 5. Verify
-CONTRACT=Fundraise npx hardhat run scripts/12_verify_upgrade.ts --network base
+CONTRACT=Fundraise npx hardhat run scripts/verify-upgrade.ts --network base
 # ✅ UPGRADE SUCCESSFUL! Implementation updated.
 ```
 

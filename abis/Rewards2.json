@@ -698,7 +698,7 @@
     "name": "token",
     "outputs": [
       {
-        "internalType": "contract Token",
+        "internalType": "contract IToken",
         "name": "",
         "type": "address"
       }

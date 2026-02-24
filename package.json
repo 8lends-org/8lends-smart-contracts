@@ -8,7 +8,11 @@
     "test:fundraise": "hardhat test test/Fundraise.test.ts",
     "test:token": "hardhat test test/Token.test.ts",
     "test:additional": "hardhat test test/additional.test.ts",
-    "test:server": "hardhat test test/server/server.test.ts"
+    "test:server": "hardhat test test/server/server.test.ts",
+    "test:oracle": "hardhat test test/Oracle.test.ts",
+    "test:oracle:base": "hardhat test test/Oracle.test.ts --network forked_base",
+    "test:oracle:base:local": "hardhat test test/Oracle.test.ts --network forked_base_local",
+    "test:lending": "hardhat test test/lending/Lending8.test.ts"
   },
   "author": "",
   "license": "ISC",

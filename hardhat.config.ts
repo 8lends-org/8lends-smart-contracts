@@ -5,7 +5,10 @@ import "@nomicfoundation/hardhat-chai-matchers";
 import "@openzeppelin/hardhat-upgrades";
 import "hardhat-gas-reporter"
 import '@typechain/hardhat'
-import "hardhat-tracer";
+// hardhat-tracer подключать только при тестах/запуске ноды — при compile инициирует провайдер и падает с "missing field _format" (EDR/Hardhat 2.26).
+if (!process.argv.includes("compile")) {
+    require("hardhat-tracer");
+}
 import "@nomicfoundation/hardhat-verify";
 import "hardhat-abi-exporter";
 
@@ -43,26 +46,17 @@ const config: HardhatUserConfig = {
                 mnemonic: process.env.OWNER_MNEMONIC_PROD,
             }
         },
-        forked_base: {
-            chainId: 8453,
-            url: process.env.BASE_RPC_URL || '',
-            forking: {
-                url: process.env.BASE_RPC_URL || '',
-                blockNumber: 35496625,
-            },
-            accounts: {
-                mnemonic: "test test test test test test test test test test test junk",
-                count: 10
-            }
-        },
         hardhat: {
             gasPrice: 100000000000,
             chainId: 31337,
+            hardfork: "cancun",
             // allowUnlimitedContractSize: true,
             forking: {
-                enabled: true,
-                url: process.env.ETHEREUM_RPC_URL || '',
-            }
+                enabled: false,
+                url: process.env.BASE_RPC_URL || '',
+                blockNumber: 42103098,
+                // Фиксированный блок: RPC часто даёт -32001 на "latest"; можно переопределить через BASE_FORK_BLOCK
+            },
         },
         base_sepolia: {
             chainId: 84532,
@@ -94,7 +88,7 @@ const config: HardhatUserConfig = {
         runOnCompile: true,
         clear: true,
         flat: true,
-        only: [':Fundraise$', ':RewardSystem$', ':Treasury$', ':Token$', ':ManagerRegistry$', ':Rewards2$', ':Market$'],
+        only: [':Fundraise$', ':RewardSystem$', ':Treasury$', ':Token$', ':ManagerRegistry$', ':Rewards2$', ':Market$', ':Lending8$', ':Oracle$', ':AdaptiveCurveIrm$'],
         spacing: 2,
         format: 'json',
     },
