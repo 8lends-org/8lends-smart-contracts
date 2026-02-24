@@ -9,10 +9,13 @@ const contractName = process.env.CONTRACT;
 
 if (!contractName) {
   console.error(
-    "Usage: CONTRACT=<ContractName> npx hardhat run scripts/8.0.update_contract.ts --network <network>"
+    "Usage: CONTRACT=<ContractName> npx hardhat run scripts/contract-update.ts --network <network>"
   );
   console.error(
-    "Example: CONTRACT=Fundraise npx hardhat run scripts/8.0.update_contract.ts --network base"
+    "Example: CONTRACT=Fundraise npx hardhat run scripts/contract-update.ts --network base"
+  );
+  console.error(
+    "Example: CONTRACT=LimitedSeller npx hardhat run scripts/contract-update.ts --network base"
   );
   process.exit(1);
 }

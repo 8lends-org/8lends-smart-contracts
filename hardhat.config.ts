@@ -32,13 +32,6 @@ const config: HardhatUserConfig = {
         ]
     },
     networks: {
-        ethereum: {
-            chainId: 1,
-            url: process.env.ETHEREUM_RPC_URL,
-            accounts: {
-                mnemonic: process.env.OWNER_MNEMONIC_PROD,
-            }
-        },
         base: {
             chainId: 8453,
             url: process.env.BASE_RPC_URL,
@@ -58,20 +51,6 @@ const config: HardhatUserConfig = {
                 // Фиксированный блок: RPC часто даёт -32001 на "latest"; можно переопределить через BASE_FORK_BLOCK
             },
         },
-        base_sepolia: {
-            chainId: 84532,
-            url: process.env.BASE_SEPOLIA_RPC_URL || '',
-            accounts: {
-                mnemonic: process.env.OWNER_MNEMONIC_DEV
-            }
-        },
-        unichain_sepolia: {
-            chainId: 1301,
-            url: process.env.UNICHAIN_SEPOLIA_RPC_URL,
-            accounts: {
-                mnemonic: process.env.OWNER_MNEMONIC_DEV
-            }
-        },
         sepolia: {
             chainId: 11155111,
             url: process.env.ETHEREUM_SEPOLIA_RPC_URL,
@@ -88,7 +67,7 @@ const config: HardhatUserConfig = {
         runOnCompile: true,
         clear: true,
         flat: true,
-        only: [':Fundraise$', ':RewardSystem$', ':Treasury$', ':Token$', ':ManagerRegistry$', ':Rewards2$', ':Market$', ':Lending8$', ':Oracle$', ':AdaptiveCurveIrm$'],
+        only: [':Fundraise$', ':RewardSystem$', ':Treasury$', ':Token$', ':ManagerRegistry$', ':Rewards2$', ':Market$', ':Lending8$', ':Oracle$', ':AdaptiveCurveIrm$', ':LimitedSeller$'],
         spacing: 2,
         format: 'json',
     },

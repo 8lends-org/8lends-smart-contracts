@@ -1,8 +1,11 @@
-// SPDX-License-Identifier: UNLICENSED
+// SPDX-License-Identifier: MIT
 pragma solidity ^0.8.23;
 
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
+/**
+ * @notice Minimal Fundraise interface for LimitedSeller: read-only view of projects and investor info.
+ */
 interface IFundraise {
     enum Stage {
         ComingSoon,
@@ -43,8 +46,4 @@ interface IFundraise {
     function projects(uint256 _projectId) external view returns (Project memory);
 
     function investorInfo(address _investor, uint256 _projectId) external view returns (InvestorInfo memory);
-
-    function transferInvestment(uint256 _projectId, address _from, address _to, bool _onlyFundedStage, uint256 _id) external;
-
-    function BASIS_POINTS() external view returns (uint256);
 }

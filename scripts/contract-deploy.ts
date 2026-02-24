@@ -1,9 +1,21 @@
 import dotenv from "dotenv";
 import hre, { ethers } from "hardhat";
 import { upgrades } from "hardhat";
+import * as readline from "readline";
 import { readJsonFile, writeJsonFile } from "./helpers";
 
 dotenv.config();
+
+function askConfirm(question: string): Promise<boolean> {
+  const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
+  return new Promise((resolve) => {
+    rl.question(question, (answer) => {
+      rl.close();
+      const normalized = answer.trim().toLowerCase();
+      resolve(normalized === "yes" || normalized === "y");
+    });
+  });
+}
 
 type Config = Record<string, string>;
 
@@ -92,10 +104,10 @@ const DEPLOY_DESCRIPTORS: Record<string, DeployDescriptor> = {
     useProxy: true,
     initializer: "initialize",
     getProxyArgs: (config) => {
-      if (!config.ManagerRegistry || !config.token || !config.usdc || !config.uniswapV2Router) {
-        throw new Error("ManagerRegistry, token, usdc, uniswapV2Router required in config");
+      if (!config.ManagerRegistry || !config.token || !config.USDC || !config.uniswapV2Router) {
+        throw new Error("ManagerRegistry, token, USDC, uniswapV2Router required in config");
       }
-      return [config.ManagerRegistry, config.token, config.usdc, config.uniswapV2Router];
+      return [config.ManagerRegistry, config.token, config.USDC, config.uniswapV2Router];
     },
     configKey: "RewardSystem",
     configKeyImpl: "RewardSystem_impl",
@@ -104,10 +116,10 @@ const DEPLOY_DESCRIPTORS: Record<string, DeployDescriptor> = {
     useProxy: true,
     initializer: "initialize",
     getProxyArgs: (config) => {
-      if (!config.ManagerRegistry || !config.token || !config.usdc || !config.uniswapV2Router) {
-        throw new Error("ManagerRegistry, token, usdc, uniswapV2Router required in config");
+      if (!config.ManagerRegistry || !config.token || !config.USDC || !config.uniswapV2Router) {
+        throw new Error("ManagerRegistry, token, USDC, uniswapV2Router required in config");
       }
-      return [config.ManagerRegistry, config.token, config.usdc, config.uniswapV2Router];
+      return [config.ManagerRegistry, config.token, config.USDC, config.uniswapV2Router];
     },
     configKey: "Rewards2",
     configKeyImpl: "Rewards2_impl",
@@ -121,6 +133,39 @@ const DEPLOY_DESCRIPTORS: Record<string, DeployDescriptor> = {
     },
     configKey: "Market",
     configKeyImpl: "Market_impl",
+  },
+  LimitedSeller: {
+    useProxy: true,
+    initializer: "initialize",
+    getProxyArgs: (config) => {
+      if (
+        !config.Fundraise ||
+        !config.ManagerRegistry ||
+        !config.uniswapV2Router ||
+        !config.USDC ||
+        !config.token
+      ) {
+        console.log("Fundraise:", config.Fundraise);
+        console.log("ManagerRegistry:", config.ManagerRegistry);
+        console.log("uniswapV2Router:", config.uniswapV2Router);
+        console.log("USDC:", config.USDC);
+        console.log("token:", config.token);
+        throw new Error(
+          "Fundraise, ManagerRegistry, uniswapV2Router, USDC, token required in config"
+        );
+      }
+      const percent = process.env.LIMITED_SELLER_PERCENT ?? "60000"; // 6% in 1e6 basis points
+      return [
+        config.Fundraise,
+        config.uniswapV2Router,
+        config.USDC,
+        config.token,
+        percent,
+        config.ManagerRegistry,
+      ];
+    },
+    configKey: "LimitedSeller",
+    configKeyImpl: "LimitedSeller_impl",
   },
   Token: {
     useProxy: false,
@@ -140,8 +185,8 @@ const DEPLOY_DESCRIPTORS: Record<string, DeployDescriptor> = {
     useProxy: true,
     initializer: "initialize",
     getProxyArgs: (_config, owner) => [owner, "Test usdt", "TUSDT"],
-    configKey: "usdc",
-    configKeyImpl: "usdc_impl",
+    configKey: "USDC",
+    configKeyImpl: "USDC_impl",
   },
 };
 
@@ -167,6 +212,14 @@ async function main(): Promise<void> {
   console.log("Owner:", owner);
   const balance = await ethers.provider.getBalance(owner);
   console.log("Owner native balance:", ethers.formatEther(balance));
+
+  const confirmed = await askConfirm(
+    `\nDo you want to deploy ${contractName} to ${net.name} (chainId: ${net.chainId})? (yes/no): `
+  );
+  if (!confirmed) {
+    console.log("Deployment cancelled.");
+    return;
+  }
 
   const Factory = await hre.ethers.getContractFactory(contractName);
   let proxyOrContractAddress: string;

@@ -16,12 +16,14 @@ contract ManagerRegistry is Initializable, OwnableUpgradeable, UUPSUpgradeable {
     mapping(address => address) public investorClaimAddresses; // investor => claimAddress
     address public rewards2Address;
     address public marketAddress;
+    address public limitedSellerAddress;
 
     event ManagerUpdated(address manager, bool status);
     event PoolUpdated(address pool, bool status);
     event InvestorClaimAddressSet(address indexed investor, address indexed claimAddress);
     event Rewards2AddressSet(address indexed rewards2Address);
     event MarketAddressSet(address indexed market);
+    event LimitedSellerAddressSet(address indexed limitedSeller);
     /// @custom:oz-upgrades-unsafe-allow constructor
     constructor() {
         _disableInitializers();
@@ -39,6 +41,7 @@ contract ManagerRegistry is Initializable, OwnableUpgradeable, UUPSUpgradeable {
     /// @param _statuses Manager status
     function setManagerStatusBatch(address[] memory _managers, bool[] memory _statuses) external {
         require(managers[msg.sender] || msg.sender == owner(), "ManagerRegistry: Not a manager");
+        require(_managers.length == _statuses.length, "ManagerRegistry: length mismatch");
         for (uint256 i = 0; i < _managers.length; i++) {
             managers[_managers[i]] = _statuses[i];
             emit ManagerUpdated(_managers[i], _statuses[i]);
@@ -66,7 +69,7 @@ contract ManagerRegistry is Initializable, OwnableUpgradeable, UUPSUpgradeable {
     /// @param _pool Pool addr
     /// @param _status Pool status
     function setPoolStatusForReward(address _pool, bool _status) external {
-        require(isRewardSystem(msg.sender), "ManagerRegistry: Not a reward system");
+        require(isRewardSystem(msg.sender) || isLimitedSeller(msg.sender), "ManagerRegistry: Not a reward system or limited seller");
         pools[_pool] = _status;
         emit PoolUpdated(_pool, _status);
     }
@@ -161,5 +164,20 @@ contract ManagerRegistry is Initializable, OwnableUpgradeable, UUPSUpgradeable {
     function setMarketAddress(address _market) external onlyOwner {
         marketAddress = _market;
         emit MarketAddressSet(_market);
+    }
+
+    /// @notice View function for checking eligibility to call
+    /// @param addr Limited seller addr
+    /// @return bool
+    function isLimitedSeller(address addr) public view returns (bool) {
+        if (limitedSellerAddress == address(0)) return false;
+        return limitedSellerAddress == addr;
+    }
+
+    /// @notice Set limited seller address
+    /// @param _limitedSeller Limited seller addr
+    function setLimitedSellerAddress(address _limitedSeller) external onlyOwner {
+        limitedSellerAddress = _limitedSeller;
+        emit LimitedSellerAddressSet(_limitedSeller);
     }
 }
