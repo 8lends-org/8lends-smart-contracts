@@ -199,7 +199,7 @@ contract Oracle is Initializable, UUPSUpgradeable, OwnableUpgradeable {
         if (pyth == address(0)) return (0, 0);
         bytes32 id = pythPriceIds[_token];
         if (id == bytes32(0)) return (0, 0);
-        try IPyth(pyth).getPrice(id) returns (IPyth.Price memory priceData) {
+        try IPyth(pyth).getPriceUnsafe(id) returns (IPyth.Price memory priceData) {
             int64 p = priceData.price;
             int32 expo = priceData.expo;
             if (p <= 0) return (0, 0);
