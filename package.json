@@ -8,7 +8,16 @@
     "test:fundraise": "hardhat test test/Fundraise.test.ts",
     "test:token": "hardhat test test/Token.test.ts",
     "test:additional": "hardhat test test/additional.test.ts",
-    "test:server": "hardhat test test/server/server.test.ts"
+    "test:server": "hardhat test test/server/server.test.ts",
+    "forge:build": "forge build",
+    "forge:test": "forge test -vvv",
+    "forge:test:unit": "forge test --match-path 'test/foundry/unit/*' -vvv",
+    "forge:test:fuzz": "forge test --match-path 'test/foundry/fuzz/*' -vvv",
+    "forge:test:invariant": "forge test --match-path 'test/foundry/invariant/*' -vvv",
+    "forge:coverage": "forge coverage",
+    "slither": "slither . --config-file slither.config.json",
+    "slither:high": "slither . --config-file slither.config.json --exclude-informational --exclude-low",
+    "slither:triage": "slither . --config-file slither.config.json --triage-mode"
   },
   "author": "",
   "license": "ISC",
