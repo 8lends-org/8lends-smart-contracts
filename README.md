@@ -1,3 +1,17 @@
+[![Forge Tests](https://github.com/8lends-org/8lends-smart-contracts/actions/workflows/ci.yml/badge.svg?branch=main&event=push&job=forge-test)](https://github.com/8lends-org/8lends-smart-contracts/actions/workflows/ci.yml)
+[![Hardhat Tests](https://github.com/8lends-org/8lends-smart-contracts/actions/workflows/ci.yml/badge.svg?branch=main&event=push&job=hardhat-test)](https://github.com/8lends-org/8lends-smart-contracts/actions/workflows/ci.yml)
+[![Slither](https://github.com/8lends-org/8lends-smart-contracts/actions/workflows/ci.yml/badge.svg?branch=main&event=push&job=slither)](https://github.com/8lends-org/8lends-smart-contracts/actions/workflows/ci.yml)
+[![Coverage](https://img.shields.io/endpoint?url=https://gist.githubusercontent.com/oleg8lend/c4e8201ab2aff9e57bda9ce7aace23d6/raw/coverage-badge.json)](https://github.com/8lends-org/8lends-smart-contracts/actions/workflows/ci.yml)
+[![Solidity](https://img.shields.io/badge/Solidity-0.8.23-363636?logo=solidity)](https://soliditylang.org)
+[![OpenZeppelin](https://img.shields.io/badge/OpenZeppelin-5.4-blue?logo=openzeppelin)](https://openzeppelin.com/contracts)
+[![Hardhat](https://img.shields.io/badge/Built%20with-Hardhat-yellow?logo=hardhat)](https://hardhat.org)
+[![Foundry](https://img.shields.io/badge/Tests-Foundry-red)](https://book.getfoundry.sh)
+[![UUPS Proxy](https://img.shields.io/badge/Proxy-UUPS%20Upgradeable-orange)](https://docs.openzeppelin.com/contracts/5.x/api/proxy)
+[![Network: Base](https://img.shields.io/badge/Network-Base-0052FF?logo=coinbase)](https://base.org)
+[![Network: Ethereum](https://img.shields.io/badge/Network-Ethereum-3C3C3D?logo=ethereum)](https://ethereum.org)
+[![Fuzz Testing](https://img.shields.io/badge/Fuzz%20Testing-1024%20runs-purple)](https://book.getfoundry.sh/reference/config/testing)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow)](LICENSE)
+
 # 8lends Smart Contracts Overview
 
 ## System Architecture
