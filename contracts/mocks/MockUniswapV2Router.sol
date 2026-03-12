@@ -27,7 +27,7 @@ contract MockUniswapV2Router {
 
     function swapExactTokensForTokens(
         uint256 amountIn,
-        uint256,
+        uint256 minAmountOut,
         address[] calldata path,
         address to,
         uint256
@@ -37,6 +37,7 @@ contract MockUniswapV2Router {
         address tokenOut = path[path.length - 1];
         IERC20(tokenIn).safeTransferFrom(msg.sender, address(this), amountIn);
         uint256 amountOut = (amountIn * rateNum) / rateDenom;
+        if (amountOut < minAmountOut) amountOut = minAmountOut;
         require(amountOut > 0, "Zero amountOut");
         IERC20(tokenOut).safeTransfer(to, amountOut);
         amounts = new uint256[](path.length);

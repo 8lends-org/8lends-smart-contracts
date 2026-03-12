@@ -205,10 +205,6 @@ contract LimitedSeller is Initializable, UUPSUpgradeable, OwnableUpgradeable {
         _limitedBuy(usdcAmount, minTokensAmount, projectIds);
     }
 
-    function limitedBuy(uint256 usdcAmount, uint256 minTokensAmount, uint256[] memory projectIds) external {
-        _limitedBuy(usdcAmount, minTokensAmount, projectIds);
-    }
-
     function _splitSignature(bytes memory sig) internal pure returns (bytes32 r, bytes32 s, uint8 v) {
         require(sig.length == 65, "Invalid signature length");
         assembly {
