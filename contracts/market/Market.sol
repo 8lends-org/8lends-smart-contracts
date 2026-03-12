@@ -106,6 +106,8 @@ contract Market is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentranc
     function sell(uint256 _projectId, uint256 _price) external nonReentrant returns (uint256 saleId) {
         address fundraiseAddress = getFundraise();
         address seller = msg.sender;
+        require(IManagerRegistry(managerRegistry).getInvestorClaimAddress(seller) == seller, "Seller is compromised");
+
         require(activeSaleIds[seller][_projectId] == 0, "Active sale exists");
         IFundraise.InvestorInfo memory investor = IFundraise(fundraiseAddress).investorInfo(seller, _projectId);
         require(investor.investedAmount > 0, "No investment found");
@@ -146,12 +148,29 @@ contract Market is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentranc
         return saleId;
     }
 
-    /// @notice Buy investment - transfers investment from market cell to buyer and payment to seller
+    /// @notice Buy with KYC - verifies trustedSigner signature then calls buy(_saleId)
     /// @param _saleId Sale ID to buy
-    function buy(uint256 _saleId) external nonReentrant {
+    /// @param _sig Signature from backend (trustedSigner): sign(buyer, saleId, nonce)
+    function buy(uint256 _saleId, bytes memory _sig) external nonReentrant {
         require(_saleId > 0 && _saleId <= saleCount, "Invalid sale ID");
         address fundraiseAddress = getFundraise();
+        address trustedSignerAddr = IFundraise(fundraiseAddress).trustedSigner();
+        require(trustedSignerAddr != address(0), "Trusted signer not set");
+        bytes32 messageHash = keccak256(abi.encodePacked(msg.sender, _saleId));
+        bytes32 ethSignedMessageHash = keccak256(
+            abi.encodePacked("\x19Ethereum Signed Message:\n32", messageHash)
+        );
+        (bytes32 r, bytes32 s, uint8 v) = _splitSignature(_sig);
+        require(uint256(s) <= 0x7FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF5D576E7357A4501DDFE92F46681B20A0, "Invalid signature s");
+        address signer = ecrecover(ethSignedMessageHash, v, r, s);
+        require(signer != address(0), "Invalid signature");
+        require(signer == trustedSignerAddr, "Not trusted signer");
+        _executeBuy(_saleId, fundraiseAddress);
+    }
+
+    function _executeBuy(uint256 _saleId, address fundraiseAddress) internal {
         Sale storage sale = sales[_saleId];
+        require(IManagerRegistry(managerRegistry).getInvestorClaimAddress(sale.seller) == sale.seller, "Seller is compromised");
         require(sale.status == SaleStatus.Active, "Sale not active");
         require(msg.sender != sale.seller, "Cannot buy own sale");
         IFundraise.InvestorInfo memory marketCellInfo = IFundraise(fundraiseAddress).investorInfo(sale.marketCell, sale.projectId);
@@ -172,6 +191,15 @@ contract Market is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentranc
         emit SaleBought(_saleId, msg.sender, sale.seller, sale.projectId);
         if (feeAmount > 0) {
             emit FeeCollected(address(loanToken), feeAmount);
+        }
+    }
+
+    function _splitSignature(bytes memory sig) internal pure returns (bytes32 r, bytes32 s, uint8 v) {
+        require(sig.length == 65, "Invalid signature length");
+        assembly {
+            r := mload(add(sig, 32))
+            s := mload(add(sig, 64))
+            v := byte(0, mload(add(sig, 96)))
         }
     }
 

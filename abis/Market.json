@@ -375,6 +375,11 @@
         "internalType": "uint256",
         "name": "_saleId",
         "type": "uint256"
+      },
+      {
+        "internalType": "bytes",
+        "name": "_sig",
+        "type": "bytes"
       }
     ],
     "name": "buy",

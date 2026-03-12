@@ -46,4 +46,6 @@ interface IFundraise {
     function projects(uint256 _projectId) external view returns (Project memory);
 
     function investorInfo(address _investor, uint256 _projectId) external view returns (InvestorInfo memory);
+
+    function trustedSigner() external view returns (address);
 }

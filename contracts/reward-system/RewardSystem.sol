@@ -205,11 +205,19 @@ contract RewardSystem is Initializable, UUPSUpgradeable, OwnableUpgradeable, Ree
     /// @notice Activate project rewards (called when transitioning to Stage.Funded)
     /// @param _projectId Project ID
     function activateProjectRewards(uint256 _projectId, uint256 _totalInvested) external onlyFundraise {
+        _activateProjectRewards(_projectId, _totalInvested, 0);
+    }
+    
+    function activateProjectRewards(uint256 _projectId, uint256 _totalInvested, uint256 _maxUSDNeeded) external onlyFundraise {
+        _activateProjectRewards(_projectId, _totalInvested, _maxUSDNeeded);
+    }
+
+    function _activateProjectRewards(uint256 _projectId, uint256 _totalInvested, uint256 _maxUSDNeeded) internal {
         if(projectVestingStartTime[_projectId] == 0) {
             projectVestingStartTime[_projectId] = block.timestamp;
             emit ProjectRewardsActivated(_projectId, block.timestamp);
             if (_totalInvested > 0) {
-                _mintRewardsForProject(_projectId);
+                _mintRewardsForProject(_projectId, _maxUSDNeeded);
             }
         }
     }
@@ -330,7 +338,7 @@ contract RewardSystem is Initializable, UUPSUpgradeable, OwnableUpgradeable, Ree
     /// @notice set parameters
     /// @param _referralPercentage referral percentage 60000 is 6%
     /// @param _burnPercentage burn percentage 60000 is 6%
-    /// @param _tokenPercentage token percentage 60 is 6%
+    /// @param _tokenPercentage token percentage 60000 is 6%
     /// @param _welcomeBonusAmount welcome bonus amount 30_000_000 is 30 USDC
     /// @param _minInvestmentForBonus min investment for bonus 1000000000 is 1000 USDC
     /// @param _weeklyUnlock weekly unlock 2_500_000 is 2.5%
@@ -558,8 +566,10 @@ contract RewardSystem is Initializable, UUPSUpgradeable, OwnableUpgradeable, Ree
         }
     }
 
-    function withdraw(address _token, uint256 _amount, address _recepient) external onlyOwner {
-        IERC20(_token).safeTransfer(_recepient, _amount);
+    function withdraw(address _token, uint256 _amount, address _recipient) external onlyOwner nonReentrant {
+        require(_token != address(0), "Invalid token");
+        require(_recipient != address(0), "Invalid recipient");
+        IERC20(_token).safeTransfer(_recipient, _amount);
     }
 
     function sendTokensForProjectToUserBatch(address[] calldata _users, uint256[] calldata _projectIds) external onlyManager {
@@ -810,11 +820,11 @@ contract RewardSystem is Initializable, UUPSUpgradeable, OwnableUpgradeable, Ree
         }
     }
 
-    function mintRewardsTWAP(uint256 _amount) external onlyOwner {
-        _mintRewards(_amount);
+    function mintRewardsTWAP(uint256 _amount, uint256 _maxUSDNeeded) external onlyOwner {
+        _mintRewards(_amount, _maxUSDNeeded);
     }
 
-    function _mintRewards(uint256 tokensForMint) internal {
+    function _mintRewards(uint256 tokensForMint, uint256 maxUSDNeeded) internal {
         IToken(token).mintReward(address(this), tokensForMint);
         
         // Buy back tokens from pool (USDC -> Token) and burn them
@@ -831,12 +841,16 @@ contract RewardSystem is Initializable, UUPSUpgradeable, OwnableUpgradeable, Ree
             } catch {
                 revert("Failed to calculate USDC needed for tokens");
             }
+
+            // Check if maxUSDNeeded is set, if not, set it to 1% more than exactUSDNeeded
+            if(maxUSDNeeded == 0)  maxUSDNeeded = (exactUSDNeeded * 101) / 100;
             
-            // Add 1% slippage tolerance
-            uint256 maxUSDNeeded = (exactUSDNeeded * 101) / 100;
-            if (maxUSDNeeded > usdc.balanceOf(address(this))) {
-                revert("Not enough USDC to buy tokens");
-            }
+            // Check if exactUSDNeeded is greater than maxUSDNeeded, if so, revert
+            if (exactUSDNeeded > maxUSDNeeded) revert("Exceeds max USDC needed");
+            
+            // Check if maxUSDNeeded is greater than the balance of USDC in the contract, if so, revert
+            if (maxUSDNeeded > usdc.balanceOf(address(this))) revert("Not enough USDC to buy tokens");
+            
             
             usdc.approve(address(uniswapRouter), maxUSDNeeded);
             
@@ -850,14 +864,14 @@ contract RewardSystem is Initializable, UUPSUpgradeable, OwnableUpgradeable, Ree
         }
     }
 
-    function _mintRewardsForProject(uint256 _projectId) internal {
+    function _mintRewardsForProject(uint256 _projectId, uint256 _maxUSDNeeded) internal {
         uint256 tokensForMint = rewardTokensAmount[_projectId];
         if (tokensForMint > 0) {
-            _mintRewards(tokensForMint);
+            _mintRewards(tokensForMint, _maxUSDNeeded);
         }
     }
 
-    function mintRewardsForProject(uint256 _projectId) external onlyOwner {
-        _mintRewardsForProject(_projectId);
+    function mintRewardsForProject(uint256 _projectId, uint256 _maxUSDNeeded) external onlyOwner {
+        _mintRewardsForProject(_projectId, _maxUSDNeeded);
     }
 }

@@ -262,36 +262,50 @@ contract Fundraise is Initializable, UUPSUpgradeable, OwnableUpgradeable, Merkle
 
 
 
-    /// @notice When project is funded, transfer money for a borrower
-    /// @param _projectId Project info
+    
     function transferFundsToBorrower(uint256 _projectId) external {
+        _transferFundsToBorrower(_projectId, 0);
+    }
+
+    function transferFundsToBorrower(uint256 _projectId, uint256 _maxUSDForReward) external {
+        _transferFundsToBorrower(_projectId, _maxUSDForReward);
+    }
+
+    /// @notice When project is funded, transfer money for a borrower with max USD for reward
+    /// @param _projectId Project info
+    function _transferFundsToBorrower(uint256 _projectId, uint256 _maxUSDForReward) internal {
         Project storage project = projects[_projectId];
+        require(_projectId < projectCount, "Project does not exist");
         if (msg.sender != project.innerStruct.borrower) {
             if (!IManagerRegistry(managerRegistry).isManager(msg.sender)) revert("Not a manager");
         }
-        require(_projectId < projectCount, "Project does not exist");
-        if (project.innerStruct.stage == Stage.Open || project.innerStruct.stage == Stage.PreFunded) {
-            if (project.innerStruct.stage == Stage.Open) {
-                if (project.totalInvested < project.softCap) revert("Not funded enough");
-            }
-
-            uint256 platformFee = (project.totalInvested * project.innerStruct.platformInterestRate) / BASIS_POINTS;
-            project.innerStruct.loanToken.safeTransfer(
-                project.innerStruct.borrower, project.totalInvested - platformFee
-            );
-            project.innerStruct.stage = Stage.Funded;
-            project.innerStruct.fundedTime = block.timestamp;
-
-            if (platformFee > 0) project.innerStruct.loanToken.safeTransfer(treasury, platformFee);
-
-            if (rewardSystem != address(0)) {
-                IRewardSystem(rewardSystem).activateProjectRewards(_projectId, project.totalInvested);
-            }
-
-            emit ProjectFunded(_projectId, project.innerStruct.borrower, project.totalInvested, platformFee);
-            emit ProjectStatusChanged(_projectId, uint8(Stage.Funded));
+        require(
+            project.innerStruct.stage == Stage.Open || project.innerStruct.stage == Stage.PreFunded,
+            "Invalid stage for transfer"
+        );
+        
+        if (project.innerStruct.stage == Stage.Open) {
+            if (project.totalInvested < project.softCap) revert("Not funded enough");
         }
+
+        uint256 platformFee = (project.totalInvested * project.innerStruct.platformInterestRate) / BASIS_POINTS;
+        project.innerStruct.loanToken.safeTransfer(
+            project.innerStruct.borrower, project.totalInvested - platformFee
+        );
+        project.innerStruct.stage = Stage.Funded;
+        project.innerStruct.fundedTime = block.timestamp;
+
+        if (platformFee > 0) project.innerStruct.loanToken.safeTransfer(treasury, platformFee);
+
+        if (rewardSystem != address(0)) {
+            IRewardSystem(rewardSystem).activateProjectRewards(_projectId, project.totalInvested, _maxUSDForReward);
+        }
+
+        emit ProjectFunded(_projectId, project.innerStruct.borrower, project.totalInvested, platformFee);
+        emit ProjectStatusChanged(_projectId, uint8(Stage.Funded));
+        
     }
+
 
     /// @notice Borrower repays money for a user
     /// @param _projectId Project info

@@ -80,4 +80,7 @@ library ErrorsLib {
 
     /// @notice Thrown when the maximum uint128 is exceeded.
     string internal constant MAX_UINT128_EXCEEDED = "max uint128 exceeded";
+
+    /// @notice Thrown when flash loan assets were not returned to the contract by end of callback.
+    string internal constant FLASH_LOAN_NOT_RETURNED = "flash loan not returned";
 }

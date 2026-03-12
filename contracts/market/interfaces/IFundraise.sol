@@ -47,4 +47,6 @@ interface IFundraise {
     function transferInvestment(uint256 _projectId, address _from, address _to, bool _onlyFundedStage, uint256 _id) external;
 
     function BASIS_POINTS() external view returns (uint256);
+
+    function trustedSigner() external view returns (address);
 }

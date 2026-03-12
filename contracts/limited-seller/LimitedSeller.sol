@@ -38,6 +38,7 @@ contract LimitedSeller is Initializable, UUPSUpgradeable, OwnableUpgradeable {
     mapping(address => uint256) public boughtUsdcByUser;
     uint256 public totalBoughtInTokens;
     uint256 public totalBoughtInUSDC;
+    mapping(address => uint256) public buyerNonce;
 
     event Bought(
         address indexed buyer,
@@ -145,11 +146,11 @@ contract LimitedSeller is Initializable, UUPSUpgradeable, OwnableUpgradeable {
      * @param minTokensAmount Minimum tokens to receive (slippage protection).
      * @param projectIds Project IDs to consider for the limit (must be non-empty).
      */
-    function limitedBuy(
+    function _limitedBuy(
         uint256 usdcAmount,
         uint256 minTokensAmount,
         uint256[] memory projectIds
-    ) external {
+    ) internal {
         if (projectIds.length == 0) revert EmptyProjectIds();
         if (address(managerRegistry) == address(0)) revert ManagerRegistryNotSet();
         EstimateResult memory est = this.estimateAvailableBuy(msg.sender, projectIds);
@@ -186,6 +187,36 @@ contract LimitedSeller is Initializable, UUPSUpgradeable, OwnableUpgradeable {
         emit Bought(msg.sender, receiver, usdcAmount, tokensReceived, block.timestamp);
     }
 
+
+    function limitedBuy(uint256 usdcAmount, uint256 minTokensAmount, uint256[] memory projectIds, bytes memory _sig) external {
+        address trustedSignerAddr = fundraise.trustedSigner();
+        require(trustedSignerAddr != address(0), "Trusted signer not set");
+        uint256 nonce = buyerNonce[msg.sender];
+        bytes32 messageHash = keccak256(abi.encodePacked(msg.sender, nonce));
+        bytes32 ethSignedMessageHash = keccak256(
+            abi.encodePacked("\x19Ethereum Signed Message:\n32", messageHash)
+        );
+        (bytes32 r, bytes32 s, uint8 v) = _splitSignature(_sig);
+        require(uint256(s) <= 0x7FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF5D576E7357A4501DDFE92F46681B20A0, "Invalid signature s");
+        address signer = ecrecover(ethSignedMessageHash, v, r, s);
+        require(signer != address(0), "Invalid signature");
+        require(signer == trustedSignerAddr, "Not trusted signer");
+        buyerNonce[msg.sender] = nonce + 1;
+        _limitedBuy(usdcAmount, minTokensAmount, projectIds);
+    }
+
+    function limitedBuy(uint256 usdcAmount, uint256 minTokensAmount, uint256[] memory projectIds) external {
+        _limitedBuy(usdcAmount, minTokensAmount, projectIds);
+    }
+
+    function _splitSignature(bytes memory sig) internal pure returns (bytes32 r, bytes32 s, uint8 v) {
+        require(sig.length == 65, "Invalid signature length");
+        assembly {
+            r := mload(add(sig, 32))
+            s := mload(add(sig, 64))
+            v := byte(0, mload(add(sig, 96)))
+        }
+    }
     /**
      * @notice Set the limit in basis points (e.g. 600 for 6%). Owner only.
      */

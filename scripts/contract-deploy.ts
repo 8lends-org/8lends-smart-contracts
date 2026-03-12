@@ -188,6 +188,16 @@ const DEPLOY_DESCRIPTORS: Record<string, DeployDescriptor> = {
     configKey: "USDC",
     configKeyImpl: "USDC_impl",
   },
+  FlashLiquidator: {
+    useProxy: true,
+    initializer: "initialize",
+    getProxyArgs: (config, owner) => {
+      if (!config.Lending8) throw new Error("Lending8 required in config");
+      return [config.Lending8, owner];
+    },
+    configKey: "FlashLiquidator",
+    configKeyImpl: "FlashLiquidator_impl",
+  },
 };
 
 async function main(): Promise<void> {
