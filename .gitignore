@@ -34,3 +34,5 @@ period*
 recovery
 
 .idea/
+.docs/
+gasReporterOutput.json

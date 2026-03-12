@@ -402,6 +402,29 @@
         "internalType": "uint256",
         "name": "_totalInvested",
         "type": "uint256"
+      },
+      {
+        "internalType": "uint256",
+        "name": "_maxUSDNeeded",
+        "type": "uint256"
+      }
+    ],
+    "name": "activateProjectRewards",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "_projectId",
+        "type": "uint256"
+      },
+      {
+        "internalType": "uint256",
+        "name": "_totalInvested",
+        "type": "uint256"
       }
     ],
     "name": "activateProjectRewards",
@@ -861,6 +884,11 @@
         "internalType": "uint256",
         "name": "_projectId",
         "type": "uint256"
+      },
+      {
+        "internalType": "uint256",
+        "name": "_maxUSDNeeded",
+        "type": "uint256"
       }
     ],
     "name": "mintRewardsForProject",
@@ -873,6 +901,11 @@
       {
         "internalType": "uint256",
         "name": "_amount",
+        "type": "uint256"
+      },
+      {
+        "internalType": "uint256",
+        "name": "_maxUSDNeeded",
         "type": "uint256"
       }
     ],
@@ -1444,7 +1477,7 @@
       },
       {
         "internalType": "address",
-        "name": "_recepient",
+        "name": "_recipient",
         "type": "address"
       }
     ],
