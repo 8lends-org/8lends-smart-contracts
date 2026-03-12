@@ -52,7 +52,7 @@ contract ManagerRegistryTest is Setup {
 
     function test_setPoolStatusForReward_onlyRewardSystem() public {
         vm.prank(attacker);
-        vm.expectRevert("ManagerRegistry: Not a reward system");
+        vm.expectRevert("ManagerRegistry: Not a reward system or limited seller");
         managerRegistry.setPoolStatusForReward(attacker, true);
     }
 

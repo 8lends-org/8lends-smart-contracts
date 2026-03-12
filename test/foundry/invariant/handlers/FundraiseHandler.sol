@@ -2,8 +2,8 @@
 pragma solidity ^0.8.23;
 
 import "forge-std/Test.sol";
-import "../../../../contracts/Fundraise.sol";
-import "../../../../contracts/ManagerRegistry.sol";
+import {Fundraise} from "../../../../contracts/fundraise/Fundraise.sol";
+import {ManagerRegistry} from "../../../../contracts/manager-registry/ManagerRegistry.sol";
 import "../../mocks/MockUSDC.sol";
 
 /// @notice Handler for Fundraise invariant testing.

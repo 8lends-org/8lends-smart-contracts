@@ -257,7 +257,7 @@ contract Rewards2Test is Setup {
         uint256 balBefore = usdc.balanceOf(recipient);
 
         vm.prank(investor);
-        rewards2.sellTokens(1_000e18, recipient);
+        rewards2.sellTokens(1_000e18, recipient, 0);
 
         uint256 received = usdc.balanceOf(recipient) - balBefore;
         // 1000 tokens / 100 tokens_per_usdc = 10 USDC = 10e6
@@ -267,19 +267,19 @@ contract Rewards2Test is Setup {
     function test_sellTokens_zeroAmount_reverts() public {
         vm.prank(investor);
         vm.expectRevert("Invalid amount");
-        rewards2.sellTokens(0, investor);
+        rewards2.sellTokens(0, investor, 0);
     }
 
     function test_sellTokens_zeroRecipient_reverts() public {
         vm.prank(investor);
         vm.expectRevert("Invalid recipient");
-        rewards2.sellTokens(100e18, address(0));
+        rewards2.sellTokens(100e18, address(0), 0);
     }
 
     function test_sellTokens_insufficientBalance_reverts() public {
         vm.prank(investor);
         vm.expectRevert("Not enough tokens to sell");
-        rewards2.sellTokens(100e18, investor);
+        rewards2.sellTokens(100e18, investor, 0);
     }
 
     // ═══════════════════════════════════════════════════════════════

@@ -2,8 +2,8 @@
 pragma solidity ^0.8.23;
 
 import "forge-std/Test.sol";
-import "../../../../contracts/Rewards2.sol";
-import "../../../../contracts/Token.sol";
+import {Rewards2} from "../../../../contracts/rewards2/Rewards2.sol";
+import {Token} from "../../../../contracts/8lnds/Token.sol";
 import "../../mocks/MockUSDC.sol";
 
 /// @notice Handler for Rewards2 invariant testing.
