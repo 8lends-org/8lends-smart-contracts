@@ -15,6 +15,13 @@ node_modules
 /coverage
 /coverage.json
 
+# Foundry files
+/forge-out
+/cache_forge
+
+# Slither
+slither-report.json
+
 # Hardhat Ignition default folder for deployments against a local node
 ignition/deployments/chain-31337
 scripts/config/
@@ -25,5 +32,7 @@ distribution/
 parse*
 period*
 recovery
+
+.idea/
 .docs/
 gasReporterOutput.json

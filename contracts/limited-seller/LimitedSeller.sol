@@ -6,9 +6,11 @@ import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
 import "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 import "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
+import "@openzeppelin/contracts-upgradeable/utils/ReentrancyGuardUpgradeable.sol";
 import "./interfaces/IFundraise.sol";
 import "./interfaces/IUniswapV2Router02.sol";
 import "./interfaces/IManagerRegistry.sol";
+import "./interfaces/IMarket.sol";
 
 /**
  * @title LimitedSeller
@@ -16,7 +18,7 @@ import "./interfaces/IManagerRegistry.sol";
  *         total investment in Fundraise projects that are Funded or Repaid.
  *         Upgradeable via UUPS.
  */
-contract LimitedSeller is Initializable, UUPSUpgradeable, OwnableUpgradeable {
+contract LimitedSeller is Initializable, UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuardUpgradeable {
     using SafeERC20 for IERC20;
 
     uint256 public constant BASIS_POINTS = 1e6; // 100% = 1_000_000 bp
@@ -39,6 +41,7 @@ contract LimitedSeller is Initializable, UUPSUpgradeable, OwnableUpgradeable {
     uint256 public totalBoughtInTokens;
     uint256 public totalBoughtInUSDC;
     mapping(address => uint256) public buyerNonce;
+    IMarket public market;
 
     event Bought(
         address indexed buyer,
@@ -80,6 +83,7 @@ contract LimitedSeller is Initializable, UUPSUpgradeable, OwnableUpgradeable {
     ) public initializer {
         __Ownable_init(msg.sender);
         __UUPSUpgradeable_init();
+        __ReentrancyGuard_init();
         if (_percent > BASIS_POINTS) revert InvalidPercent();
         fundraise = IFundraise(_fundraise);
         router = IUniswapV2Router02(_router);
@@ -96,6 +100,13 @@ contract LimitedSeller is Initializable, UUPSUpgradeable, OwnableUpgradeable {
      */
     function setManagerRegistry(address _managerRegistry) external onlyOwner {
         managerRegistry = IManagerRegistry(_managerRegistry);
+    }
+
+    /**
+     * @notice Set Market address for secondary investment tracking. Owner only.
+     */
+    function setMarket(address _market) external onlyOwner {
+        market = IMarket(_market);
     }
 
     function _authorizeUpgrade(address newImplementation) internal override onlyOwner {}
@@ -125,7 +136,12 @@ contract LimitedSeller is Initializable, UUPSUpgradeable, OwnableUpgradeable {
                         || project.innerStruct.stage == IFundraise.Stage.Repaid
                 ) {
                     IFundraise.InvestorInfo memory info = fundraise.investorInfo(user, i);
-                    result.fundedProjectsInvestedTotal += info.investedAmount;
+                    uint256 primaryInvested = info.investedAmount;
+                    if (address(market) != address(0)) {
+                        uint256 secondary = market.secondaryInvestedAmount(user, i);
+                        primaryInvested = primaryInvested > secondary ? primaryInvested - secondary : 0;
+                    }
+                    result.fundedProjectsInvestedTotal += primaryInvested;
                 }
             }
             unchecked {
@@ -188,7 +204,7 @@ contract LimitedSeller is Initializable, UUPSUpgradeable, OwnableUpgradeable {
     }
 
 
-    function limitedBuy(uint256 usdcAmount, uint256 minTokensAmount, uint256[] memory projectIds, bytes memory _sig) external {
+    function limitedBuy(uint256 usdcAmount, uint256 minTokensAmount, uint256[] memory projectIds, bytes memory _sig) external nonReentrant {
         address trustedSignerAddr = fundraise.trustedSigner();
         require(trustedSignerAddr != address(0), "Trusted signer not set");
         uint256 nonce = buyerNonce[msg.sender];

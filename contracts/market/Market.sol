@@ -47,6 +47,9 @@ contract Market is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentranc
     uint256 public platformFee;
     mapping(address => uint256) public accumulatedFees;
 
+    /// @notice Tracks total investment amounts acquired via secondary market per user per project
+    mapping(address => mapping(uint256 => uint256)) public secondaryInvestedAmount;
+
     event SaleCreated(
         uint256 indexed saleId,
         address indexed seller,
@@ -183,6 +186,8 @@ contract Market is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentranc
         loanToken.safeTransferFrom(msg.sender, sale.seller, sellerAmount);
         accumulatedFees[address(loanToken)] += feeAmount;
         IFundraise(fundraiseAddress).transferInvestment(sale.projectId, sale.marketCell, msg.sender, false, _saleId);
+        secondaryInvestedAmount[msg.sender][sale.projectId] += marketCellInfo.investedAmount;
+        secondaryInvestedAmount[sale.seller][sale.projectId] = 0;
         sale.buyer = msg.sender;
         sale.status = SaleStatus.Sold;
         activeSaleIds[sale.seller][sale.projectId] = 0;
