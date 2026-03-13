@@ -97,8 +97,7 @@ contract Market is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentranc
     function getFundraise() internal view returns (address fundraiseAddress) {
         return IManagerRegistry(managerRegistry).fundraiseAddress();
     }
-
-
+\
     /// @notice Sell investment - creates market cell and transfers investment to it
     /// @param _projectId Project ID
     /// @param _price Price in loan tokens

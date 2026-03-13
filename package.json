@@ -12,7 +12,9 @@
     "test:oracle": "hardhat test test/Oracle.test.ts",
     "test:oracle:base": "hardhat test test/Oracle.test.ts --network forked_base",
     "test:oracle:base:local": "hardhat test test/Oracle.test.ts --network forked_base_local",
-    "test:lending": "hardhat test test/lending/Lending8.test.ts"
+    "test:lending": "hardhat test test/lending/Lending8.test.ts",
+    "test:flash-liquidator": "hardhat test test/lending/FlashLiquidator.test.ts",
+    "test:flash-loan": "hardhat test test/lending/flashLoan.test.ts"
   },
   "author": "",
   "license": "ISC",

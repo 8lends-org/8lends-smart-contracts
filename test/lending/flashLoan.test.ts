@@ -39,21 +39,7 @@ function buildMarketParams(config: SepoliaConfig): { loanToken: string; collater
 }
 
 describe("FlashLoan", function () {
-  it.skip("testFlashLoan: borrow and return on Sepolia", async function () {
-    const config = await getSepoliaConfig();
-    const [signer] = await ethers.getSigners();
-    const flashLiquidator = await ethers.getContractAt("FlashLiquidator", config.FlashLiquidator, signer);
-    const erc20Abi = ["function balanceOf(address) view returns (uint256)"];
-    const usdc = new ethers.Contract(config.USDC, erc20Abi, ethers.provider);
-    const amount = parseUnits("7025", 6);
-    const balanceBefore = await usdc.balanceOf(config.Lending8);
-    const tx = await flashLiquidator.testFlashLoan(config.USDC, amount);
-    console.log("Transaction hash:", tx.hash);
-    await tx.wait();
-    const balanceAfter = await usdc.balanceOf(config.Lending8);
-    expect(balanceAfter).to.equal(balanceBefore);
-  });
-
+ 
   it("flashLiquidate: liquidate on Sepolia", async function () {
     const net = await ethers.provider.getNetwork();
     if (Number(net.chainId) !== SEPOLIA_CHAIN_ID) {
@@ -102,10 +88,22 @@ describe("FlashLoan", function () {
     }
     console.log("Step 2: OK — pool liquidity sufficient");
 
+    // flashLiquidate requires 5 args: (marketParams, borrower, repaidShares, swapPath, minLoanTokenOut)
+    // On Sepolia: path may be [WBTC, WETH, USDC] if no direct WBTC/USDC pool; set minLoanTokenOut lower for slippage if needed.
+    const swapPath = [marketParams.collateralToken, marketParams.loanToken];
+    const minLoanTokenOut = repaidAssets;
+    console.log("Step 2b: swapPath", swapPath, "minLoanTokenOut", minLoanTokenOut.toString());
+
     const flashLiquidator = await ethers.getContractAt("FlashLiquidator", config.FlashLiquidator, signer);
-    console.log("Step 3: calling flashLiquidate...");
+    const routerSet = await flashLiquidator.swapRouter();
+    console.log("Step 2c: FlashLiquidator.swapRouter set?", routerSet !== ethers.ZeroAddress, "address:", routerSet);
+    if (routerSet === ethers.ZeroAddress) {
+      throw new Error("Step 2c FAIL: setSwapRouter was not called on FlashLiquidator. Call setSwapRouter(uniswapV2Router) first.");
+    }
+
+    console.log("Step 3: calling flashLiquidate(marketParams, borrower, repaidShares, swapPath, minLoanTokenOut)...");
     try {
-      const tx = await flashLiquidator.flashLiquidate(marketParams, borrower, repaidShares);
+      const tx = await flashLiquidator.flashLiquidate(marketParams, borrower, repaidShares, swapPath, minLoanTokenOut);
       console.log("Step 3: OK — Liquidation tx:", tx.hash);
       await tx.wait();
       expect(tx.hash).to.match(/^0x[a-fA-F0-9]{64}$/);

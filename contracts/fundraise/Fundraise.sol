@@ -81,6 +81,8 @@ contract Fundraise is Initializable, UUPSUpgradeable, OwnableUpgradeable, Merkle
     uint256 public constant BASIS_POINTS = 1000000;
 
     address public rewardSystem;
+
+    
     /**
      * END of VARS *
      */
