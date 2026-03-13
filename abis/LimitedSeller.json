@@ -99,6 +99,11 @@
     "type": "error"
   },
   {
+    "inputs": [],
+    "name": "ReentrancyGuardReentrantCall",
+    "type": "error"
+  },
+  {
     "inputs": [
       {
         "internalType": "address",
@@ -424,6 +429,19 @@
   },
   {
     "inputs": [],
+    "name": "market",
+    "outputs": [
+      {
+        "internalType": "contract IMarket",
+        "name": "",
+        "type": "address"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
     "name": "owner",
     "outputs": [
       {
@@ -490,6 +508,19 @@
       }
     ],
     "name": "setManagerRegistry",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "address",
+        "name": "_market",
+        "type": "address"
+      }
+    ],
+    "name": "setMarket",
     "outputs": [],
     "stateMutability": "nonpayable",
     "type": "function"
