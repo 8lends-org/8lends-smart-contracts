@@ -1,0 +1,143 @@
+name: CI
+
+on:
+  push:
+    branches: [main, master, develop]
+  pull_request:
+
+jobs:
+  forge-test:
+    name: Forge Tests
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install dependencies
+        run: npm ci
+
+      - uses: foundry-rs/foundry-toolchain@v1
+
+      - name: Run Forge tests
+        run: forge test -vvv
+
+  forge-coverage:
+    name: Coverage
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install dependencies
+        run: npm ci
+
+      - uses: foundry-rs/foundry-toolchain@v1
+
+      - name: Run coverage
+        id: coverage
+        run: |
+          OUTPUT=$(forge coverage --report summary 2>&1) || true
+          echo "$OUTPUT"
+          # Extract overall line coverage percentage
+          PERCENT=$(echo "$OUTPUT" | grep -E '^\| Total' | awk -F'|' '{print $4}' | grep -oE '[0-9]+\.[0-9]+' | head -1)
+          if [ -z "$PERCENT" ]; then
+            PERCENT="0"
+          fi
+          echo "coverage=$PERCENT" >> "$GITHUB_OUTPUT"
+          # Badge color
+          PCT_INT=${PERCENT%.*}
+          if [ "$PCT_INT" -ge 80 ]; then
+            echo "color=brightgreen" >> "$GITHUB_OUTPUT"
+          elif [ "$PCT_INT" -ge 60 ]; then
+            echo "color=yellow" >> "$GITHUB_OUTPUT"
+          elif [ "$PCT_INT" -ge 40 ]; then
+            echo "color=orange" >> "$GITHUB_OUTPUT"
+          else
+            echo "color=red" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Create coverage badge
+        if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master'
+        uses: schneegans/dynamic-badges-action@v1.7.0
+        with:
+          auth: ${{ secrets.GIST_TOKEN }}
+          gistID: ${{ vars.COVERAGE_GIST_ID }}
+          filename: coverage-badge.json
+          label: coverage
+          message: ${{ steps.coverage.outputs.coverage }}%
+          color: ${{ steps.coverage.outputs.color }}
+
+  hardhat-test:
+    name: Hardhat Tests
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Compile
+        run: npx hardhat compile
+
+      - name: Run Hardhat tests
+        run: npx hardhat test
+        env:
+          ETHEREUM_RPC_URL: ${{ secrets.ETHEREUM_RPC_URL }}
+
+  slither:
+    name: Slither Analysis
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    permissions:
+      contents: read
+      security-events: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install dependencies
+        run: npm ci
+
+      - uses: foundry-rs/foundry-toolchain@v1
+
+      - name: Run Slither
+        uses: crytic/slither-action@v0.4.0
+        id: slither
+        continue-on-error: true
+        with:
+          slither-config: slither.config.json
+          sarif: results.sarif
+          fail-on: none
+
+      - name: Upload SARIF
+        uses: github/codeql-action/upload-sarif@v3
+        if: always()
+        continue-on-error: true
+        with:
+          sarif_file: results.sarif
