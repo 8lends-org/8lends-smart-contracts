@@ -193,7 +193,8 @@ const DEPLOY_DESCRIPTORS: Record<string, DeployDescriptor> = {
     initializer: "initialize",
     getProxyArgs: (config, owner) => {
       if (!config.Lending8) throw new Error("Lending8 required in config");
-      return [config.Lending8, owner];
+      if (!config.uniswapV2Router) throw new Error("uniswapV2Router required in config");
+      return [config.Lending8, owner, config.uniswapV2Router];
     },
     configKey: "FlashLiquidator",
     configKeyImpl: "FlashLiquidator_impl",

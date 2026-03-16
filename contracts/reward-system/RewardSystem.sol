@@ -222,90 +222,7 @@ contract RewardSystem is Initializable, UUPSUpgradeable, OwnableUpgradeable, Ree
         }
     }
 
-    /// @notice Claim USDC rewards for project
-    /// @param _projectId Project ID
-    function claimUSDCForProject(uint256 _projectId) external nonReentrant {
-        require(projectVestingStartTime[_projectId] > 0, "Project rewards not activated");
-
-        ReferralData storage refData = projectReferrals[msg.sender][_projectId];
-        require(refData.totalRewardsUSDC > 0, "No USDC rewards for this project");
-
-        uint256 claimableAmount = refData.totalRewardsUSDC;
-        refData.totalRewardsUSDC = 0;
-
-        address claimAddress = IManagerRegistry(managerRegistry).getInvestorClaimAddress(msg.sender);
-        IERC20(address(usdc)).safeTransfer(claimAddress, claimableAmount);
-
-        emit BonusUSDCClaimed(msg.sender, claimableAmount, _projectId);
-    }
-
-    /// @notice Claim vesting tokens for project
-    /// @param _projectId Project ID
-    function claimTokensForProject(uint256 _projectId) external nonReentrant {
-        require(projectVestingStartTime[_projectId] > 0, "Project rewards not activated");
-
-        ReferralData storage refData = projectReferrals[msg.sender][_projectId];
-        require(refData.totalRewardsTokens > 0, "No token rewards for this project");
-
-        uint256 claimableAmount = _calculateVestingAmountForProject(msg.sender, _projectId);
-        require(claimableAmount > 0, "No tokens to claim");
-        require(IToken(token).balanceOf(address(this)) >= claimableAmount, "Not enough tokens to claim");
-
-        refData.vestingClaimedAmount += claimableAmount;
-
-        address claimAddress = IManagerRegistry(managerRegistry).getInvestorClaimAddress(msg.sender);
-        
-        IManagerRegistry(managerRegistry).setPoolStatusForReward(claimAddress, true);
-        IERC20(address(token)).safeTransfer(claimAddress, claimableAmount);
-        IManagerRegistry(managerRegistry).setPoolStatusForReward(claimAddress, false);
-
-        rewardTokensClaimedAmount[_projectId] += claimableAmount;
-        emit VestingTokensClaimed(msg.sender, claimableAmount, _projectId);
-    }
-
-    /// @notice Send USDC rewards for project to user (manager only)
-    /// @param _user User address
-    /// @param _projectId Project ID
-    function sendUSDCForProjectToUser(address _user, uint256 _projectId) external onlyManager {
-        require(_user != address(0), "Invalid user address");
-        require(projectVestingStartTime[_projectId] > 0, "Project rewards not activated");
-
-        ReferralData storage refData = projectReferrals[_user][_projectId];
-        require(refData.totalRewardsUSDC > 0, "No USDC rewards for this project");
-
-        uint256 amount = refData.totalRewardsUSDC;
-        refData.totalRewardsUSDC = 0;
-
-        address claimAddress = IManagerRegistry(managerRegistry).getInvestorClaimAddress(_user);
-        IERC20(address(usdc)).safeTransfer(claimAddress, amount);
-
-        emit BonusUSDCClaimed(_user, amount, _projectId);
-    }
-
-    /// @notice Send vesting tokens for project to user (manager only)
-    /// @param _user User address
-    /// @param _projectId Project ID
-    function sendTokensForProjectToUser(address _user, uint256 _projectId) external onlyManager {
-        require(_user != address(0), "Invalid user address");
-        require(projectVestingStartTime[_projectId] > 0, "Project rewards not activated");
-
-        ReferralData storage refData = projectReferrals[_user][_projectId];
-        require(refData.totalRewardsTokens > 0, "No token rewards for this project");
-
-        uint256 claimableAmount = _calculateVestingAmountForProject(_user, _projectId);
-        require(claimableAmount > 0, "No tokens to claim");
-        require(IToken(token).balanceOf(address(this)) >= claimableAmount, "Not enough tokens to claim");
-
-        refData.vestingClaimedAmount += claimableAmount;
-
-        address claimAddress = IManagerRegistry(managerRegistry).getInvestorClaimAddress(_user);
-        IManagerRegistry(managerRegistry).setPoolStatusForReward(claimAddress, true);
-        IERC20(address(token)).safeTransfer(claimAddress, claimableAmount);
-        IManagerRegistry(managerRegistry).setPoolStatusForReward(claimAddress, false);
-
-        rewardTokensClaimedAmount[_projectId] += claimableAmount;
-        emit VestingTokensClaimed(_user, claimableAmount, _projectId);
-    }
+   
 
     /// @notice Get user information
     function getUserInfo(address _user) external view returns (address inviter, bool isNewUser) {
@@ -572,32 +489,79 @@ contract RewardSystem is Initializable, UUPSUpgradeable, OwnableUpgradeable, Ree
         IERC20(_token).safeTransfer(_recipient, _amount);
     }
 
+
+   
+
+    /// @notice Send USDC rewards for project to user (manager only)
+    /// @param _user User address
+    /// @param _projectId Project ID
+    function _sendUSDCForProjectToUser(address _user, uint256 _projectId) internal {
+        require(_user != address(0), "Invalid user address");
+        require(projectVestingStartTime[_projectId] > 0, "Project rewards not activated");
+
+        ReferralData storage refData = projectReferrals[_user][_projectId];
+        require(refData.totalRewardsUSDC > 0, "No USDC rewards for this project");
+
+        uint256 amount = refData.totalRewardsUSDC;
+        refData.totalRewardsUSDC = 0;
+
+        address claimAddress = IManagerRegistry(managerRegistry).getInvestorClaimAddress(_user);
+        IERC20(address(usdc)).safeTransfer(claimAddress, amount);
+
+        emit BonusUSDCClaimed(_user, amount, _projectId);
+    }
+
+    /// @notice Send vesting tokens for project to user (manager only)
+    /// @param _user User address
+    /// @param _projectId Project ID
+    function _sendTokensForProjectToUser(address _user, uint256 _projectId) internal {
+        require(_user != address(0), "Invalid user address");
+        require(projectVestingStartTime[_projectId] > 0, "Project rewards not activated");
+
+        ReferralData storage refData = projectReferrals[_user][_projectId];
+        require(refData.totalRewardsTokens > 0, "No token rewards for this project");
+
+        uint256 claimableAmount = _calculateVestingAmountForProject(_user, _projectId);
+        require(claimableAmount > 0, "No tokens to claim");
+        require(IToken(token).balanceOf(address(this)) >= claimableAmount, "Not enough tokens to claim");
+
+        refData.vestingClaimedAmount += claimableAmount;
+
+        address claimAddress = IManagerRegistry(managerRegistry).getInvestorClaimAddress(_user);
+        IManagerRegistry(managerRegistry).setPoolStatusForReward(claimAddress, true);
+        IERC20(address(token)).safeTransfer(claimAddress, claimableAmount);
+        IManagerRegistry(managerRegistry).setPoolStatusForReward(claimAddress, false);
+
+        rewardTokensClaimedAmount[_projectId] += claimableAmount;
+        emit VestingTokensClaimed(_user, claimableAmount, _projectId);
+    }
+
+
+    // CLAIMS
+    function claimTokensForProject(uint256 _projectId) external nonReentrant {
+        _sendTokensForProjectToUser(msg.sender, _projectId);
+    }
+
+    function claimUSDCForProject(uint256 _projectId) external nonReentrant {
+        _sendUSDCForProjectToUser(msg.sender, _projectId);
+    }
+
+
+    // SENDS
+    function sendTokensForProjectToUser(address _user, uint256 _projectId) external onlyManager {
+        _sendTokensForProjectToUser(_user, _projectId);
+    }
+
+    function sendUSDCForProjectToUser(address _user, uint256 _projectId) external onlyManager {
+        _sendUSDCForProjectToUser(_user, _projectId);
+    }
+
+    // BATCHES SENDS
     function sendTokensForProjectToUserBatch(address[] calldata _users, uint256[] calldata _projectIds) external onlyManager {
         require(_users.length == _projectIds.length, "Users and projectIds length mismatch");
         require(_users.length > 0, "Empty arrays");
         for (uint256 i = 0; i < _users.length; i++) {
-            address user = _users[i];
-            uint256 projectId = _projectIds[i];
-            
-            if (user == address(0)) continue;
-            if (projectVestingStartTime[projectId] == 0) continue;
-            
-            ReferralData storage refData = projectReferrals[user][projectId];
-            if (refData.totalRewardsTokens == 0) continue;
-            
-            uint256 claimableAmount = _calculateVestingAmountForProject(user, projectId);
-            if (claimableAmount == 0) continue;
-            if (IToken(token).balanceOf(address(this)) < claimableAmount) continue;
-            
-            refData.vestingClaimedAmount += claimableAmount;
-            
-            address claimAddress = IManagerRegistry(managerRegistry).getInvestorClaimAddress(user);
-            IManagerRegistry(managerRegistry).setPoolStatusForReward(claimAddress, true);
-            IERC20(address(token)).safeTransfer(claimAddress, claimableAmount);
-            IManagerRegistry(managerRegistry).setPoolStatusForReward(claimAddress, false);
-            
-            rewardTokensClaimedAmount[projectId] += claimableAmount;
-            emit VestingTokensClaimed(user, claimableAmount, projectId);
+            _sendTokensForProjectToUser(_users[i], _projectIds[i]);
         }
     }
 
@@ -605,52 +569,16 @@ contract RewardSystem is Initializable, UUPSUpgradeable, OwnableUpgradeable, Ree
         require(_users.length == _projectIds.length, "Users and projectIds length mismatch");
         require(_users.length > 0, "Empty arrays");
         for (uint256 i = 0; i < _users.length; i++) {
-            address user = _users[i];
-            uint256 projectId = _projectIds[i];
-            
-            if (user == address(0)) continue;
-            if (projectVestingStartTime[projectId] == 0) continue;
-            
-            ReferralData storage refData = projectReferrals[user][projectId];
-            if (refData.totalRewardsUSDC == 0) continue;
-            
-            uint256 amount = refData.totalRewardsUSDC;
-            refData.totalRewardsUSDC = 0;
-            
-            address claimAddress = IManagerRegistry(managerRegistry).getInvestorClaimAddress(user);
-            IERC20(address(usdc)).safeTransfer(claimAddress, amount);
-            
-            emit BonusUSDCClaimed(user, amount, projectId);
+            _sendUSDCForProjectToUser(_users[i], _projectIds[i]);
         }
     }
 
+    // BATCHES CLAIMS
     function claimTokensForProjectBatch(uint256[] calldata _projectIds) external nonReentrant {
         require(_projectIds.length > 0, "Empty arrays");
         require(_projectIds.length <= 500, "Too many projects");
-        
-        address claimAddress = IManagerRegistry(managerRegistry).getInvestorClaimAddress(msg.sender);
-
         for (uint256 i = 0; i < _projectIds.length; i++) {
-            uint256 projectId = _projectIds[i];
-            
-            if (projectVestingStartTime[projectId] == 0) continue;
-            
-            ReferralData storage refData = projectReferrals[msg.sender][projectId];
-            if (refData.totalRewardsTokens == 0) continue;
-            
-            uint256 claimableAmount = _calculateVestingAmountForProject(msg.sender, projectId);
-            if (claimableAmount == 0) continue;
-            if (IToken(token).balanceOf(address(this)) < claimableAmount) continue;
-            
-            refData.vestingClaimedAmount += claimableAmount;
-            rewardTokensClaimedAmount[projectId] += claimableAmount;
-            
-            
-            IManagerRegistry(managerRegistry).setPoolStatusForReward(claimAddress, true);
-            IERC20(address(token)).safeTransfer(claimAddress, claimableAmount);
-            IManagerRegistry(managerRegistry).setPoolStatusForReward(claimAddress, false);
-            
-            emit VestingTokensClaimed(msg.sender, claimableAmount, projectId);
+            _sendTokensForProjectToUser(msg.sender, _projectIds[i]);
         }
     }
 
@@ -659,20 +587,7 @@ contract RewardSystem is Initializable, UUPSUpgradeable, OwnableUpgradeable, Ree
         require(_projectIds.length <= 500, "Too many projects");
         
         for (uint256 i = 0; i < _projectIds.length; i++) {
-            uint256 projectId = _projectIds[i];
-            
-            if (projectVestingStartTime[projectId] == 0) continue;
-            
-            ReferralData storage refData = projectReferrals[msg.sender][projectId];
-            if (refData.totalRewardsUSDC == 0) continue;
-            
-            uint256 claimableAmount = refData.totalRewardsUSDC;
-            refData.totalRewardsUSDC = 0;
-            
-            address claimAddress = IManagerRegistry(managerRegistry).getInvestorClaimAddress(msg.sender);
-            IERC20(address(usdc)).safeTransfer(claimAddress, claimableAmount);
-            
-            emit BonusUSDCClaimed(msg.sender, claimableAmount, projectId);
+            _sendUSDCForProjectToUser(msg.sender, _projectIds[i]);
         }
     }
 

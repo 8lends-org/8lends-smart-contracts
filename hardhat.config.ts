@@ -41,15 +41,21 @@ const config: HardhatUserConfig = {
         },
         hardhat: {
             gasPrice: 100000000000,
-            chainId: 31337,
+            chainId: process.env.FORK_SEPOLIA === "1" ? 11155111 : 31337,
             hardfork: "cancun",
             // allowUnlimitedContractSize: true,
-            forking: {
-                enabled: false,
-                url: process.env.BASE_RPC_URL || '',
-                blockNumber: 42103098,
-                // Фиксированный блок: RPC часто даёт -32001 на "latest"; можно переопределить через BASE_FORK_BLOCK
-            },
+            forking: process.env.FORK_SEPOLIA === "1"
+                ? {
+                    enabled: true,
+                    url: process.env.ETHEREUM_SEPOLIA_RPC_URL || "https://rpc.sepolia.org",
+                    blockNumber: 	10446607,
+                    // Не задаём blockNumber — используем latest, иначе RPC может вернуть "historical state is not available" (нужен archive-узел).
+                  }
+                : {
+                    enabled: false,
+                    url: process.env.BASE_RPC_URL || '',
+                    blockNumber: 42103098,
+                  },
         },
         sepolia: {
             chainId: 11155111,
