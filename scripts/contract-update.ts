@@ -37,12 +37,19 @@ async function main() {
 
   // Check owner rights
   const contract = await ethers.getContractAt(contractName!, config[contractKey] as string);
-  const owner = await contract.owner();
-  if (owner.toLowerCase() !== (await signer.getAddress()).toLowerCase()) {
-    console.log(`Contract: ${config[contractKey]}`);
-    console.log(`Owner: ${owner}`);
-    console.log(`Signer: ${await signer.getAddress()}`);
-    throw new Error("Not the owner");
+  
+  let isOwner = false;
+  if(contract.getFunction("hasRole") !== undefined) {
+    isOwner = await contract.hasRole(await contract.DEFAULT_ADMIN_ROLE(), await signer.getAddress());
+  }
+  if(!isOwner){
+    const owner = await contract.owner();
+    if (owner.toLowerCase() !== (await signer.getAddress()).toLowerCase()) {
+      console.log(`Contract: ${config[contractKey]}`);
+      console.log(`Owner: ${owner}`);
+      console.log(`Signer: ${await signer.getAddress()}`);
+      throw new Error("Not the owner");
+    }
   }
 
   // Force update

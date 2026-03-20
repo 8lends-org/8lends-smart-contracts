@@ -199,6 +199,13 @@ const DEPLOY_DESCRIPTORS: Record<string, DeployDescriptor> = {
     configKey: "FlashLiquidator",
     configKeyImpl: "FlashLiquidator_impl",
   },
+  BTC8L: {
+    useProxy: true,
+    initializer: "initialize",
+    getProxyArgs: (_config, owner) => [owner],
+    configKey: "BTC8L",
+    configKeyImpl: "BTC8L_impl",
+  },
 };
 
 async function main(): Promise<void> {
