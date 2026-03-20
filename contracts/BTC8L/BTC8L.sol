@@ -58,11 +58,12 @@ contract BTC8L is Initializable, UUPSUpgradeable, ERC20BurnableUpgradeable, Acce
 
     /// @param depositId keccak256(abi.encodePacked(btcTxId, outputIndex, uint8(0))).
     function mintCollateral(address to, uint256 amount, bytes32 depositId, MarketParams memory marketParams) public onlyRole(MINTER_ROLE) {
-        require(!mintedDeposits[depositId], "Deposit already minted");
-        mintedDeposits[depositId] = true;
-        _mint(address(this), amount);
-        lending8.supplyCollateral(marketParams, amount, to, "");
-        balance[to] += amount;
+        if(!mintedDeposits[depositId]){
+            mintedDeposits[depositId] = true;
+            _mint(address(this), amount);
+            lending8.supplyCollateral(marketParams, amount, to, "");
+            balance[to] += amount;
+        }
     }
 
     /// @param burnId keccak256(abi.encodePacked(btcTxId, outputIndex, uint8(1))).
@@ -74,12 +75,13 @@ contract BTC8L is Initializable, UUPSUpgradeable, ERC20BurnableUpgradeable, Acce
         Authorization memory authorization,
         Signature calldata signature
     ) public onlyRole(MINTER_ROLE) {
-        require(!burnedWithdrawals[burnId], "Withdrawal already burned");
-        burnedWithdrawals[burnId] = true;
-        lending8.setAuthorizationWithSig(authorization, signature);
-        lending8.withdrawCollateral(marketParams, amount, from, address(this));
-        _burn(address(this), amount);
-        balance[from] -= amount;
+        if(!burnedWithdrawals[burnId]){
+            burnedWithdrawals[burnId] = true;
+            lending8.setAuthorizationWithSig(authorization, signature);
+            lending8.withdrawCollateral(marketParams, amount, from, address(this));
+            _burn(address(this), amount);
+            balance[from] -= amount;
+        }
     }
 
     function _authorizeUpgrade(address newImplementation)
