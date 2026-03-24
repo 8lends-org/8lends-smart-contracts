@@ -202,7 +202,7 @@ const DEPLOY_DESCRIPTORS: Record<string, DeployDescriptor> = {
   BTC8L: {
     useProxy: true,
     initializer: "initialize",
-    getProxyArgs: (_config, owner) => [owner],
+    getProxyArgs: (_config, owner) => [owner, _config.Lending8],
     configKey: "BTC8L",
     configKeyImpl: "BTC8L_impl",
   },
