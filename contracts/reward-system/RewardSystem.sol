@@ -79,6 +79,10 @@ contract RewardSystem is Initializable, UUPSUpgradeable, OwnableUpgradeable, Ree
     event ProjectRewardsDeactivated(uint256 indexed projectId);
     event AdditionalUnlockSet(uint256 percentage);
     event TokensSold(address indexed sender, uint256 tokensSold, uint256 usdcReceived, address indexed recipient);
+    event ContractsUpdated(address managerRegistry, address token, address usdc);
+    event USDCAddressUpdated(address usdc);
+    event TokenAddressUpdated(address token);
+    event UniswapRouterUpdated(address router);
 
     modifier onlyManager() {
         require(IManagerRegistry(managerRegistry).isManager(msg.sender), "Not a manager");
@@ -257,6 +261,7 @@ contract RewardSystem is Initializable, UUPSUpgradeable, OwnableUpgradeable, Ree
         if (_managerRegistry != address(0)) managerRegistry = _managerRegistry;
         if (_token != address(0)) token = _token;
         if (_usdc != address(0)) usdc = IERC20(_usdc);
+        emit ContractsUpdated(_managerRegistry, _token, _usdc);
     }
 
     /// @notice Set oracle address for manipulation-resistant pricing
@@ -432,15 +437,21 @@ contract RewardSystem is Initializable, UUPSUpgradeable, OwnableUpgradeable, Ree
     function _authorizeUpgrade(address newImplementation) internal override onlyOwner {}
 
     function updateUSDCAddress(address _usdc) external onlyOwner {
+        require(_usdc != address(0), "Zero address");
         usdc = IERC20(_usdc);
+        emit USDCAddressUpdated(_usdc);
     }
 
     function updateTokenAddress(address _token) external onlyOwner {
+        require(_token != address(0), "Zero address");
         token = _token;
+        emit TokenAddressUpdated(_token);
     }
 
     function updateUniswapRouterAddress(address _uniswapRouter) external onlyOwner {
+        require(_uniswapRouter != address(0), "Zero address");
         uniswapRouter = IUniswapV2Router02(_uniswapRouter);
+        emit UniswapRouterUpdated(_uniswapRouter);
     }
 
     /// @notice Distribute vesting tokens to multiple users (owner only)

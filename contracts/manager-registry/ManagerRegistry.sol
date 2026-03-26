@@ -24,6 +24,7 @@ contract ManagerRegistry is Initializable, OwnableUpgradeable, UUPSUpgradeable {
     event Rewards2AddressSet(address indexed rewards2Address);
     event MarketAddressSet(address indexed market);
     event LimitedSellerAddressSet(address indexed limitedSeller);
+    event ContractAddressesUpdated(address rewardSystem, address fundraise, address treasury);
     /// @custom:oz-upgrades-unsafe-allow constructor
     constructor() {
         _disableInitializers();
@@ -80,9 +81,13 @@ contract ManagerRegistry is Initializable, OwnableUpgradeable, UUPSUpgradeable {
         external
         onlyOwner
     {
+        require(_rewardSystemAddress != address(0), "Zero address");
+        require(_fundraiseAddress != address(0), "Zero address");
+        require(_treasuryAddress != address(0), "Zero address");
         rewardSystemAddress = _rewardSystemAddress;
         fundraiseAddress = _fundraiseAddress;
         treasuryAddress = _treasuryAddress;
+        emit ContractAddressesUpdated(_rewardSystemAddress, _fundraiseAddress, _treasuryAddress);
     }
 
         /// @notice Set investor claim address for payouts
