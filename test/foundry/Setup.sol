@@ -111,6 +111,8 @@ abstract contract Setup is Test {
         mockOracle = new MockOracle();
         // 1 token = 0.01 USD → price = 0.01 * 1e8 = 1_000_000 (8 decimals)
         mockOracle.setPrice(address(token), 1_000_000);
+        // USDC = 1.00 USD → price = 1e8 (8 decimals)
+        mockOracle.setPrice(address(usdc), 1e8);
         rewardSystem.setOracle(address(mockOracle));
 
         // ── Deploy Fundraise (UUPS proxy) ──
