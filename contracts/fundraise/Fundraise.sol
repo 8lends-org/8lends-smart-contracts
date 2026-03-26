@@ -384,6 +384,7 @@ contract Fundraise is Initializable, UUPSUpgradeable, OwnableUpgradeable, Merkle
         returns (uint256)
     {
         require(IManagerRegistry(managerRegistry).isManager(msg.sender), "Not a manager");
+        _validateProject(_project);
 
         uint256 projectId = projectCount++;
         projects[projectId] = _project;
@@ -426,6 +427,7 @@ contract Fundraise is Initializable, UUPSUpgradeable, OwnableUpgradeable, Merkle
         if (
             projects[_projectId].innerStruct.stage == Stage.ComingSoon && _project.innerStruct.stage == Stage.ComingSoon
         ) {
+            _validateProject(_project);
             projects[_projectId] = _project;
             emit ProjectUpdated(_projectId);
         } else if (projects[_projectId].innerStruct.stage == Stage.Open) {
@@ -479,6 +481,18 @@ contract Fundraise is Initializable, UUPSUpgradeable, OwnableUpgradeable, Merkle
     /// @param _rewardSystem New reward system address
     function setRewardSystem(address _rewardSystem) external onlyOwner {
         rewardSystem = _rewardSystem;
+    }
+
+    /// @notice Validate project struct invariants
+    function _validateProject(Project memory _project) internal pure {
+        require(_project.totalInvested == 0, "totalInvested must be 0");
+        require(_project.innerStruct.totalRepaid == 0, "totalRepaid must be 0");
+        require(_project.softCap > 0, "softCap must be positive");
+        require(_project.hardCap > 0, "hardCap must be positive");
+        require(_project.softCap <= _project.hardCap, "softCap > hardCap");
+        require(_project.preFundDuration > 0, "preFundDuration must be positive");
+        require(_project.innerStruct.borrower != address(0), "borrower must be set");
+        require(address(_project.innerStruct.loanToken) != address(0), "loanToken must be set");
     }
 
     /**
