@@ -32,13 +32,12 @@ contract FundraiseInvestFuzzTest is Setup {
         vm.prank(investor);
         usdc.approve(address(fundraise), amount);
 
-        uint256 currentNonce = fundraise.nonce();
-        bytes32 rootHash = keccak256(abi.encodePacked("test-root"));
-        bytes memory sig = _signInvest(investor, pid, amount, rootHash, currentNonce + 1, inviter);
+        uint256 currentNonce = fundraise.userNonces(investor);
+        bytes memory sig = _signInvest(investor, pid, amount, currentNonce + 1, inviter);
 
         vm.prank(investor);
         vm.expectRevert("Investment exceeds hardcap");
-        fundraise.investUpdate(pid, amount, rootHash, currentNonce + 1, sig, inviter);
+        fundraise.investUpdate(pid, amount, currentNonce + 1, sig, inviter);
     }
 
     /// @notice When investment fills hardCap exactly, project moves to PreFunded

@@ -50,13 +50,12 @@ contract FundraiseTest is Setup {
         vm.prank(investor2);
         usdc.approve(address(fundraise), 1_000e6);
 
-        uint256 currentNonce = fundraise.nonce();
-        bytes32 rootHash = keccak256(abi.encodePacked("test-root-2"));
-        bytes memory sig = _signInvest(investor2, pid, 1_000e6, rootHash, currentNonce + 1, address(0));
+        uint256 currentNonce = fundraise.userNonces(investor2);
+        bytes memory sig = _signInvest(investor2, pid, 1_000e6, currentNonce + 1, address(0));
 
         // This invest call will trigger the Canceled transition and return silently
         vm.prank(investor2);
-        fundraise.investUpdate(pid, 1_000e6, rootHash, currentNonce + 1, sig, address(0));
+        fundraise.investUpdate(pid, 1_000e6, currentNonce + 1, sig, address(0));
 
         (,,,,,,, Fundraise.InnerProjectStruct memory inner) = fundraise.projects(pid);
         assertEq(uint8(inner.stage), uint8(Fundraise.Stage.Canceled));
@@ -80,10 +79,10 @@ contract FundraiseTest is Setup {
     }
 
     // ═══════════════════════════════════════════════════════════════
-    //         VULNERABILITY #1: SILENT RETURN IN _invest
+    //    T-09: NONCE UNCHANGED ON FAILED INVEST
     // ═══════════════════════════════════════════════════════════════
 
-    function test_vuln1_silentReturn_whenNotStarted_nonceWasted() public {
+    function test_nonceUnchanged_comingSoonBeforeStart() public {
         // Create project that hasn't started yet (startAt in the future)
         Fundraise.Project memory proj = Fundraise.Project({
             hardCap: 40_000e6,
@@ -104,10 +103,9 @@ contract FundraiseTest is Setup {
         });
 
         vm.prank(manager);
-        uint256 futurePid = fundraise.createProject(proj, bytes32(0), 2);
+        uint256 futurePid = fundraise.createProject(proj, 2);
 
-        uint256 nonceBefore = fundraise.nonce();
-        uint256 investorBalanceBefore = usdc.balanceOf(investor);
+        uint256 nonceBefore = fundraise.userNonces(investor);
 
         // Prepare invest
         vm.prank(owner);
@@ -116,72 +114,78 @@ contract FundraiseTest is Setup {
         usdc.approve(address(fundraise), 5_000e6);
 
         uint256 nonceForSig = nonceBefore + 1;
-        bytes32 rootHash = keccak256(abi.encodePacked("test"));
-        bytes memory sig = _signInvest(investor, futurePid, 5_000e6, rootHash, nonceForSig, inviter);
+        bytes memory sig = _signInvest(investor, futurePid, 5_000e6, nonceForSig, inviter);
 
         vm.prank(investor);
-        fundraise.investUpdate(futurePid, 5_000e6, rootHash, nonceForSig, sig, inviter);
+        fundraise.investUpdate(futurePid, 5_000e6, nonceForSig, sig, inviter);
 
-        uint256 nonceAfter = fundraise.nonce();
-
-        // BUG: nonce was incremented even though no investment happened
-        assertEq(nonceAfter, nonceBefore + 1, "Nonce was incremented");
+        // FIX: nonce must NOT be incremented when _invest returns early
+        assertEq(fundraise.userNonces(investor), nonceBefore, "Nonce must not change on failed invest");
 
         // No tokens were transferred from investor
-        // (investor still has their USDC minus nothing)
         (,, uint256 totalInvested,,,,,) = fundraise.projects(futurePid);
         assertEq(totalInvested, 0, "No actual investment happened");
     }
 
+    function test_nonceUpdated_onSuccessfulInvest() public {
+        uint256 nonceBefore = fundraise.userNonces(investor);
+
+        // Prepare invest
+        vm.prank(owner);
+        usdc.mint(investor, 5_000e6);
+        vm.prank(investor);
+        usdc.approve(address(fundraise), 5_000e6);
+
+        uint256 nonceForSig = nonceBefore + 1;
+        bytes memory sig = _signInvest(investor, pid, 5_000e6, nonceForSig, inviter);
+
+        vm.prank(investor);
+        fundraise.investUpdate(pid, 5_000e6, nonceForSig, sig, inviter);
+
+        // Nonce must be incremented on successful invest
+        assertEq(fundraise.userNonces(investor), nonceBefore + 1, "Nonce must be incremented on successful invest");
+
+        // Investment actually happened
+        (,, uint256 totalInvested,,,,,) = fundraise.projects(pid);
+        assertEq(totalInvested, 5_000e6, "Investment should be recorded");
+    }
+
     // ═══════════════════════════════════════════════════════════════
-    //           VULNERABILITY #2: GLOBAL NONCE BOTTLENECK
+    //      VULNERABILITY #2 FIX: PER-USER NONCES ALLOW CONCURRENT INVESTS
     // ═══════════════════════════════════════════════════════════════
 
-    function test_vuln2_globalNonce_secondInvestorFails() public {
-        uint256 currentNonce = fundraise.nonce();
-        uint256 nonceForSig = currentNonce + 1;
-        bytes32 rootHash = keccak256(abi.encodePacked("root1"));
+    function test_vuln2_perUserNonce_bothInvestorsSucceed() public {
+        // Each investor uses their own nonce (both start at 0, so nonceForSig = 1)
+        uint256 nonce1 = fundraise.userNonces(investor) + 1;
+        uint256 nonce2 = fundraise.userNonces(investor2) + 1;
 
         // Investor 1 prepares and sends
         vm.prank(owner);
         usdc.mint(investor, 5_000e6);
         vm.prank(investor);
         usdc.approve(address(fundraise), 5_000e6);
-        bytes memory sig1 = _signInvest(investor, pid, 5_000e6, rootHash, nonceForSig, inviter);
+        bytes memory sig1 = _signInvest(investor, pid, 5_000e6, nonce1, inviter);
 
-        // Investor 2 prepares with SAME nonce (signed at the same time)
+        // Investor 2 prepares with their own nonce (same value, different user)
         vm.prank(owner);
         usdc.mint(investor2, 3_000e6);
         vm.prank(investor2);
         usdc.approve(address(fundraise), 3_000e6);
-        bytes memory sig2 = _signInvest(investor2, pid, 3_000e6, rootHash, nonceForSig, inviter);
+        bytes memory sig2 = _signInvest(investor2, pid, 3_000e6, nonce2, inviter);
 
         // Investor 1 succeeds
         vm.prank(investor);
-        fundraise.investUpdate(pid, 5_000e6, rootHash, nonceForSig, sig1, inviter);
+        fundraise.investUpdate(pid, 5_000e6, nonce1, sig1, inviter);
 
-        // Investor 2 FAILS because nonce already used
+        // Investor 2 also succeeds — per-user nonces are independent
         vm.prank(investor2);
-        vm.expectRevert("Incorrect nonce");
-        fundraise.investUpdate(pid, 3_000e6, rootHash, nonceForSig, sig2, inviter);
-    }
+        fundraise.investUpdate(pid, 3_000e6, nonce2, sig2, inviter);
 
-    // ═══════════════════════════════════════════════════════════════
-    //       VULNERABILITY #4: MERKLE PROOF NEVER VERIFIED
-    // ═══════════════════════════════════════════════════════════════
-
-    function test_vuln4_merkleWhitelistNotEnforced() public {
-        // Set a whitelist root
-        vm.prank(manager);
-        fundraise.setWhitelist(keccak256("real-merkle-root"), pid);
-
-        // Invest from an address that is definitely NOT in the whitelist
-        // This should fail if whitelist was checked, but it succeeds
-        _investAs(attacker, pid, 5_000e6, address(0));
-
-        // Attacker's investment was accepted
-        (uint256 investedAmount,) = fundraise.investorInfo(attacker, pid);
-        assertEq(investedAmount, 5_000e6, "Attacker invested despite whitelist");
+        // Verify both investments were recorded
+        (uint256 invested1,) = fundraise.investorInfo(investor, pid);
+        (uint256 invested2,) = fundraise.investorInfo(investor2, pid);
+        assertEq(invested1, 5_000e6, "Investor 1 investment recorded");
+        assertEq(invested2, 3_000e6, "Investor 2 investment recorded");
     }
 
     // ═══════════════════════════════════════════════════════════════
@@ -288,7 +292,7 @@ contract FundraiseTest is Setup {
 
         vm.prank(attacker);
         vm.expectRevert("Not a manager");
-        fundraise.createProject(proj, bytes32(0), 1);
+        fundraise.createProject(proj, 1);
     }
 
     function test_cancelProject_nonManager_reverts() public {
@@ -413,19 +417,18 @@ contract FundraiseTest is Setup {
         vm.prank(investor);
         usdc.approve(address(fundraise), 5_000e6);
 
-        uint256 currentNonce = fundraise.nonce();
-        bytes32 rootHash = keccak256(abi.encodePacked("test"));
+        uint256 currentNonce = fundraise.userNonces(investor);
 
         // Sign with wrong key
         (address wrongSigner, uint256 wrongPk) = makeAddrAndKey("wrong");
-        bytes32 innerHash = keccak256(abi.encodePacked(investor, pid, uint256(5_000e6), rootHash, currentNonce + 1, inviter));
+        bytes32 innerHash = keccak256(abi.encodePacked(investor, pid, uint256(5_000e6), currentNonce + 1, inviter));
         bytes32 ethHash = keccak256(abi.encodePacked("\x19Ethereum Signed Message:\n32", innerHash));
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(wrongPk, ethHash);
         bytes memory badSig = abi.encodePacked(r, s, v);
 
         vm.prank(investor);
         vm.expectRevert("Not a trusted signer");
-        fundraise.investUpdate(pid, 5_000e6, rootHash, currentNonce + 1, badSig, inviter);
+        fundraise.investUpdate(pid, 5_000e6, currentNonce + 1, badSig, inviter);
     }
 
     function test_invest_borrowerCannotInvest() public {
@@ -434,13 +437,93 @@ contract FundraiseTest is Setup {
         vm.prank(borrower);
         usdc.approve(address(fundraise), 5_000e6);
 
-        uint256 currentNonce = fundraise.nonce();
-        bytes32 rootHash = keccak256(abi.encodePacked("test"));
-        bytes memory sig = _signInvest(borrower, pid, 5_000e6, rootHash, currentNonce + 1, inviter);
+        uint256 currentNonce = fundraise.userNonces(borrower);
+        bytes memory sig = _signInvest(borrower, pid, 5_000e6, currentNonce + 1, inviter);
 
         vm.prank(borrower);
         vm.expectRevert("Cannot invest in your own project");
-        fundraise.investUpdate(pid, 5_000e6, rootHash, currentNonce + 1, sig, inviter);
+        fundraise.investUpdate(pid, 5_000e6, currentNonce + 1, sig, inviter);
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    //              PROJECT INITIALIZATION CHECKS (T-10)
+    // ═══════════════════════════════════════════════════════════════
+
+    function _buildValidProject() internal view returns (Fundraise.Project memory) {
+        return Fundraise.Project({
+            hardCap: 40_000e6,
+            softCap: 20_000e6,
+            totalInvested: 0,
+            startAt: block.timestamp - 10,
+            preFundDuration: 7 days,
+            investorInterestRate: INVESTOR_INTEREST,
+            openStageEndAt: block.timestamp + 7 days,
+            innerStruct: Fundraise.InnerProjectStruct({
+                platformInterestRate: PLATFORM_FEE,
+                totalRepaid: 0,
+                borrower: borrower,
+                fundedTime: 0,
+                loanToken: IERC20(address(usdc)),
+                stage: Fundraise.Stage.ComingSoon
+            })
+        });
+    }
+
+    function test_createProject_revertsOnZeroSoftCap() public {
+        Fundraise.Project memory proj = _buildValidProject();
+        proj.softCap = 0;
+
+        vm.prank(manager);
+        vm.expectRevert("softCap must be positive");
+        fundraise.createProject(proj, 1);
+    }
+
+    function test_createProject_revertsOnSoftCapGtHardCap() public {
+        Fundraise.Project memory proj = _buildValidProject();
+        proj.softCap = 50_000e6;
+        proj.hardCap = 40_000e6;
+
+        vm.prank(manager);
+        vm.expectRevert("softCap > hardCap");
+        fundraise.createProject(proj, 1);
+    }
+
+    function test_createProject_revertsOnNonZeroTotalInvested() public {
+        Fundraise.Project memory proj = _buildValidProject();
+        proj.totalInvested = 1_000e6;
+
+        vm.prank(manager);
+        vm.expectRevert("totalInvested must be 0");
+        fundraise.createProject(proj, 1);
+    }
+
+    function test_createProject_revertsOnZeroBorrower() public {
+        Fundraise.Project memory proj = _buildValidProject();
+        proj.innerStruct.borrower = address(0);
+
+        vm.prank(manager);
+        vm.expectRevert("borrower must be set");
+        fundraise.createProject(proj, 1);
+    }
+
+    function test_createProject_revertsOnZeroLoanToken() public {
+        Fundraise.Project memory proj = _buildValidProject();
+        proj.innerStruct.loanToken = IERC20(address(0));
+
+        vm.prank(manager);
+        vm.expectRevert("loanToken must be set");
+        fundraise.createProject(proj, 1);
+    }
+
+    function test_createProject_validProject_succeeds() public {
+        Fundraise.Project memory proj = _buildValidProject();
+
+        vm.prank(manager);
+        uint256 newPid = fundraise.createProject(proj, 1);
+
+        (uint256 hardCap, uint256 softCap,,,,,,) = fundraise.projects(newPid);
+        assertEq(hardCap, 40_000e6);
+        assertEq(softCap, 20_000e6);
     }
 
     function test_invest_cannotSelfRefer() public {
@@ -449,13 +532,90 @@ contract FundraiseTest is Setup {
         vm.prank(investor);
         usdc.approve(address(fundraise), 5_000e6);
 
-        uint256 currentNonce = fundraise.nonce();
-        bytes32 rootHash = keccak256(abi.encodePacked("test"));
+        uint256 currentNonce = fundraise.userNonces(investor);
         // investor is also the inviter
-        bytes memory sig = _signInvest(investor, pid, 5_000e6, rootHash, currentNonce + 1, investor);
+        bytes memory sig = _signInvest(investor, pid, 5_000e6, currentNonce + 1, investor);
 
         vm.prank(investor);
         vm.expectRevert("Inviter cannot be the same as the investor");
-        fundraise.investUpdate(pid, 5_000e6, rootHash, currentNonce + 1, sig, investor);
+        fundraise.investUpdate(pid, 5_000e6, currentNonce + 1, sig, investor);
+    }
+}
+
+/// @notice Mock LimitedSeller to verify addEarnedLimit callback
+contract MockLimitedSeller_FR {
+    struct Call {
+        address user;
+        uint256 investedAmount;
+    }
+    Call[] public calls;
+
+    function addEarnedLimit(address user, uint256 investedAmount) external {
+        calls.push(Call(user, investedAmount));
+    }
+
+    function callCount() external view returns (uint256) {
+        return calls.length;
+    }
+}
+
+contract FundraiseLimitedSellerTest is Setup {
+    MockLimitedSeller_FR public mockLimitedSeller;
+    uint256 pid;
+
+    function setUp() public override {
+        super.setUp();
+        pid = _createProject(20_000e6, 40_000e6);
+
+        mockLimitedSeller = new MockLimitedSeller_FR();
+
+        vm.prank(owner);
+        fundraise.setLimitedSeller(address(mockLimitedSeller));
+    }
+
+    function test_invest_callsAddEarnedLimit() public {
+        _investAs(investor, pid, 5_000e6, inviter);
+
+        assertEq(mockLimitedSeller.callCount(), 1);
+        (address user, uint256 amount) = mockLimitedSeller.calls(0);
+        assertEq(user, investor);
+        assertEq(amount, 5_000e6);
+    }
+
+    function test_invest_multipleInvestments_multipleCallbacks() public {
+        _investAs(investor, pid, 5_000e6, inviter);
+        _investAs(investor, pid, 3_000e6, inviter);
+
+        assertEq(mockLimitedSeller.callCount(), 2);
+        (, uint256 amount1) = mockLimitedSeller.calls(0);
+        (, uint256 amount2) = mockLimitedSeller.calls(1);
+        assertEq(amount1, 5_000e6);
+        assertEq(amount2, 3_000e6);
+    }
+
+    function test_invest_worksWithoutLimitedSeller() public {
+        // Unset limitedSeller
+        vm.prank(owner);
+        fundraise.setLimitedSeller(address(0));
+
+        // Should not revert
+        _investAs(investor, pid, 5_000e6, inviter);
+
+        (uint256 invested,) = fundraise.investorInfo(investor, pid);
+        assertEq(invested, 5_000e6);
+    }
+
+    function test_setLimitedSeller_onlyOwner() public {
+        vm.prank(attacker);
+        vm.expectRevert();
+        fundraise.setLimitedSeller(address(mockLimitedSeller));
+    }
+
+    function test_setLimitedSeller_emitsEvent() public {
+        address newAddr = makeAddr("newLS");
+        vm.prank(owner);
+        vm.expectEmit(false, false, false, true);
+        emit Fundraise.LimitedSellerUpdated(newAddr);
+        fundraise.setLimitedSeller(newAddr);
     }
 }

@@ -14,6 +14,8 @@ contract Token is ERC20, Ownable {
 
     event BuyingEnabled();
     event BuyingDisabled();
+    event ManagerRegistryUpdated(address managerRegistry);
+    event MintingDisabledForever();
 
     modifier onlyRewardSystem() {
         require(managerRegistry != address(0), "Token: Manager registry not set");
@@ -48,6 +50,7 @@ contract Token is ERC20, Ownable {
     }
 
     function disableBuying() external onlyOwner {
+        require(canDisableBuying, "Token: Buying cannot be disabled");
         require(buyingEnabled, "Token: Buying already disabled");
         buyingEnabled = false;
         emit BuyingDisabled();
@@ -61,6 +64,7 @@ contract Token is ERC20, Ownable {
 
     function disableMintingForever() external onlyOwner {
         mintingEnabled = false;
+        emit MintingDisabledForever();
     }
 
     function mintReward(address to, uint256 amount) external onlyRewardSystem {
@@ -85,6 +89,7 @@ contract Token is ERC20, Ownable {
     function setManagerRegistry(address _managerRegistry) external onlyOwner {
         require(_managerRegistry != address(0), "Token: Cannot set zero address as manager registry");
         managerRegistry = _managerRegistry;
+        emit ManagerRegistryUpdated(_managerRegistry);
     }
 
     function canBuy(address buyer) external view returns (bool) {

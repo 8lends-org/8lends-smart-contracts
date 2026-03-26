@@ -83,15 +83,14 @@ contract FundraiseHandler is Test {
         vm.prank(inv);
         usdc.approve(address(fundraise), amount);
 
-        uint256 nonce = fundraise.nonce();
-        bytes32 rootHash = keccak256(abi.encodePacked("invariant-root"));
-        bytes32 innerHash = keccak256(abi.encodePacked(inv, pid, amount, rootHash, nonce + 1, address(0)));
+        uint256 nonce = fundraise.userNonces(inv);
+        bytes32 innerHash = keccak256(abi.encodePacked(inv, pid, amount, nonce + 1, address(0)));
         bytes32 ethHash = keccak256(abi.encodePacked("\x19Ethereum Signed Message:\n32", innerHash));
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(backendPk, ethHash);
         bytes memory sig = abi.encodePacked(r, s, v);
 
         vm.prank(inv);
-        fundraise.investUpdate(pid, amount, rootHash, nonce + 1, sig, address(0));
+        fundraise.investUpdate(pid, amount, nonce + 1, sig, address(0));
 
         ghost_totalInvested += amount;
         calls_invest++;
