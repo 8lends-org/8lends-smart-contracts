@@ -443,6 +443,87 @@ contract FundraiseTest is Setup {
         fundraise.investUpdate(pid, 5_000e6, rootHash, currentNonce + 1, sig, inviter);
     }
 
+    // ═══════════════════════════════════════════════════════════════
+    //              PROJECT INITIALIZATION CHECKS (T-10)
+    // ═══════════════════════════════════════════════════════════════
+
+    function _buildValidProject() internal view returns (Fundraise.Project memory) {
+        return Fundraise.Project({
+            hardCap: 40_000e6,
+            softCap: 20_000e6,
+            totalInvested: 0,
+            startAt: block.timestamp - 10,
+            preFundDuration: 7 days,
+            investorInterestRate: INVESTOR_INTEREST,
+            openStageEndAt: block.timestamp + 7 days,
+            innerStruct: Fundraise.InnerProjectStruct({
+                platformInterestRate: PLATFORM_FEE,
+                totalRepaid: 0,
+                borrower: borrower,
+                fundedTime: 0,
+                loanToken: IERC20(address(usdc)),
+                stage: Fundraise.Stage.ComingSoon
+            })
+        });
+    }
+
+    function test_createProject_revertsOnZeroSoftCap() public {
+        Fundraise.Project memory proj = _buildValidProject();
+        proj.softCap = 0;
+
+        vm.prank(manager);
+        vm.expectRevert("softCap must be positive");
+        fundraise.createProject(proj, bytes32(0), 1);
+    }
+
+    function test_createProject_revertsOnSoftCapGtHardCap() public {
+        Fundraise.Project memory proj = _buildValidProject();
+        proj.softCap = 50_000e6;
+        proj.hardCap = 40_000e6;
+
+        vm.prank(manager);
+        vm.expectRevert("softCap > hardCap");
+        fundraise.createProject(proj, bytes32(0), 1);
+    }
+
+    function test_createProject_revertsOnNonZeroTotalInvested() public {
+        Fundraise.Project memory proj = _buildValidProject();
+        proj.totalInvested = 1_000e6;
+
+        vm.prank(manager);
+        vm.expectRevert("totalInvested must be 0");
+        fundraise.createProject(proj, bytes32(0), 1);
+    }
+
+    function test_createProject_revertsOnZeroBorrower() public {
+        Fundraise.Project memory proj = _buildValidProject();
+        proj.innerStruct.borrower = address(0);
+
+        vm.prank(manager);
+        vm.expectRevert("borrower must be set");
+        fundraise.createProject(proj, bytes32(0), 1);
+    }
+
+    function test_createProject_revertsOnZeroLoanToken() public {
+        Fundraise.Project memory proj = _buildValidProject();
+        proj.innerStruct.loanToken = IERC20(address(0));
+
+        vm.prank(manager);
+        vm.expectRevert("loanToken must be set");
+        fundraise.createProject(proj, bytes32(0), 1);
+    }
+
+    function test_createProject_validProject_succeeds() public {
+        Fundraise.Project memory proj = _buildValidProject();
+
+        vm.prank(manager);
+        uint256 newPid = fundraise.createProject(proj, bytes32(0), 1);
+
+        (uint256 hardCap, uint256 softCap,,,,,,) = fundraise.projects(newPid);
+        assertEq(hardCap, 40_000e6);
+        assertEq(softCap, 20_000e6);
+    }
+
     function test_invest_cannotSelfRefer() public {
         vm.prank(owner);
         usdc.mint(investor, 5_000e6);
