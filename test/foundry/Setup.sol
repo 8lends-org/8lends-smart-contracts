@@ -17,6 +17,7 @@ import "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 // Mocks
 import "./mocks/MockUSDC.sol";
 import "./mocks/MockUniswapV2Router.sol";
+import {MockOracle} from "../../contracts/mocks/MockOracle.sol";
 
 /// @notice Base test setup — deploys all protocol contracts and configures roles.
 /// @dev Mirrors the Hardhat deployment from test/helpers.ts.
@@ -31,6 +32,7 @@ abstract contract Setup is Test {
     Treasury public treasury;
     MockUSDC public usdc;
     MockUniswapV2Router public mockRouter;
+    MockOracle public mockOracle;
 
     // ── Actors ──
     address public owner;
@@ -104,6 +106,12 @@ abstract contract Setup is Test {
             ERC1967Proxy proxy = new ERC1967Proxy(address(impl), initData);
             rewardSystem = RewardSystem(address(proxy));
         }
+
+        // ── Deploy MockOracle and configure on RewardSystem ──
+        mockOracle = new MockOracle();
+        // 1 token = 0.01 USD → price = 0.01 * 1e8 = 1_000_000 (8 decimals)
+        mockOracle.setPrice(address(token), 1_000_000);
+        rewardSystem.setOracle(address(mockOracle));
 
         // ── Deploy Fundraise (UUPS proxy) ──
         {

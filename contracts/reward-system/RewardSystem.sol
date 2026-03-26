@@ -3,6 +3,8 @@ pragma solidity ^0.8.23;
 
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
+import "@openzeppelin/contracts/token/ERC20/extensions/IERC20Metadata.sol";
+import "@openzeppelin/contracts/utils/math/Math.sol";
 import "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
 import "@openzeppelin/contracts-upgradeable/utils/ReentrancyGuardUpgradeable.sol";
 import "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
@@ -10,6 +12,7 @@ import "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
 import "./interfaces/IManagerRegistry.sol";
 import "./interfaces/IUniswapV2Router02.sol";
 import "./interfaces/IToken.sol";
+import "../oracle/interfaces/IOracle.sol";
 
 contract RewardSystem is Initializable, UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuardUpgradeable {
     using SafeERC20 for IERC20;
@@ -61,7 +64,11 @@ contract RewardSystem is Initializable, UUPSUpgradeable, OwnableUpgradeable, Ree
     uint256 public additionalUnlockPercentage; // Additional unlock percentage for sell operations (in BASIS_POINTS)
     mapping(address => mapping(uint256 => uint256)) public userMaxAdditionalUnlockUsed; // user -> projectId -> max additional unlock used
 
+    // Oracle for manipulation-resistant pricing
+    address public oracle;
+
     // Events
+    event OracleUpdated(address oracle);
     event UserRegistered(address indexed user, address indexed inviter);
     event InvestmentRecorded(address indexed user, uint256 amount, uint256 projectId);
     event ProjectRewardsActivated(uint256 indexed projectId, uint256 timestamp);
@@ -170,22 +177,22 @@ contract RewardSystem is Initializable, UUPSUpgradeable, OwnableUpgradeable, Ree
 
         if (token == address(0)) revert("Token address is not set");
         if (address(usdc) == address(0)) revert("USDC address is not set");
-        if (address(uniswapRouter) == address(0)) revert("Uniswap router address is not set");
-
-        // Get current Token price in USDC
-        address[] memory path = new address[](2);
-        path[0] = address(usdc);
-        path[1] = token;
-        
-        uint256[] memory amounts;
-        try uniswapRouter.getAmountsOut(usdcRewardAmount, path) returns (uint256[] memory _amounts) {
-            amounts = _amounts;
-        } catch {
-            revert("Uniswap pool does not exist or has no liquidity");
-        }
-        
-        uint256 tokensAmount = amounts[1];
-        require(tokensAmount > 0, "Invalid token amount from Uniswap");
+        // Get manipulation-resistant price from Oracle (Pyth + TWAP)
+        require(oracle != address(0), "Oracle not set");
+        IOracle.PriceResult memory priceResult = IOracle(oracle).getPrice(token);
+        require(priceResult.price > 0, "Oracle: no valid price");
+        uint8 tokenDecimals = IERC20Metadata(token).decimals();
+        uint8 usdcDecimals = IERC20Metadata(address(usdc)).decimals();
+        uint8 priceDecimals = IOracle(oracle).priceDecimals();
+        // Convert usdcRewardAmount to token amount using oracle price
+        // price is token price in USD with priceDecimals decimals
+        // tokensAmount = usdcRewardAmount * 10^priceDecimals * 10^tokenDecimals / (price * 10^usdcDecimals)
+        uint256 tokensAmount = Math.mulDiv(
+            usdcRewardAmount * 10**priceDecimals,
+            10**tokenDecimals,
+            priceResult.price * 10**usdcDecimals
+        );
+        require(tokensAmount > 0, "Invalid token amount from Oracle");
 
         refData.totalRewardsTokens += tokensAmount;
         rewardTokensAmount[_projectId] += tokensAmount;
@@ -250,6 +257,14 @@ contract RewardSystem is Initializable, UUPSUpgradeable, OwnableUpgradeable, Ree
         if (_managerRegistry != address(0)) managerRegistry = _managerRegistry;
         if (_token != address(0)) token = _token;
         if (_usdc != address(0)) usdc = IERC20(_usdc);
+    }
+
+    /// @notice Set oracle address for manipulation-resistant pricing
+    /// @param _oracle Oracle contract address
+    function setOracle(address _oracle) external onlyOwner {
+        require(_oracle != address(0), "Invalid address");
+        oracle = _oracle;
+        emit OracleUpdated(_oracle);
     }
 
     /// @notice set parameters
