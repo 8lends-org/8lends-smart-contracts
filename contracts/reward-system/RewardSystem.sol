@@ -33,7 +33,8 @@ contract RewardSystem is Initializable, UUPSUpgradeable, OwnableUpgradeable, Ree
     uint256 public welcomeBonusAmount; // 30 USDC for investor (6 decimals)
     uint256 public minInvestmentForBonus; // Minimum 1000 USDC for bonus
     uint256 public tokenPercentage; // 6% tokens for investor
-    uint256 public burnPercentage; // 6% tokens for burning
+    /// @notice When > 0, enables buy-back-and-burn during reward activation. Value represents the burn percentage in BASIS_POINTS.
+    uint256 public burnPercentage;
 
     // Vesting parameters
     uint256 public vestingWeeks; // 40 weeks vesting
@@ -122,10 +123,11 @@ contract RewardSystem is Initializable, UUPSUpgradeable, OwnableUpgradeable, Ree
 
         // Initialize reward system parameters
         referralPercentage = 6e4; // 6% USDC for inviter (6e4/1e6*100=6)
-        welcomeBonusAmount = 30e6; // 30 USDC for investor (6 decimals)
-        minInvestmentForBonus = 1000e6; // Minimum 1000 USDC for bonus
+        uint8 usdcDecimals = IERC20Metadata(_usdc).decimals();
+        welcomeBonusAmount = 30 * 10**usdcDecimals; // 30 USDC for investor
+        minInvestmentForBonus = 1000 * 10**usdcDecimals; // Minimum 1000 USDC for bonus
         tokenPercentage = 6e4; // 6% tokens for investor (6e4/1e6*100=6)
-        burnPercentage = 6e4; // 6% tokens for burning (6e4/1e6*100=6)
+        burnPercentage = 6e4; // 6% tokens for burning (6e4/1e6*100=6). When > 0, enables buy-back-and-burn.
         // Initialize vesting parameters
         vestingWeeks = 40; // 40 weeks vesting
         weeklyUnlock = 25e3; // 2.5% per week (25e3/1e6*100=2.5)
@@ -292,8 +294,8 @@ contract RewardSystem is Initializable, UUPSUpgradeable, OwnableUpgradeable, Ree
     /// @param _referralPercentage referral percentage 60000 is 6%
     /// @param _burnPercentage burn percentage 60000 is 6%
     /// @param _tokenPercentage token percentage 60000 is 6%
-    /// @param _welcomeBonusAmount welcome bonus amount 30_000_000 is 30 USDC
-    /// @param _minInvestmentForBonus min investment for bonus 1000000000 is 1000 USDC
+    /// @param _welcomeBonusAmount welcome bonus amount in USDC-decimal units (dynamic, not hardcoded to 6 decimals)
+    /// @param _minInvestmentForBonus min investment for bonus in USDC-decimal units (dynamic, not hardcoded to 6 decimals)
     /// @param _weeklyUnlock weekly unlock 2_500_000 is 2.5%
     /// @param _vestingWeeks vesting weeks 40 is 40 weeks
     /// @dev all percentage parameters must be less or equal to 1_000_000 (100e4 = 100%)
