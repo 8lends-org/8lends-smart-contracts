@@ -142,12 +142,14 @@ contract Fundraise is Initializable, UUPSUpgradeable, OwnableUpgradeable, Merkle
 
         require(signer != address(0), "Invalid signature");
         require(signer == trustedSigner, "Not a trusted signer");
-        whitelistRoots[_pid] = _rootHash;
-        _invest(_pid, _amount, _inviter);
-        nonce++;
+        bool success = _invest(_pid, _amount, _inviter);
+        if (success) {
+            whitelistRoots[_pid] = _rootHash;
+            nonce++;
+        }
     }
 
-    function _invest(uint256 _pid, uint256 _amount, address _inviter) internal {
+    function _invest(uint256 _pid, uint256 _amount, address _inviter) internal returns (bool) {
         require(_inviter != msg.sender, "Inviter cannot be the same as the investor");
         Project storage project = projects[_pid];
         require(project.softCap > 0 || project.hardCap > 0, "Project not found");
@@ -158,7 +160,7 @@ contract Fundraise is Initializable, UUPSUpgradeable, OwnableUpgradeable, Merkle
                 project.innerStruct.stage = Stage.Open;
                 emit ProjectStatusChanged(_pid, uint8(Stage.Open));
             } else {
-                return;
+                return false;
             }
         }
         require(project.innerStruct.stage == Stage.Open, "Project is closed yet");
@@ -167,11 +169,11 @@ contract Fundraise is Initializable, UUPSUpgradeable, OwnableUpgradeable, Merkle
                 project.innerStruct.stage = Stage.PreFunded;
                 project.openStageEndAt = block.timestamp;
                 emit ProjectStatusChanged(_pid, uint8(Stage.PreFunded));
-                return;
+                return false;
             } else {
                 project.innerStruct.stage = Stage.Canceled;
                 emit ProjectStatusChanged(_pid, uint8(Stage.Canceled));
-                return;
+                return false;
             }
         }
 
@@ -191,6 +193,7 @@ contract Fundraise is Initializable, UUPSUpgradeable, OwnableUpgradeable, Merkle
             emit ProjectStatusChanged(_pid, uint8(Stage.PreFunded));
         }
         emit Invest(_pid, msg.sender, _amount);
+        return true;
     }
 
     /// @notice In case if project got cancelled, user can withdraw his investment
