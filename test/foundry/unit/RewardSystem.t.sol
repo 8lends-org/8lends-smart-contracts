@@ -2,6 +2,7 @@
 pragma solidity ^0.8.23;
 
 import "../Setup.sol";
+import {MockOracle} from "../../../contracts/mocks/MockOracle.sol";
 
 contract RewardSystemTest is Setup {
     uint256 pid;
@@ -69,12 +70,14 @@ contract RewardSystemTest is Setup {
     }
 
     // ═══════════════════════════════════════════════════════════════
-    //        VULNERABILITY #6: UNISWAP DEPENDENCY IN INVEST
+    //        ORACLE FAILURE BLOCKS INVEST
     // ═══════════════════════════════════════════════════════════════
 
-    function test_vuln6_uniswapFailure_blocksInvest() public {
-        // Make the mock router revert
-        mockRouter.setShouldRevert(true);
+    function test_oracleFailure_blocksInvest() public {
+        // Set oracle to one that returns price=0 (simulates oracle failure)
+        MockOracle zeroOracle = new MockOracle();
+        vm.prank(owner);
+        rewardSystem.setOracle(address(zeroOracle));
 
         // Prepare invest
         vm.prank(owner);
@@ -86,9 +89,9 @@ contract RewardSystemTest is Setup {
         bytes32 rootHash = keccak256(abi.encodePacked("test"));
         bytes memory sig = _signInvest(investor, pid, 5_000e6, rootHash, currentNonce + 1, inviter);
 
-        // Invest reverts because RewardSystem.recordInvestment calls uniswapRouter.getAmountsOut
+        // Invest reverts because Oracle returns price=0
         vm.prank(investor);
-        vm.expectRevert("Uniswap pool does not exist or has no liquidity");
+        vm.expectRevert("Oracle: no valid price");
         fundraise.investUpdate(pid, 5_000e6, rootHash, currentNonce + 1, sig, inviter);
     }
 
