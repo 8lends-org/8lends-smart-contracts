@@ -8,21 +8,27 @@ contract ManagerRegistryTest is Setup {
     //                     ROLE MANAGEMENT
     // ═══════════════════════════════════════════════════════════════
 
-    function test_setManagerStatus_onlyManagerOrOwner() public {
+    function test_setManagerStatus_onlyOwner() public {
+        // Non-owner (attacker) cannot set manager status
         vm.prank(attacker);
-        vm.expectRevert("ManagerRegistry: Not a manager");
+        vm.expectRevert();
+        managerRegistry.setManagerStatus(attacker, true);
+
+        // Non-owner manager cannot set manager status either
+        vm.prank(manager);
+        vm.expectRevert();
         managerRegistry.setManagerStatus(attacker, true);
     }
 
-    function test_managerCanPromoteOtherManager() public {
-        // An existing manager can add new managers — this is a design choice
-        // but means a compromised manager can escalate
+    function test_managerCannotPromoteOtherManager() public {
+        // After restricting to onlyOwner, a manager can no longer promote others
         address newManager = makeAddr("newManager");
 
         vm.prank(manager);
+        vm.expectRevert();
         managerRegistry.setManagerStatus(newManager, true);
 
-        assertTrue(managerRegistry.managers(newManager));
+        assertFalse(managerRegistry.managers(newManager));
     }
 
     function test_isManager_includesRewardSystem() public {
