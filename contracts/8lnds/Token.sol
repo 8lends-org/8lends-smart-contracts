@@ -48,6 +48,7 @@ contract Token is ERC20, Ownable {
     }
 
     function disableBuying() external onlyOwner {
+        require(canDisableBuying, "Token: Buying cannot be disabled");
         require(buyingEnabled, "Token: Buying already disabled");
         buyingEnabled = false;
         emit BuyingDisabled();
