@@ -147,7 +147,7 @@ contract RewardSystem is Initializable, UUPSUpgradeable, OwnableUpgradeable, Ree
     /// @param _amount Investment amount in USDC
     /// @param _inviter Inviter address (if first investment)
     /// @param _projectId Project ID
-    function recordInvestment(address _user, uint256 _amount, address _inviter, uint256 _projectId)
+    function recordInvestment(address _user, uint256 _amount, address _inviter, uint256 _projectId, address _loanToken)
         external
         onlyFundraise
     {
@@ -197,8 +197,8 @@ contract RewardSystem is Initializable, UUPSUpgradeable, OwnableUpgradeable, Ree
         refData.totalRewardsTokens += tokensAmount;
         rewardTokensAmount[_projectId] += tokensAmount;
 
-        // Bonus for investor (if investment >= minimum and this is new user)
-        if (userInfo.isNewUser && _amount >= minInvestmentForBonus) {
+        // Bonus for investor (if investment USD value >= minimum and this is new user)
+        if (userInfo.isNewUser && _convertToUSD(_amount, _loanToken) >= minInvestmentForBonus) {
             refData.totalRewardsUSDC += welcomeBonusAmount;
             userInfo.isNewUser = false;
             emit WelcomeBonusRecorded(_user, welcomeBonusAmount);
@@ -208,6 +208,22 @@ contract RewardSystem is Initializable, UUPSUpgradeable, OwnableUpgradeable, Ree
     }
 
 
+
+    /// @notice Convert a token amount to its USD equivalent (in USDC decimals) using Oracle price
+    /// @param _amount Raw amount in token units
+    /// @param _loanToken Token address to get the price for
+    /// @return USD value normalized to USDC decimals
+    function _convertToUSD(uint256 _amount, address _loanToken) internal view returns (uint256) {
+        IOracle.PriceResult memory loanPriceResult = IOracle(oracle).getPrice(_loanToken);
+        uint8 loanTokenDecimals = IERC20Metadata(_loanToken).decimals();
+        uint8 _usdcDecimals = IERC20Metadata(address(usdc)).decimals();
+        uint8 _priceDecimals = IOracle(oracle).priceDecimals();
+        if (loanTokenDecimals >= _usdcDecimals) {
+            return (_amount * loanPriceResult.price) / (10**_priceDecimals * 10**(loanTokenDecimals - _usdcDecimals));
+        } else {
+            return (_amount * loanPriceResult.price * 10**(_usdcDecimals - loanTokenDecimals)) / 10**_priceDecimals;
+        }
+    }
 
     /// @notice Activate project rewards (called when transitioning to Stage.Funded)
     /// @param _projectId Project ID

@@ -180,7 +180,7 @@ contract Fundraise is Initializable, UUPSUpgradeable, OwnableUpgradeable, Merkle
         project.innerStruct.loanToken.safeTransferFrom(msg.sender, address(this), _amount);
 
         if (rewardSystem != address(0)) {
-            IRewardSystem(rewardSystem).recordInvestment(msg.sender, _amount, _inviter, _pid);
+            IRewardSystem(rewardSystem).recordInvestment(msg.sender, _amount, _inviter, _pid, address(project.innerStruct.loanToken));
         }
 
         project.totalInvested += _amount;
