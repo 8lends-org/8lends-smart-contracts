@@ -25,6 +25,10 @@ contract Fundraise is Initializable, UUPSUpgradeable, OwnableUpgradeable, Merkle
     event ProjectUpdated(uint256 indexed projectId);
     event InvestorClaimAddressSet(address indexed investor, address indexed claimAddress);
     event InvestmentTransferred(uint256 indexed projectId, address indexed from, address indexed to, uint256 amount, uint256 id);
+    event ManagerRegistryUpdated(address managerRegistry);
+    event TreasuryUpdated(address treasury);
+    event RewardSystemUpdated(address rewardSystem);
+    event TrustedSignerUpdated(address signer);
 
     enum Stage {
         ComingSoon,
@@ -465,25 +469,33 @@ contract Fundraise is Initializable, UUPSUpgradeable, OwnableUpgradeable, Merkle
     /// @param _signer New address
     function setTrustedSigner(address _signer) external {
         require(IManagerRegistry(managerRegistry).isManager(msg.sender), "Not a manager");
+        require(_signer != address(0), "Zero address");
         trustedSigner = _signer;
+        emit TrustedSignerUpdated(_signer);
     }
 
     /// @notice Update manager registry address
     /// @param _managerRegistry New manager registry address
     function setManagerRegistry(address _managerRegistry) external onlyOwner {
+        require(_managerRegistry != address(0), "Zero address");
         managerRegistry = _managerRegistry;
+        emit ManagerRegistryUpdated(_managerRegistry);
     }
 
     /// @notice Update treasury address
     /// @param _treasury New treasury address
     function setTreasury(address _treasury) external onlyOwner {
+        require(_treasury != address(0), "Zero address");
         treasury = _treasury;
+        emit TreasuryUpdated(_treasury);
     }
 
     /// @notice Update reward system address
     /// @param _rewardSystem New reward system address
+    /// @dev address(0) disables the reward system integration
     function setRewardSystem(address _rewardSystem) external onlyOwner {
         rewardSystem = _rewardSystem;
+        emit RewardSystemUpdated(_rewardSystem);
     }
 
     /// @notice Validate project struct invariants
