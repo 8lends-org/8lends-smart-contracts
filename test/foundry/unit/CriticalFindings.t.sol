@@ -69,30 +69,23 @@ contract CriticalFindingsTest is Setup {
     //   access even after the original key is revoked.
     // ═══════════════════════════════════════════════════════════════
 
-    function test_HIGH2_managerCreatesBackdoor() public {
+    function test_HIGH2_managerCreatesBackdoor_FIXED() public {
         address backdoor1 = makeAddr("backdoor1");
-        address backdoor2 = makeAddr("backdoor2");
 
-        // Compromised manager adds backdoor managers
+        // FIXED: Compromised manager can no longer add backdoor managers
         vm.prank(manager);
+        vm.expectRevert();
         managerRegistry.setManagerStatus(backdoor1, true);
 
-        // Backdoor1 adds backdoor2 (chain escalation)
-        vm.prank(backdoor1);
-        managerRegistry.setManagerStatus(backdoor2, true);
-
-        // Owner revokes original compromised manager
+        // Only owner can add managers
         vm.prank(owner);
-        managerRegistry.setManagerStatus(manager, false);
+        managerRegistry.setManagerStatus(backdoor1, true);
+        assertTrue(managerRegistry.managers(backdoor1));
 
-        // But backdoor2 is still active and can do manager operations
-        assertTrue(managerRegistry.isManager(backdoor2), "Backdoor still active after revoking original");
-
-        // Backdoor2 can even re-add the original compromised manager
-        vm.prank(backdoor2);
-        managerRegistry.setManagerStatus(manager, true);
-
-        assertTrue(managerRegistry.isManager(manager), "Compromised manager re-added via backdoor");
+        // Backdoor1 also cannot escalate (not owner)
+        vm.prank(backdoor1);
+        vm.expectRevert();
+        managerRegistry.setManagerStatus(makeAddr("backdoor2"), true);
     }
 
     // ═══════════════════════════════════════════════════════════════
@@ -167,26 +160,20 @@ contract CriticalFindingsTest is Setup {
     //   Owner can disable buying after "forever" enable.
     // ═══════════════════════════════════════════════════════════════
 
-    function test_HIGH5_enableBuyingForever_canBeReversed() public {
+    function test_HIGH5_enableBuyingForever_canBeReversed_FIXED() public {
         vm.prank(owner);
         token.enableBuyingForever();
 
         assertTrue(token.buyingEnabled());
         assertFalse(token.canDisableBuying());
 
-        // canDisableBuying is false, but disableBuying() doesn't check it
+        // FIXED: disableBuying() now checks canDisableBuying and reverts
         vm.prank(owner);
-        token.disableBuying(); // Should fail but doesn't!
+        vm.expectRevert("Token: Buying cannot be disabled");
+        token.disableBuying();
 
-        assertFalse(token.buyingEnabled(), "Buying disabled after 'forever' enable");
-
-        // Impact: Token holders can't sell. Liquidity locked.
-        vm.prank(owner);
-        token.mint(investor, 1000e18);
-
-        vm.prank(investor);
-        vm.expectRevert("Token: Buying is disabled");
-        token.transfer(makeAddr("buyer"), 100e18);
+        // Buying remains enabled — token holders can still sell
+        assertTrue(token.buyingEnabled(), "Buying still enabled after failed disable");
     }
 
     // ═══════════════════════════════════════════════════════════════
