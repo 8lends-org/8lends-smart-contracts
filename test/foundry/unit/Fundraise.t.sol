@@ -80,10 +80,10 @@ contract FundraiseTest is Setup {
     }
 
     // ═══════════════════════════════════════════════════════════════
-    //         VULNERABILITY #1: SILENT RETURN IN _invest
+    //    T-09: MERKLE ROOT AND NONCE UNCHANGED ON FAILED INVEST
     // ═══════════════════════════════════════════════════════════════
 
-    function test_vuln1_silentReturn_whenNotStarted_nonceWasted() public {
+    function test_merkleRootUnchanged_comingSoonBeforeStart() public {
         // Create project that hasn't started yet (startAt in the future)
         Fundraise.Project memory proj = Fundraise.Project({
             hardCap: 40_000e6,
@@ -107,7 +107,7 @@ contract FundraiseTest is Setup {
         uint256 futurePid = fundraise.createProject(proj, bytes32(0), 2);
 
         uint256 nonceBefore = fundraise.nonce();
-        uint256 investorBalanceBefore = usdc.balanceOf(investor);
+        bytes32 rootBefore = fundraise.whitelistRoots(futurePid);
 
         // Prepare invest
         vm.prank(owner);
@@ -116,21 +116,49 @@ contract FundraiseTest is Setup {
         usdc.approve(address(fundraise), 5_000e6);
 
         uint256 nonceForSig = nonceBefore + 1;
-        bytes32 rootHash = keccak256(abi.encodePacked("test"));
+        bytes32 rootHash = keccak256(abi.encodePacked("new-root"));
         bytes memory sig = _signInvest(investor, futurePid, 5_000e6, rootHash, nonceForSig, inviter);
 
         vm.prank(investor);
         fundraise.investUpdate(futurePid, 5_000e6, rootHash, nonceForSig, sig, inviter);
 
-        uint256 nonceAfter = fundraise.nonce();
+        // FIX: nonce must NOT be incremented when _invest returns early
+        assertEq(fundraise.nonce(), nonceBefore, "Nonce must not change on failed invest");
 
-        // BUG: nonce was incremented even though no investment happened
-        assertEq(nonceAfter, nonceBefore + 1, "Nonce was incremented");
+        // FIX: merkle root must NOT be updated when _invest returns early
+        assertEq(fundraise.whitelistRoots(futurePid), rootBefore, "Merkle root must not change on failed invest");
 
         // No tokens were transferred from investor
-        // (investor still has their USDC minus nothing)
         (,, uint256 totalInvested,,,,,) = fundraise.projects(futurePid);
         assertEq(totalInvested, 0, "No actual investment happened");
+    }
+
+    function test_merkleRootUpdated_onSuccessfulInvest() public {
+        bytes32 rootBefore = fundraise.whitelistRoots(pid);
+        uint256 nonceBefore = fundraise.nonce();
+
+        // Prepare invest
+        vm.prank(owner);
+        usdc.mint(investor, 5_000e6);
+        vm.prank(investor);
+        usdc.approve(address(fundraise), 5_000e6);
+
+        uint256 nonceForSig = nonceBefore + 1;
+        bytes32 rootHash = keccak256(abi.encodePacked("new-root"));
+        bytes memory sig = _signInvest(investor, pid, 5_000e6, rootHash, nonceForSig, inviter);
+
+        vm.prank(investor);
+        fundraise.investUpdate(pid, 5_000e6, rootHash, nonceForSig, sig, inviter);
+
+        // Root must be updated on successful invest
+        assertEq(fundraise.whitelistRoots(pid), rootHash, "Merkle root must be updated on successful invest");
+
+        // Nonce must be incremented on successful invest
+        assertEq(fundraise.nonce(), nonceBefore + 1, "Nonce must be incremented on successful invest");
+
+        // Investment actually happened
+        (,, uint256 totalInvested,,,,,) = fundraise.projects(pid);
+        assertEq(totalInvested, 5_000e6, "Investment should be recorded");
     }
 
     // ═══════════════════════════════════════════════════════════════
