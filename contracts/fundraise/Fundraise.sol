@@ -10,6 +10,14 @@ import "./interfaces/IManagerRegistry.sol";
 import "./interfaces/IRewardSystem.sol";
 import "./lib/MerkleProof.sol";
 
+/// @title Fundraise - 8lends RWA lending platform
+/// @notice Only standard ERC20 tokens are supported as loanToken.
+/// Fee-on-transfer, rebasing, and deflationary tokens are NOT supported
+/// and will cause accounting errors.
+/// @notice 8lends uses a Real World Asset (RWA) lending model.
+/// Loans are unsecured on-chain by design. Borrower creditworthiness
+/// is assessed off-chain through underwriting. Legal recourse for
+/// non-repayment is handled through off-chain legal framework.
 contract Fundraise is Initializable, UUPSUpgradeable, OwnableUpgradeable, MerkleProof {
     using SafeERC20 for IERC20;
 
@@ -317,6 +325,11 @@ contract Fundraise is Initializable, UUPSUpgradeable, OwnableUpgradeable, Merkle
 
 
     /// @notice Borrower repays money for a user
+    /// @dev Repayment is enforced through off-chain legal agreements,
+    /// not on-chain collateral or liquidation mechanisms.
+    /// @notice Only borrower or manager can make repayments.
+    /// Third-party repayment is restricted due to legal/regulatory requirements.
+    /// This is an intentional design decision, not a missing feature.
     /// @param _projectId Project info
     /// @param _amount Amount of usdt for repayment
     function makeRepayment(uint256 _projectId, uint256 _amount) external {
@@ -383,6 +396,8 @@ contract Fundraise is Initializable, UUPSUpgradeable, OwnableUpgradeable, Merkle
      */
 
     /// @notice Create new project
+    /// @dev Only standard ERC20 tokens are supported as loanToken.
+    /// Fee-on-transfer, rebasing, and deflationary tokens will cause accounting errors.
     /// @param _project Project info
     /// @param _whitelistRoot Whitelist root
     /// @param _projectHash project hash, for event
@@ -422,6 +437,7 @@ contract Fundraise is Initializable, UUPSUpgradeable, OwnableUpgradeable, Merkle
     }
 
     /// @notice Update project info
+    /// @dev Only standard ERC20 tokens are supported as loanToken when replacing project in ComingSoon stage.
     /// @param _projectId Project id
     /// @param _project new project info
     function setProject(uint256 _projectId, Project memory _project) external {
