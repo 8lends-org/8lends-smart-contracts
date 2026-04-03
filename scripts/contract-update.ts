@@ -1,10 +1,10 @@
 import dotenv from "dotenv";
+import type { Contract } from "ethers";
 import hre, { ethers } from "hardhat";
-import { upgrades } from "hardhat";
 import { readJsonFile, writeJsonFile } from "./helpers";
+
 dotenv.config();
 
-// Get contract name from environment variable
 const contractName = process.env.CONTRACT;
 
 if (!contractName) {
@@ -17,17 +17,50 @@ if (!contractName) {
   console.error(
     "Example: CONTRACT=LimitedSeller npx hardhat run scripts/contract-update.ts --network base"
   );
+  console.error(
+    "Example: CONTRACT=BTC8L npx hardhat run scripts/contract-update.ts --network base_sepolia"
+  );
   process.exit(1);
 }
 
-async function main() {
+/**
+ * UUPS via Ownable: owner(). BTC8L: UPGRADER_ROLE (or DEFAULT_ADMIN if same holder).
+ */
+async function signerMayUpgrade(proxy: Contract, signerAddress: string): Promise<boolean> {
+  try {
+    const upgraderRole = await proxy.getFunction("UPGRADER_ROLE")();
+    if (await proxy.hasRole(upgraderRole, signerAddress)) {
+      return true;
+    }
+  } catch {
+    /* no UPGRADER_ROLE */
+  }
+  try {
+    const adminRole = await proxy.getFunction("DEFAULT_ADMIN_ROLE")();
+    if (await proxy.hasRole(adminRole, signerAddress)) {
+      return true;
+    }
+  } catch {
+    /* no AccessControl */
+  }
+  try {
+    const ownerFn = proxy.getFunction("owner");
+    const ownerAddr = (await ownerFn()) as string;
+    return ownerAddr.toLowerCase() === signerAddress.toLowerCase();
+  } catch {
+    return false;
+  }
+}
+
+async function main(): Promise<void> {
   const net = await ethers.provider.getNetwork();
   const filePath = `./scripts/config/${net.chainId}-config.json`;
-  const config = await readJsonFile(filePath);
+  const config = (await readJsonFile(filePath)) as Record<string, string>;
 
   console.log(`\nUpdating ${contractName} contract...`);
 
   const [signer] = await ethers.getSigners();
+  const signerAddress = await signer.getAddress();
   const contractKey = contractName!;
   const implKey = `${contractName}_impl`;
 
@@ -35,41 +68,30 @@ async function main() {
     throw new Error(`${contractName} contract not found in config`);
   }
 
-  // Check owner rights
-  const contract = await ethers.getContractAt(contractName!, config[contractKey] as string);
-  
-  let isOwner = false;
-  if(contract.getFunction("hasRole") !== undefined) {
-    isOwner = await contract.hasRole(await contract.DEFAULT_ADMIN_ROLE(), await signer.getAddress());
-  }
-  if(!isOwner){
-    const owner = await contract.owner();
-    if (owner.toLowerCase() !== (await signer.getAddress()).toLowerCase()) {
-      console.log(`Contract: ${config[contractKey]}`);
-      console.log(`Owner: ${owner}`);
-      console.log(`Signer: ${await signer.getAddress()}`);
-      throw new Error("Not the owner");
-    }
+  const proxyAddress = config[contractKey] as string;
+  const contract = await ethers.getContractAt(contractName!, proxyAddress);
+  const allowed = await signerMayUpgrade(contract, signerAddress);
+  if (!allowed) {
+    console.log(`Proxy: ${proxyAddress}`);
+    console.log(`Signer: ${signerAddress}`);
+    throw new Error(
+      "Signer cannot upgrade this proxy (need UPGRADER_ROLE, DEFAULT_ADMIN_ROLE, or owner())"
+    );
   }
 
-  // Force update
   await hre.run("clean");
   await hre.run("compile");
 
   const ContractFactory = await hre.ethers.getContractFactory(contractName!);
-
-  // When updating UUPS contract, initialize does not need to be called
-  // Contract is already initialized on first deployment
-  let initData = "0x";
+  const initData = "0x";
 
   const newImpl = await ContractFactory.deploy();
   await newImpl.waitForDeployment();
   const newImplAddress = await newImpl.getAddress();
 
-  // Wait so the RPC has updated nonce and does not reject the next tx as "already known"
-  await new Promise(resolve => setTimeout(resolve, 2000));
+  await new Promise((resolve) => setTimeout(resolve, 2000));
 
-  const proxy = await ethers.getContractAt(contractName!, config[contractKey] as string);
+  const proxy = await ethers.getContractAt(contractName!, proxyAddress);
   await proxy.upgradeToAndCall(newImplAddress, initData);
 
   config[implKey] = newImplAddress;
@@ -78,7 +100,7 @@ async function main() {
   console.log(`✅ ${contractName} updated! New impl: ${newImplAddress}`);
 }
 
-main().catch(error => {
+main().catch((error: unknown) => {
   console.error(error);
   process.exit(1);
 });

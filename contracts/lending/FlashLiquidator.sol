@@ -2,7 +2,13 @@
 pragma solidity ^0.8.23;
 
 import { Id, ILending8, MarketParams, Market } from "./interfaces/ILending8.sol";
-import { ILending8FlashLoanCallback, ILending8LiquidateCallback, ILending8RepayCallback, ILending8SupplyCallback, ILending8SupplyCollateralCallback } from "./interfaces/ILending8Callbacks.sol";
+import {
+    ILending8FlashLoanCallback,
+    ILending8LiquidateCallback,
+    ILending8RepayCallback,
+    ILending8SupplyCallback,
+    ILending8SupplyCollateralCallback
+} from "./interfaces/ILending8Callbacks.sol";
 import { SafeERC20, IERC20 } from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import { MarketParamsLib } from "./lib/MarketParamsLib.sol";
 import { SharesMathLib } from "./lib/SharesMathLib.sol";
@@ -13,13 +19,28 @@ import { IUniswapV2Router02 } from "./interfaces/IUniswapV2Router02.sol";
 
 /// @title FlashLiquidator
 /// @notice Liquidate unhealthy Lending8 positions using a flash loan: caller passes marketId, borrower and loan token amount; contract borrows via flash loan, liquidates, then repays flash from caller's approved loan token. Caller must approve loan token to this contract.
-contract FlashLiquidator is Initializable, UUPSUpgradeable, OwnableUpgradeable, ILending8FlashLoanCallback, ILending8LiquidateCallback, ILending8RepayCallback, ILending8SupplyCallback, ILending8SupplyCollateralCallback {
+contract FlashLiquidator is
+    Initializable,
+    UUPSUpgradeable,
+    OwnableUpgradeable,
+    ILending8FlashLoanCallback,
+    ILending8LiquidateCallback,
+    ILending8RepayCallback,
+    ILending8SupplyCallback,
+    ILending8SupplyCollateralCallback
+{
     using SafeERC20 for IERC20;
 
     ILending8 public LENDING8;
     address public uniswapV2Router;
 
-    event Liquidate(Id indexed marketId, address indexed borrower, uint256 repaidAssets, uint256 repaidShares, uint256 seizedAssets);
+    event Liquidate(
+        Id indexed marketId,
+        address indexed borrower,
+        uint256 repaidAssets,
+        uint256 repaidShares,
+        uint256 seizedAssets
+    );
 
     /// @custom:oz-upgrades-unsafe-allow constructor
     constructor() {
@@ -37,7 +58,6 @@ contract FlashLiquidator is Initializable, UUPSUpgradeable, OwnableUpgradeable, 
 
     /// @notice Authorize contract upgrade (owner only).
     function _authorizeUpgrade(address) internal override onlyOwner {}
-
 
     function setUniswapV2Router(address _uniswapV2Router) external onlyOwner {
         uniswapV2Router = _uniswapV2Router;
@@ -82,29 +102,21 @@ contract FlashLiquidator is Initializable, UUPSUpgradeable, OwnableUpgradeable, 
         LENDING8.flashLoan(marketParams.loanToken, repaidAssets, data);
     }
 
-    
-
     function onLending8FlashLoan(uint256 assets, bytes calldata data) external {
         require(msg.sender == address(LENDING8), "FlashLiq: only Lending8");
-        (MarketParams memory marketParams, address borrower, uint256 repaidShares) =
-            abi.decode(data, (MarketParams, address, uint256));
+        (MarketParams memory marketParams, address borrower, uint256 repaidShares) = abi.decode(
+            data,
+            (MarketParams, address, uint256)
+        );
         IERC20(marketParams.loanToken).forceApprove(address(LENDING8), assets);
-        (uint256 seizedAssets,) = LENDING8.liquidate(marketParams, borrower, 0, repaidShares, '0x');
+        (uint256 seizedAssets, ) = LENDING8.liquidate(marketParams, borrower, 0, repaidShares, "0x");
         swap(marketParams.collateralToken, marketParams.loanToken, seizedAssets);
         IERC20(marketParams.loanToken).forceApprove(address(LENDING8), assets);
         emit Liquidate(MarketParamsLib.id(marketParams), borrower, assets, repaidShares, seizedAssets);
     }
 
-    function onLending8Liquidate(uint256 repaidAssets, bytes calldata data) external {
-
-    }
-    function onLending8Repay(uint256 assets, bytes calldata data) external {
-
-    }
-    function onLending8Supply(uint256 assets, bytes calldata data) external {
-
-    }
-    function onLending8SupplyCollateral(uint256 assets, bytes calldata data) external {
-
-    }
+    function onLending8Liquidate(uint256 repaidAssets, bytes calldata data) external {}
+    function onLending8Repay(uint256 assets, bytes calldata data) external {}
+    function onLending8Supply(uint256 assets, bytes calldata data) external {}
+    function onLending8SupplyCollateral(uint256 assets, bytes calldata data) external {}
 }

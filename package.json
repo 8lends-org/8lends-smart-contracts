@@ -21,7 +21,11 @@
     "forge:coverage": "forge coverage",
     "slither": "slither . --config-file slither.config.json",
     "slither:high": "slither . --config-file slither.config.json --exclude-informational --exclude-low",
-    "slither:triage": "slither . --config-file slither.config.json --triage-mode"
+    "slither:triage": "slither . --config-file slither.config.json --triage-mode",
+    "contract-deploy": "hardhat run scripts/contract-deploy.ts",
+    "contract-upgrade": "hardhat run scripts/contract-update.ts",
+    "contracts-deploy": "hardhat run scripts/contract-deploy.ts",
+    "contracts-upgrade": "hardhat run scripts/contract-update.ts"
   },
   "author": "",
   "license": "ISC",

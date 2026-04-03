@@ -202,7 +202,14 @@ const DEPLOY_DESCRIPTORS: Record<string, DeployDescriptor> = {
   BTC8L: {
     useProxy: true,
     initializer: "initialize",
-    getProxyArgs: (_config, owner) => [owner, _config.Lending8],
+    /** `initialize(address defaultAdmin)` — grants DEFAULT_ADMIN, MINTER, UPGRADER. Override with BTC8L_DEFAULT_ADMIN (e.g. multisig). */
+    getProxyArgs: (_config, owner) => {
+      const admin = process.env.BTC8L_DEFAULT_ADMIN?.trim();
+      if (admin && !ethers.isAddress(admin)) {
+        throw new Error("BTC8L_DEFAULT_ADMIN must be a valid address");
+      }
+      return [admin ?? owner];
+    },
     configKey: "BTC8L",
     configKeyImpl: "BTC8L_impl",
   },

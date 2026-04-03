@@ -7,6 +7,7 @@ dotenv.config();
  * Verify contract upgrade success
  * 
  * Usage: CONTRACT=Fundraise npx hardhat run scripts/verify-upgrade.ts --network base
+ *        CONTRACT=BTC8L npx hardhat run scripts/verify-upgrade.ts --network base_sepolia
  */
 
 async function main() {
