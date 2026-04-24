@@ -37,7 +37,7 @@ contract FundraiseInvestFuzzTest is Setup {
 
         vm.prank(investor);
         vm.expectRevert("Investment exceeds hardcap");
-        fundraise.investUpdate(pid, amount, currentNonce + 1, sig, inviter);
+        fundraise.investUpdateV2(pid, amount, currentNonce + 1, sig, inviter);
     }
 
     /// @notice When investment fills hardCap exactly, project moves to PreFunded

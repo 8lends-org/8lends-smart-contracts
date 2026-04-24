@@ -91,7 +91,7 @@ contract RewardSystemTest is Setup {
         // Invest reverts because Oracle returns price=0
         vm.prank(investor);
         vm.expectRevert("Oracle: no valid price");
-        fundraise.investUpdate(pid, 5_000e6, currentNonce + 1, sig, inviter);
+        fundraise.investUpdateV2(pid, 5_000e6, currentNonce + 1, sig, inviter);
     }
 
     // ═══════════════════════════════════════════════════════════════

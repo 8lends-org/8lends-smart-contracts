@@ -46,6 +46,12 @@ interface IFundraise {
 
     function transferInvestment(uint256 _projectId, address _from, address _to, bool _onlyFundedStage, uint256 _id) external;
 
+    function transferPosition(uint256 _projectId, address _from, address _to, uint256 _positionIndex, uint256 _id) external;
+
+    function getInvestorPositions(address _investor, uint256 _projectId) external view returns (InvestorInfo[] memory);
+
+    function getPositionCount(address _investor, uint256 _projectId) external view returns (uint256);
+
     function BASIS_POINTS() external view returns (uint256);
 
     function trustedSigner() external view returns (address);

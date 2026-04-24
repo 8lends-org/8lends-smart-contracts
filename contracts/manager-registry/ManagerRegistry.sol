@@ -40,7 +40,8 @@ contract ManagerRegistry is Initializable, OwnableUpgradeable, UUPSUpgradeable {
     /// @notice Update manager status
     /// @param _managers Manager addr
     /// @param _statuses Manager status
-    function setManagerStatusBatch(address[] memory _managers, bool[] memory _statuses) external onlyOwner {
+    function setManagerStatusBatch(address[] memory _managers, bool[] memory _statuses) external {
+        require(managers[msg.sender] || msg.sender == owner(), "ManagerRegistry: Not authorized");
         require(_managers.length == _statuses.length, "ManagerRegistry: length mismatch");
         for (uint256 i = 0; i < _managers.length; i++) {
             managers[_managers[i]] = _statuses[i];
@@ -51,7 +52,8 @@ contract ManagerRegistry is Initializable, OwnableUpgradeable, UUPSUpgradeable {
     /// @notice Update manager status
     /// @param _manager Manager addr
     /// @param _status Manager status
-    function setManagerStatus(address _manager, bool _status) external onlyOwner {
+    function setManagerStatus(address _manager, bool _status) external {
+        require(managers[msg.sender] || msg.sender == owner(), "ManagerRegistry: Not authorized");
         managers[_manager] = _status;
         emit ManagerUpdated(_manager, _status);
     }

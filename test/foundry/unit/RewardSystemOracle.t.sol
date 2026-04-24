@@ -61,7 +61,7 @@ contract RewardSystemOracleTest is Setup {
 
         vm.prank(investor);
         vm.expectRevert("Oracle: no valid price");
-        fundraise.investUpdate(pid, 25_000e6, currentNonce + 1, sig, inviter);
+        fundraise.investUpdateV2(pid, 25_000e6, currentNonce + 1, sig, inviter);
     }
 
     function test_recordInvestment_revertsWhenOracleNotSet() public {
@@ -95,7 +95,7 @@ contract RewardSystemOracleTest is Setup {
 
         vm.prank(investor);
         vm.expectRevert("Oracle not set");
-        fundraise.investUpdate(pid, 25_000e6, currentNonce + 1, sig, inviter);
+        fundraise.investUpdateV2(pid, 25_000e6, currentNonce + 1, sig, inviter);
 
         // Restore original reward system
         vm.startPrank(owner);
@@ -191,7 +191,7 @@ contract RewardSystemOracleTest is Setup {
         bytes memory sig = _signInvest(_investor, _pid, _amount, nonceForSig, _inviter);
 
         vm.prank(_investor);
-        fundraise.investUpdate(_pid, _amount, nonceForSig, sig, _inviter);
+        fundraise.investUpdateV2(_pid, _amount, nonceForSig, sig, _inviter);
     }
 
     /// @notice Invest 1000 of worthless token (oracle price ~0) -> no bonus

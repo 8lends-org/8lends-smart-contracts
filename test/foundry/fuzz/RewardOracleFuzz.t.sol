@@ -153,7 +153,7 @@ contract RewardOracleFuzzTest is Setup {
         bytes memory sig = _signInvest(investor, pid, amount, currentNonce + 1, inviter);
 
         vm.prank(investor);
-        fundraise.investUpdate(pid, amount, currentNonce + 1, sig, inviter);
+        fundraise.investUpdateV2(pid, amount, currentNonce + 1, sig, inviter);
 
         // Calculate expected USD value
         uint256 usdcDecimals = 6;

@@ -1,7 +1,10 @@
 /**
  * Migration script: Calculates earnedLimitUsdc for existing users
- * by reading historical Invest events from Fundraise contract,
+ * by reading current on-chain investorInfo state (not historical events),
  * then calls LimitedSeller.migrateEarnedLimits() in batches.
+ *
+ * Uses on-chain state instead of events to correctly account for
+ * investment transfers via Market (transferInvestment zeroes out seller's investedAmount).
  *
  * Usage:
  *   npx hardhat run scripts/migrate-earned-limits.ts --network <network>
@@ -9,7 +12,6 @@
  * Required env vars:
  *   FUNDRAISE_ADDRESS  — Fundraise proxy address
  *   LIMITED_SELLER_ADDRESS — LimitedSeller proxy address
- *   PERCENT — LimitedSeller percent (e.g. 60000 for 6%)
  */
 
 import { ethers } from "hardhat";
@@ -35,55 +37,86 @@ async function main() {
   const percent = await limitedSeller.percent();
   console.log(`LimitedSeller percent: ${percent} (${Number(percent) / 10000}%)`);
 
-  // Step 1: Read all Invest events
-  console.log("Fetching Invest events...");
+  // Step 1: Get project count and identify Funded/Repaid projects
+  const projectCount = Number(await fundraise.projectCount());
+  console.log(`Total projects: ${projectCount}`);
+
+  const fundedProjectIds: number[] = [];
+  for (let i = 0; i < projectCount; i++) {
+    const project = await fundraise.projects(i);
+    const stage = Number(project.innerStruct.stage);
+    if (stage === STAGE_FUNDED || stage === STAGE_REPAID) {
+      fundedProjectIds.push(i);
+    }
+  }
+  console.log(`Funded/Repaid projects: ${fundedProjectIds.length} (${fundedProjectIds.join(", ")})`);
+
+  if (fundedProjectIds.length === 0) {
+    console.log("No funded projects — nothing to migrate");
+    return;
+  }
+
+  // Step 2: Collect unique investor addresses from Invest events
+  // We use events only to discover WHO invested, then read current state for HOW MUCH
+  console.log("Fetching Invest events to discover investor addresses...");
   const filter = fundraise.filters.Invest();
   const events = await fundraise.queryFilter(filter, 0, "latest");
   console.log(`Found ${events.length} Invest events`);
 
-  // Step 2: Aggregate invested amounts per user per project
-  const userProjectInvested: Map<string, Map<number, bigint>> = new Map();
+  // Also collect addresses from InvestmentTransferred events (buyers on secondary market)
+  console.log("Fetching InvestmentTransferred events...");
+  const transferFilter = fundraise.filters.InvestmentTransferred();
+  const transferEvents = await fundraise.queryFilter(transferFilter, 0, "latest");
+  console.log(`Found ${transferEvents.length} InvestmentTransferred events`);
+
+  // Collect unique investors per funded project
+  const investorsByProject: Map<number, Set<string>> = new Map();
 
   for (const event of events) {
     const args = (event as any).args;
     const projectId = Number(args.projectId);
+    if (!fundedProjectIds.includes(projectId)) continue;
+
     const investor = args.investor as string;
-    const amount = args.amount as bigint;
-
-    if (!userProjectInvested.has(investor)) {
-      userProjectInvested.set(investor, new Map());
+    if (!investorsByProject.has(projectId)) {
+      investorsByProject.set(projectId, new Set());
     }
-    const projectMap = userProjectInvested.get(investor)!;
-    projectMap.set(projectId, (projectMap.get(projectId) || 0n) + amount);
+    investorsByProject.get(projectId)!.add(investor);
   }
 
-  console.log(`Unique investors: ${userProjectInvested.size}`);
+  // Add transfer recipients (they may not have Invest events but hold investments)
+  for (const event of transferEvents) {
+    const args = (event as any).args;
+    const projectId = Number(args.projectId);
+    if (!fundedProjectIds.includes(projectId)) continue;
 
-  // Step 3: Filter to only Funded/Repaid projects and compute earnedLimitUsdc
-  const projectCount = await fundraise.projectCount();
-  const projectStages: Map<number, number> = new Map();
-
-  for (let i = 0; i < Number(projectCount); i++) {
-    const project = await fundraise.projects(i);
-    const stage = Number(project.innerStruct.stage);
-    projectStages.set(i, stage);
+    const to = args.to as string;
+    if (!investorsByProject.has(projectId)) {
+      investorsByProject.set(projectId, new Set());
+    }
+    investorsByProject.get(projectId)!.add(to);
   }
 
+  // Step 3: Read current on-chain investorInfo and compute earned limits
+  // This correctly reflects transfers (transferInvestment zeroes out seller's investedAmount)
+  console.log("Reading current on-chain investorInfo for each user×project...");
   const earnedLimits: Map<string, bigint> = new Map();
 
-  for (const [user, projectMap] of userProjectInvested) {
-    let totalPrimaryInvested = 0n;
+  for (const pid of fundedProjectIds) {
+    const investors = investorsByProject.get(pid);
+    if (!investors) continue;
 
-    for (const [pid, invested] of projectMap) {
-      const stage = projectStages.get(pid);
-      if (stage === STAGE_FUNDED || stage === STAGE_REPAID) {
-        totalPrimaryInvested += invested;
+    console.log(`  Project ${pid}: checking ${investors.size} addresses...`);
+
+    for (const investor of investors) {
+      const info = await fundraise.investorInfo(investor, pid);
+      const currentInvested = info.investedAmount as bigint;
+
+      if (currentInvested > 0n) {
+        const delta = (currentInvested * percent) / BASIS_POINTS;
+        const existing = earnedLimits.get(investor) || 0n;
+        earnedLimits.set(investor, existing + delta);
       }
-    }
-
-    if (totalPrimaryInvested > 0n) {
-      const limit = (totalPrimaryInvested * percent) / BASIS_POINTS;
-      earnedLimits.set(user, limit);
     }
   }
 

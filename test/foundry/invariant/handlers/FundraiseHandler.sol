@@ -90,7 +90,7 @@ contract FundraiseHandler is Test {
         bytes memory sig = abi.encodePacked(r, s, v);
 
         vm.prank(inv);
-        fundraise.investUpdate(pid, amount, nonce + 1, sig, address(0));
+        fundraise.investUpdateV2(pid, amount, nonce + 1, sig, address(0));
 
         ghost_totalInvested += amount;
         calls_invest++;

@@ -232,7 +232,7 @@ abstract contract Setup is Test {
 
         // Invest
         vm.prank(_investor);
-        fundraise.investUpdate(_pid, _amount, nonceForSig, sig, _inviter);
+        fundraise.investUpdateV2(_pid, _amount, nonceForSig, sig, _inviter);
     }
 
     /// @notice Transfer funds to borrower (transitions project to Funded)

@@ -31,6 +31,7 @@ contract Market is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentranc
         uint256 totalClaimed;
         uint256 createdAt;
         SaleStatus status;
+        uint256 positionIndex;
     }
 
 
@@ -38,6 +39,7 @@ contract Market is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentranc
 
     uint256 public saleCount;
     mapping(uint256 => Sale) public sales;
+    /// @dev Deprecated: old single-sale-per-project mapping. Preserved for upgrade safety.
     mapping(address => mapping(uint256 => uint256)) public activeSaleIds;
     mapping(address => uint256[]) public soldSales;
     mapping(address => uint256[]) public boughtSales;
@@ -49,6 +51,9 @@ contract Market is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentranc
 
     /// @notice Tracks total investment amounts acquired via secondary market per user per project
     mapping(address => mapping(uint256 => uint256)) public secondaryInvestedAmount;
+
+    /// @notice Active sale tracking per position: seller => projectId => positionIndex => saleId
+    mapping(address => mapping(uint256 => mapping(uint256 => uint256))) public activePositionSaleIds;
 
     event SaleCreated(
         uint256 indexed saleId,
@@ -101,53 +106,70 @@ contract Market is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentranc
         return IManagerRegistry(managerRegistry).fundraiseAddress();
     }
 
-    /// @notice Sell investment - creates market cell and transfers investment to it
+    /// @notice Sell first investment position (backward-compatible overload)
+    /// @dev TODO: remove after frontend migrates to sell(uint256,uint256,uint256)
     /// @param _projectId Project ID
     /// @param _price Price in loan tokens
     /// @return saleId Created sale ID
     function sell(uint256 _projectId, uint256 _price) external nonReentrant returns (uint256 saleId) {
-        address fundraiseAddress = getFundraise();
-        address seller = msg.sender;
-        require(IManagerRegistry(managerRegistry).getInvestorClaimAddress(seller) == seller, "Seller is compromised");
+        return _executeSell(_projectId, _price, 0);
+    }
 
-        require(activeSaleIds[seller][_projectId] == 0, "Active sale exists");
-        IFundraise.InvestorInfo memory investor = IFundraise(fundraiseAddress).investorInfo(seller, _projectId);
-        require(investor.investedAmount > 0, "No investment found");
+    /// @notice Sell a specific investment position on the secondary market
+    /// @param _projectId Project ID
+    /// @param _price Price in loan tokens
+    /// @param _positionIndex Index of the position to sell in seller's positions array
+    /// @return saleId Created sale ID
+    function sell(uint256 _projectId, uint256 _price, uint256 _positionIndex) external nonReentrant returns (uint256 saleId) {
+        return _executeSell(_projectId, _price, _positionIndex);
+    }
+
+    function _executeSell(uint256 _projectId, uint256 _price, uint256 _positionIndex) internal returns (uint256 saleId) {
+        address fundraiseAddress = getFundraise();
+        require(IManagerRegistry(managerRegistry).getInvestorClaimAddress(msg.sender) == msg.sender, "Seller is compromised");
+        require(activePositionSaleIds[msg.sender][_projectId][_positionIndex] == 0, "Active sale exists for position");
         require(_price > 0, "Price must be greater than zero");
-        IFundraise.Project memory project = IFundraise(fundraiseAddress).projects(_projectId);
-        require(project.innerStruct.stage == IFundraise.Stage.Funded, "Only funded projects can be sold");
-        uint256 maxReturn = investor.investedAmount
-            + (investor.investedAmount * project.investorInterestRate / BASIS_POINTS);
-        require(maxReturn >= investor.totalClaimed, "Total claimed exceeds max return");
-        uint256 remainingForBuyer = maxReturn - investor.totalClaimed;
-        require(_price <= remainingForBuyer, "Price exceeds buyer return");
+
+        IFundraise.InvestorInfo[] memory positions = IFundraise(fundraiseAddress).getInvestorPositions(msg.sender, _projectId);
+        require(_positionIndex < positions.length, "Position index out of bounds");
+        require(positions[_positionIndex].investedAmount > 0, "No investment in position");
+
+        uint256 maxReturn;
+        {
+            IFundraise.Project memory project = IFundraise(fundraiseAddress).projects(_projectId);
+            require(project.innerStruct.stage == IFundraise.Stage.Funded, "Only funded projects can be sold");
+            maxReturn = positions[_positionIndex].investedAmount
+                + (positions[_positionIndex].investedAmount * project.investorInterestRate / BASIS_POINTS);
+            require(maxReturn >= positions[_positionIndex].totalClaimed, "Total claimed exceeds max return");
+            require(_price <= maxReturn - positions[_positionIndex].totalClaimed, "Price exceeds buyer return");
+        }
+
         saleId = ++saleCount;
-        
-        // Create address containing saleId: 0x{saleId}{zeros}{hash}
-        // Format: first 4 bytes = saleId, next 4 bytes = zeros (separator), last 12 bytes = from hash
-        // Address is 160 bits (20 bytes): [4 bytes saleId][4 bytes zeros][12 bytes hash]
-        bytes32 hash = keccak256(abi.encodePacked(saleId, seller, _projectId, address(this), block.chainid));
-        address marketCell = address(uint160(
-            (uint256(saleId) << 128) | (uint256(hash) & 0xFFFFFFFFFFFFFFFFFFFFFFFF)
-        ));
+
+        address marketCell;
+        {
+            bytes32 hash = keccak256(abi.encodePacked(saleId, msg.sender, _projectId, address(this), block.chainid));
+            marketCell = address(uint160(
+                (uint256(saleId) << 128) | (uint256(hash) & 0xFFFFFFFFFFFFFFFFFFFFFFFF)
+            ));
+        }
         require(marketCell != address(0), "Market cell address cannot be zero");
-        IFundraise(fundraiseAddress).transferInvestment(_projectId, seller, marketCell, true, saleId);
-        sales[saleId] = Sale({
-            saleId: saleId,
-            seller: seller,
-            buyer: address(0),
-            projectId: _projectId,
-            marketCell: marketCell,
-            price: _price,
-            fee: platformFee,
-            maxReturn: maxReturn,
-            totalClaimed: investor.totalClaimed,
-            createdAt: block.timestamp,
-            status: SaleStatus.Active
-        });
-        activeSaleIds[seller][_projectId] = saleId;
-        emit SaleCreated(saleId, seller, _projectId, marketCell, _price);
-        return saleId;
+        IFundraise(fundraiseAddress).transferPosition(_projectId, msg.sender, marketCell, _positionIndex, saleId);
+
+        Sale storage sale = sales[saleId];
+        sale.saleId = saleId;
+        sale.seller = msg.sender;
+        sale.projectId = _projectId;
+        sale.marketCell = marketCell;
+        sale.price = _price;
+        sale.fee = platformFee;
+        sale.maxReturn = maxReturn;
+        sale.totalClaimed = positions[_positionIndex].totalClaimed;
+        sale.createdAt = block.timestamp;
+        sale.positionIndex = _positionIndex;
+
+        activePositionSaleIds[msg.sender][_projectId][_positionIndex] = saleId;
+        emit SaleCreated(saleId, msg.sender, _projectId, marketCell, _price);
     }
 
     /// @notice Buy with KYC - verifies trustedSigner signature then calls buy(_saleId)
@@ -184,12 +206,17 @@ contract Market is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentranc
         loanToken.safeTransferFrom(msg.sender, address(this), feeAmount);
         loanToken.safeTransferFrom(msg.sender, sale.seller, sellerAmount);
         accumulatedFees[address(loanToken)] += feeAmount;
-        IFundraise(fundraiseAddress).transferInvestment(sale.projectId, sale.marketCell, msg.sender, false, _saleId);
+        // Market cell always has the position at index 0
+        IFundraise(fundraiseAddress).transferPosition(sale.projectId, sale.marketCell, msg.sender, 0, _saleId);
         secondaryInvestedAmount[msg.sender][sale.projectId] += marketCellInfo.investedAmount;
-        secondaryInvestedAmount[sale.seller][sale.projectId] = 0;
+        if (secondaryInvestedAmount[sale.seller][sale.projectId] >= marketCellInfo.investedAmount) {
+            secondaryInvestedAmount[sale.seller][sale.projectId] -= marketCellInfo.investedAmount;
+        } else {
+            secondaryInvestedAmount[sale.seller][sale.projectId] = 0;
+        }
         sale.buyer = msg.sender;
         sale.status = SaleStatus.Sold;
-        activeSaleIds[sale.seller][sale.projectId] = 0;
+        activePositionSaleIds[sale.seller][sale.projectId][sale.positionIndex] = 0;
         boughtSales[msg.sender].push(_saleId);
         soldSales[sale.seller].push(_saleId);
         emit SaleBought(_saleId, msg.sender, sale.seller, sale.projectId);
@@ -215,9 +242,10 @@ contract Market is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentranc
         Sale storage sale = sales[_saleId];
         require(msg.sender == sale.seller, "Not seller");
         require(sale.status == SaleStatus.Active, "Sale not active");
-        IFundraise(fundraiseAddress).transferInvestment(sale.projectId, sale.marketCell, sale.seller, false, _saleId);
+        // Market cell always has the position at index 0
+        IFundraise(fundraiseAddress).transferPosition(sale.projectId, sale.marketCell, sale.seller, 0, _saleId);
         sale.status = SaleStatus.Cancelled;
-        activeSaleIds[sale.seller][sale.projectId] = 0;
+        activePositionSaleIds[sale.seller][sale.projectId][sale.positionIndex] = 0;
         emit SaleCancelled(_saleId, sale.seller, sale.projectId);
     }
 

@@ -55,7 +55,7 @@ contract FundraiseTest is Setup {
 
         // This invest call will trigger the Canceled transition and return silently
         vm.prank(investor2);
-        fundraise.investUpdate(pid, 1_000e6, currentNonce + 1, sig, address(0));
+        fundraise.investUpdateV2(pid, 1_000e6, currentNonce + 1, sig, address(0));
 
         (,,,,,,, Fundraise.InnerProjectStruct memory inner) = fundraise.projects(pid);
         assertEq(uint8(inner.stage), uint8(Fundraise.Stage.Canceled));
@@ -117,7 +117,7 @@ contract FundraiseTest is Setup {
         bytes memory sig = _signInvest(investor, futurePid, 5_000e6, nonceForSig, inviter);
 
         vm.prank(investor);
-        fundraise.investUpdate(futurePid, 5_000e6, nonceForSig, sig, inviter);
+        fundraise.investUpdateV2(futurePid, 5_000e6, nonceForSig, sig, inviter);
 
         // FIX: nonce must NOT be incremented when _invest returns early
         assertEq(fundraise.userNonces(investor), nonceBefore, "Nonce must not change on failed invest");
@@ -140,7 +140,7 @@ contract FundraiseTest is Setup {
         bytes memory sig = _signInvest(investor, pid, 5_000e6, nonceForSig, inviter);
 
         vm.prank(investor);
-        fundraise.investUpdate(pid, 5_000e6, nonceForSig, sig, inviter);
+        fundraise.investUpdateV2(pid, 5_000e6, nonceForSig, sig, inviter);
 
         // Nonce must be incremented on successful invest
         assertEq(fundraise.userNonces(investor), nonceBefore + 1, "Nonce must be incremented on successful invest");
@@ -175,11 +175,11 @@ contract FundraiseTest is Setup {
 
         // Investor 1 succeeds
         vm.prank(investor);
-        fundraise.investUpdate(pid, 5_000e6, nonce1, sig1, inviter);
+        fundraise.investUpdateV2(pid, 5_000e6, nonce1, sig1, inviter);
 
         // Investor 2 also succeeds — per-user nonces are independent
         vm.prank(investor2);
-        fundraise.investUpdate(pid, 3_000e6, nonce2, sig2, inviter);
+        fundraise.investUpdateV2(pid, 3_000e6, nonce2, sig2, inviter);
 
         // Verify both investments were recorded
         (uint256 invested1,) = fundraise.investorInfo(investor, pid);
@@ -428,7 +428,7 @@ contract FundraiseTest is Setup {
 
         vm.prank(investor);
         vm.expectRevert("Not a trusted signer");
-        fundraise.investUpdate(pid, 5_000e6, currentNonce + 1, badSig, inviter);
+        fundraise.investUpdateV2(pid, 5_000e6, currentNonce + 1, badSig, inviter);
     }
 
     function test_invest_borrowerCannotInvest() public {
@@ -442,7 +442,7 @@ contract FundraiseTest is Setup {
 
         vm.prank(borrower);
         vm.expectRevert("Cannot invest in your own project");
-        fundraise.investUpdate(pid, 5_000e6, currentNonce + 1, sig, inviter);
+        fundraise.investUpdateV2(pid, 5_000e6, currentNonce + 1, sig, inviter);
     }
 
     // ═══════════════════════════════════════════════════════════════
@@ -538,7 +538,7 @@ contract FundraiseTest is Setup {
 
         vm.prank(investor);
         vm.expectRevert("Inviter cannot be the same as the investor");
-        fundraise.investUpdate(pid, 5_000e6, currentNonce + 1, sig, investor);
+        fundraise.investUpdateV2(pid, 5_000e6, currentNonce + 1, sig, investor);
     }
 }
 

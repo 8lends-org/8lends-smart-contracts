@@ -148,14 +148,30 @@ contract RewardSystem is Initializable, UUPSUpgradeable, OwnableUpgradeable, Ree
         emit UserRegistered(_user, _inviter);
     }
 
-    /// @notice Record investment and calculate rewards
+    /// @notice Backward-compatible overload for old Fundraise contract (before upgrade).
+    /// @dev TODO: remove after Fundraise upgrade deploys. Assumes loanToken = USDC.
+    function recordInvestment(address _user, uint256 _amount, address _inviter, uint256 _projectId)
+        external
+        onlyFundraise
+    {
+        _recordInvestment(_user, _amount, _inviter, _projectId, address(usdc));
+    }
+
+    /// @notice Record investment and calculate rewards (new version with loanToken)
     /// @param _user Investor address
-    /// @param _amount Investment amount in USDC
+    /// @param _amount Investment amount
     /// @param _inviter Inviter address (if first investment)
     /// @param _projectId Project ID
+    /// @param _loanToken Loan token address for price conversion
     function recordInvestment(address _user, uint256 _amount, address _inviter, uint256 _projectId, address _loanToken)
         external
         onlyFundraise
+    {
+        _recordInvestment(_user, _amount, _inviter, _projectId, _loanToken);
+    }
+
+    function _recordInvestment(address _user, uint256 _amount, address _inviter, uint256 _projectId, address _loanToken)
+        internal
     {
         require(_amount > 0, "Invalid amount");
         // If user is not registered, register them
@@ -183,23 +199,37 @@ contract RewardSystem is Initializable, UUPSUpgradeable, OwnableUpgradeable, Ree
 
         if (token == address(0)) revert("Token address is not set");
         if (address(usdc) == address(0)) revert("USDC address is not set");
-        // Get manipulation-resistant price from Oracle (Pyth + TWAP)
-        require(oracle != address(0), "Oracle not set");
-        IOracle.PriceResult memory priceResult = IOracle(oracle).getPrice(token);
-        require(priceResult.price > 0, "Oracle: no valid price");
-        uint8 tokenDecimals = IERC20Metadata(token).decimals();
-        uint8 usdcDecimals = IERC20Metadata(address(usdc)).decimals();
-        uint8 priceDecimals = IOracle(oracle).priceDecimals();
-        // Convert usdcRewardAmount to token amount using oracle price
-        // price is token price in USD with priceDecimals decimals
-        // tokensAmount = usdcRewardAmount * 10^priceDecimals * 10^tokenDecimals / (price * 10^usdcDecimals)
-        // Two-step mulDiv to avoid overflow in intermediate multiplication
-        uint256 tokensAmount = Math.mulDiv(
-            Math.mulDiv(usdcRewardAmount, 10**priceDecimals, priceResult.price),
-            10**tokenDecimals,
-            10**usdcDecimals
-        );
-        require(tokensAmount > 0, "Invalid token amount from Oracle");
+
+        uint256 tokensAmount;
+        if (oracle != address(0)) {
+            // New path: manipulation-resistant price from Oracle (Pyth + TWAP)
+            IOracle.PriceResult memory priceResult = IOracle(oracle).getPrice(token);
+            require(priceResult.price > 0, "Oracle: no valid price");
+            uint8 tokenDecimals = IERC20Metadata(token).decimals();
+            uint8 usdcDecimals = IERC20Metadata(address(usdc)).decimals();
+            uint8 priceDecimals = IOracle(oracle).priceDecimals();
+            // Convert usdcRewardAmount to token amount using oracle price
+            // tokensAmount = usdcRewardAmount * 10^priceDecimals * 10^tokenDecimals / (price * 10^usdcDecimals)
+            tokensAmount = Math.mulDiv(
+                Math.mulDiv(usdcRewardAmount, 10**priceDecimals, priceResult.price),
+                10**tokenDecimals,
+                10**usdcDecimals
+            );
+        } else {
+            // Legacy fallback: Uniswap V2 spot price (used before Oracle is deployed)
+            require(address(uniswapRouter) != address(0), "Uniswap router address is not set");
+            address[] memory path = new address[](2);
+            path[0] = address(usdc);
+            path[1] = token;
+            uint256[] memory amounts;
+            try uniswapRouter.getAmountsOut(usdcRewardAmount, path) returns (uint256[] memory _amounts) {
+                amounts = _amounts;
+            } catch {
+                revert("Uniswap pool does not exist or has no liquidity");
+            }
+            tokensAmount = amounts[1];
+        }
+        require(tokensAmount > 0, "Invalid token amount");
 
         refData.totalRewardsTokens += tokensAmount;
         rewardTokensAmount[_projectId] += tokensAmount;
@@ -216,19 +246,30 @@ contract RewardSystem is Initializable, UUPSUpgradeable, OwnableUpgradeable, Ree
 
 
 
-    /// @notice Convert a token amount to its USD equivalent (in USDC decimals) using Oracle price
+    /// @notice Convert a token amount to its USD equivalent (in USDC decimals)
+    /// @dev Uses Oracle when available; falls back to 1:1 for USDC or reverts for non-USDC without oracle
     /// @param _amount Raw amount in token units
     /// @param _loanToken Token address to get the price for
     /// @return USD value normalized to USDC decimals
     function _convertToUSD(uint256 _amount, address _loanToken) internal view returns (uint256) {
-        IOracle.PriceResult memory loanPriceResult = IOracle(oracle).getPrice(_loanToken);
-        uint8 loanTokenDecimals = IERC20Metadata(_loanToken).decimals();
-        uint8 _usdcDecimals = IERC20Metadata(address(usdc)).decimals();
-        uint8 _priceDecimals = IOracle(oracle).priceDecimals();
-        if (loanTokenDecimals >= _usdcDecimals) {
-            return Math.mulDiv(_amount, loanPriceResult.price, 10**_priceDecimals * 10**(loanTokenDecimals - _usdcDecimals));
+        if (oracle != address(0)) {
+            // Oracle path: full price conversion
+            IOracle.PriceResult memory loanPriceResult = IOracle(oracle).getPrice(_loanToken);
+            uint8 loanTokenDecimals = IERC20Metadata(_loanToken).decimals();
+            uint8 _usdcDecimals = IERC20Metadata(address(usdc)).decimals();
+            uint8 _priceDecimals = IOracle(oracle).priceDecimals();
+            if (loanTokenDecimals >= _usdcDecimals) {
+                return Math.mulDiv(_amount, loanPriceResult.price, 10**_priceDecimals * 10**(loanTokenDecimals - _usdcDecimals));
+            } else {
+                return Math.mulDiv(_amount * 10**(_usdcDecimals - loanTokenDecimals), loanPriceResult.price, 10**_priceDecimals);
+            }
         } else {
-            return Math.mulDiv(_amount * 10**(_usdcDecimals - loanTokenDecimals), loanPriceResult.price, 10**_priceDecimals);
+            // Legacy fallback: if loanToken is USDC, amount is already in USD
+            if (_loanToken == address(usdc)) {
+                return _amount;
+            }
+            // Non-USDC tokens require oracle for price conversion
+            revert("Oracle required for non-USDC loan tokens");
         }
     }
 

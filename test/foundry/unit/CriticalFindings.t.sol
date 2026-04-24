@@ -41,7 +41,7 @@ contract CriticalFindingsTest is Setup {
         bytes memory sig = _signInvest(accomplice, pid, 50_000e6, currentNonce + 1, attacker);
 
         vm.prank(accomplice);
-        fundraise.investUpdate(pid, 50_000e6, currentNonce + 1, sig, attacker);
+        fundraise.investUpdateV2(pid, 50_000e6, currentNonce + 1, sig, attacker);
 
         // Step 4: Fund the project
         _fundProject(pid);
