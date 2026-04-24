@@ -85,18 +85,23 @@ async function main(): Promise<void> {
   const ContractFactory = await hre.ethers.getContractFactory(contractName!);
   const initData = "0x";
 
+  const gasPrice = await ethers.provider.getFeeData();
+  console.log("Gas price:", Number(gasPrice.gasPrice) / 1e9);
+  const balance = await ethers.provider.getBalance(signerAddress);
+  console.log("Balance:", ethers.formatEther(balance));
   const newImpl = await ContractFactory.deploy();
+  console.log("New implementation deployed to:", newImpl.target);
+  console.log("waiting for deployment...");
   await newImpl.waitForDeployment();
   const newImplAddress = await newImpl.getAddress();
+  console.log("New implementation address:", newImplAddress);
 
-  await new Promise((resolve) => setTimeout(resolve, 2000));
+  
 
   const proxy = await ethers.getContractAt(contractName!, proxyAddress);
   await proxy.upgradeToAndCall(newImplAddress, initData);
-
   config[implKey] = newImplAddress;
   await writeJsonFile(filePath, config);
-
   console.log(`✅ ${contractName} updated! New impl: ${newImplAddress}`);
 }
 

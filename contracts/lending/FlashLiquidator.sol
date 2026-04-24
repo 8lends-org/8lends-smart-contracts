@@ -16,9 +16,10 @@ import "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 import "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
 import "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
 import { IUniswapV2Router02 } from "./interfaces/IUniswapV2Router02.sol";
+import { IUniswapV2Factory } from "../interfaces/IUniswapV2Factory.sol";
 
 /// @title FlashLiquidator
-/// @notice Liquidate unhealthy Lending8 positions using a flash loan: caller passes marketId, borrower and loan token amount; contract borrows via flash loan, liquidates, then repays flash from caller's approved loan token. Caller must approve loan token to this contract.
+/// @notice Liquidate unhealthy Lending8 positions. If a Uniswap V2 pair exists for collateral/loan: flash-loan loan token from Lending8, liquidate, swap collateral to loan, repay flash. If no pair: liquidate using loan token already held by this contract (no flash).
 contract FlashLiquidator is
     Initializable,
     UUPSUpgradeable,
@@ -82,10 +83,19 @@ contract FlashLiquidator is
         IUniswapV2Router02(uniswapV2Router).swapExactTokensForTokens(amountIn, 0, path, address(this), block.timestamp);
     }
 
-    /// @notice Liquidate an unhealthy position via flash loan. Contract borrows loan token from Lending8, calls liquidate, then repays the flash by pulling loan token from caller. Caller must approve this contract for the loan token (actualRepaidAssets).
+    /// @return True if Uniswap V2 router is set and factory reports a non-zero pair for the two tokens.
+    function hasUniswapV2Pair(address tokenA, address tokenB) internal view returns (bool) {
+        if (uniswapV2Router == address(0)) {
+            return false;
+        }
+        address factory = IUniswapV2Router02(uniswapV2Router).factory();
+        return IUniswapV2Factory(factory).getPair(tokenA, tokenB) != address(0);
+    }
+
+    /// @notice Liquidate an unhealthy position. With a V2 pair: flash loan then swap. Without: uses this contract's loan token balance (no flash).
     /// @param marketId Market id.
     /// @param borrower Unhealthy position owner.
-    /// @param repaidAssets Amount of loan token to repay (in token units). Contract computes repaidShares; Lending8 may pull slightly more (toAssetsUp(repaidShares)).
+    /// @param repaidAssets Target loan token amount for share rounding; Lending8 may pull slightly more (toAssetsUp(repaidShares)).
     function liquidate(Id marketId, address borrower, uint256 repaidAssets) external {
         require(repaidAssets != 0, "FlashLiq: zero repaidAssets");
         MarketParams memory marketParams = LENDING8.idToMarketParams(marketId);
@@ -98,8 +108,23 @@ contract FlashLiquidator is
         require(totalBorrowShares != 0, "FlashLiq: market has no borrows");
         uint256 repaidShares = SharesMathLib.toSharesDown(repaidAssets, totalBorrowAssets, totalBorrowShares);
         require(repaidShares != 0, "FlashLiq: repaidAssets too low");
-        bytes memory data = abi.encode(marketParams, borrower, repaidShares);
-        LENDING8.flashLoan(marketParams.loanToken, repaidAssets, data);
+        if (hasUniswapV2Pair(marketParams.collateralToken, marketParams.loanToken)) {
+            bytes memory data = abi.encode(marketParams, borrower, repaidShares);
+            LENDING8.flashLoan(marketParams.loanToken, repaidAssets, data);
+            return;
+        }
+        IERC20 loanToken = IERC20(marketParams.loanToken);
+        require(loanToken.balanceOf(address(this)) >= repaidAssets, "FlashLiq: insufficient loan balance");
+        loanToken.forceApprove(address(LENDING8), type(uint256).max);
+        (uint256 seizedAssets, uint256 actualRepaid) = LENDING8.liquidate(
+            marketParams,
+            borrower,
+            0,
+            repaidShares,
+            "0x"
+        );
+        loanToken.forceApprove(address(LENDING8), 0);
+        emit Liquidate(MarketParamsLib.id(marketParams), borrower, actualRepaid, repaidShares, seizedAssets);
     }
 
     function onLending8FlashLoan(uint256 assets, bytes calldata data) external {
@@ -109,10 +134,10 @@ contract FlashLiquidator is
             (MarketParams, address, uint256)
         );
         IERC20(marketParams.loanToken).forceApprove(address(LENDING8), assets);
-        (uint256 seizedAssets, ) = LENDING8.liquidate(marketParams, borrower, 0, repaidShares, "0x");
+        (uint256 seizedAssets, uint256 actualRepaid) = LENDING8.liquidate(marketParams, borrower, 0, repaidShares, "0x");
         swap(marketParams.collateralToken, marketParams.loanToken, seizedAssets);
         IERC20(marketParams.loanToken).forceApprove(address(LENDING8), assets);
-        emit Liquidate(MarketParamsLib.id(marketParams), borrower, assets, repaidShares, seizedAssets);
+        emit Liquidate(MarketParamsLib.id(marketParams), borrower, actualRepaid, repaidShares, seizedAssets);
     }
 
     function onLending8Liquidate(uint256 repaidAssets, bytes calldata data) external {}

@@ -25,7 +25,10 @@
     "contract-deploy": "hardhat run scripts/contract-deploy.ts",
     "contract-upgrade": "hardhat run scripts/contract-update.ts",
     "contracts-deploy": "hardhat run scripts/contract-deploy.ts",
-    "contracts-upgrade": "hardhat run scripts/contract-update.ts"
+    "contracts-upgrade": "hardhat run scripts/contract-update.ts",
+    "revoke-txs": "hardhat run scripts/revoke_txs.ts",
+    "copy-abis-to-admin": "cp abis/*.json ../8lends-admin/lib/abis-json/",
+    "copy-abis-to-lending-mono": "cp abis/*.json ../8lends-lending-mono/packages/lending-abis/src/abis/"
   },
   "author": "",
   "license": "ISC",

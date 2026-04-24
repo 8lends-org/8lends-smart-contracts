@@ -132,6 +132,31 @@
       {
         "indexed": true,
         "internalType": "address",
+        "name": "oldWallet",
+        "type": "address"
+      },
+      {
+        "indexed": true,
+        "internalType": "address",
+        "name": "newWallet",
+        "type": "address"
+      },
+      {
+        "indexed": false,
+        "internalType": "uint256",
+        "name": "vestingCount",
+        "type": "uint256"
+      }
+    ],
+    "name": "InvestorWalletReplaced",
+    "type": "event"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": true,
+        "internalType": "address",
         "name": "previousOwner",
         "type": "address"
       },
@@ -635,6 +660,24 @@
   {
     "inputs": [],
     "name": "renounceOwnership",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "address[]",
+        "name": "oldWallets",
+        "type": "address[]"
+      },
+      {
+        "internalType": "address[]",
+        "name": "newWallets",
+        "type": "address[]"
+      }
+    ],
+    "name": "replaceInvestorWallets",
     "outputs": [],
     "stateMutability": "nonpayable",
     "type": "function"

@@ -17,15 +17,14 @@ contract BTC8L is
     ERC20PermitUpgradeable,
     ReentrancyGuardUpgradeable
 {
-
-    event Replenished(address indexed account, uint256 indexed amount, bytes32 indexed btcTx);
-    event Withdrawn(address indexed account, uint256 indexed amount, bytes32 indexed evmTx);
+    event Replenished(address indexed account, bytes32 indexed btcTx, uint256 amount);
+    event Withdrawn(address indexed account, bytes32 indexed intentHash, uint256 amount);
 
     // NEED FOR BACKEND WALLET AND LENDING8
     bytes32 public constant MINTER_ROLE = keccak256("MINTER_ROLE");
     bytes32 public constant UPGRADER_ROLE = keccak256("UPGRADER_ROLE");
 
-    mapping(bytes32 => bool) public syncedTxs;
+    mapping(bytes32 => bool) public intentHashes;
 
     /// @custom:oz-upgrades-unsafe-allow constructor
     constructor() {
@@ -52,36 +51,47 @@ contract BTC8L is
         address[] calldata accounts,
         uint256[] calldata amounts,
         bytes32[] calldata btcTxs
-    ) public onlyRole(MINTER_ROLE) {
+    ) external onlyRole(MINTER_ROLE) {
         require(accounts.length == amounts.length && accounts.length == btcTxs.length, "BTC8L: Invalid input length");
         for (uint256 i = 0; i < accounts.length; i++) {
-            if(!syncedTxs[btcTxs[i]]) {
-                syncedTxs[btcTxs[i]] = true;
+            if (!intentHashes[btcTxs[i]]) {
+                intentHashes[btcTxs[i]] = true;
                 _mint(accounts[i], amounts[i]);
-                emit Replenished(accounts[i], amounts[i], btcTxs[i]);
+                emit Replenished(accounts[i], btcTxs[i], amounts[i]);
             }
         }
     }
 
-    function withdraw(
-        address[] calldata accounts,
-        uint256[] calldata amounts,
-        bytes32[] calldata btcTxs
-    ) public onlyRole(MINTER_ROLE) {
+    // Deprecated
+    function withdraw(address[] calldata accounts, uint256[] calldata amounts, bytes32[] calldata btcTxs) external {
         require(accounts.length == amounts.length && accounts.length == btcTxs.length, "BTC8L: Invalid input length");
         for (uint256 i = 0; i < accounts.length; i++) {
-            if(!syncedTxs[btcTxs[i]]) {
-                syncedTxs[btcTxs[i]] = true;
+            if (!intentHashes[btcTxs[i]]) {
+                intentHashes[btcTxs[i]] = true;
                 _burn(accounts[i], amounts[i]);
-                emit Withdrawn(accounts[i], amounts[i], btcTxs[i]);
+                emit Withdrawn(accounts[i], btcTxs[i], amounts[i]);
             }
         }
+    }
+
+    function withdraw(bytes32 intentHash, uint256 amount) external {
+        if(intentHashes[intentHash]) revert("BTC8L: Intent hash already used");
+        intentHashes[intentHash] = true;
+        _burn(msg.sender, amount);
+        emit Withdrawn(msg.sender, intentHash, amount);
+    }
+
+    function withdraw(bytes32 intentHash, uint256 amount, address onBehalf) external onlyRole(MINTER_ROLE) {
+        if(intentHashes[intentHash]) revert("BTC8L: Intent hash already used");
+        intentHashes[intentHash] = true;
+        _burn(onBehalf, amount);
+        emit Withdrawn(onBehalf, intentHash, amount);
     }
 
     function _authorizeUpgrade(address newImplementation) internal override onlyRole(UPGRADER_ROLE) {}
 
     function _update(address from, address to, uint256 value) internal override {
-        if (!hasRole(MINTER_ROLE, msg.sender)) revert("BTC8L: Not authorized");
+        if (!hasRole(MINTER_ROLE, msg.sender) && to != address(0)) revert("BTC8L: Not authorized");
         super._update(from, to, value);
     }
 }
