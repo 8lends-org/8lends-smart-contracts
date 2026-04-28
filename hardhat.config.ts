@@ -22,7 +22,7 @@ const config: HardhatUserConfig = {
                 settings: {
                     optimizer: {
                         enabled: true,
-                        runs: 200,
+                        runs: 50,
                         details: {
                             yul: false
                         }
@@ -58,7 +58,7 @@ const config: HardhatUserConfig = {
                   },
         },
         sepolia: {
-            // gasPrice: Math.floor(2 * 10 ** 9),
+            // gasPrice: Math.floor(4 * 10 ** 9),
             chainId: 11155111,
             url: process.env.ETHEREUM_SEPOLIA_RPC_URL,
             accounts: {
