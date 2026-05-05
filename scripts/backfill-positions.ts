@@ -189,11 +189,8 @@ async function main() {
 
     for (;;) {
       try {
-        console.log("investor", investor);
-        console.log("projectId", projectId);
-        console.log("amounts", amounts);
-        // const tx = await fundraise.backfillPositions(investor, projectId, amounts);
-        // await tx.wait();
+        const tx = await fundraise.backfillPositions(investor, projectId, amounts);
+        await tx.wait();
         backfilled++;
         break;
       } catch (err: unknown) {
