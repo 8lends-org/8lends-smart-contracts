@@ -235,10 +235,12 @@ contract RewardSystem is Initializable, UUPSUpgradeable, OwnableUpgradeable, Ree
         rewardTokensAmount[_projectId] += tokensAmount;
 
         // Bonus for investor (if investment USD value >= minimum and this is new user)
-        if (userInfo.isNewUser && _convertToUSD(_amount, _loanToken) >= minInvestmentForBonus) {
-            refData.totalRewardsUSDC += welcomeBonusAmount;
-            userInfo.isNewUser = false;
-            emit WelcomeBonusRecorded(_user, welcomeBonusAmount);
+        if(welcomeBonusAmount > 0) {
+            if (userInfo.isNewUser && _convertToUSD(_amount, _loanToken) >= minInvestmentForBonus) {
+                refData.totalRewardsUSDC += welcomeBonusAmount;
+                userInfo.isNewUser = false;
+                emit WelcomeBonusRecorded(_user, welcomeBonusAmount);
+            }
         }
 
         emit InvestmentRecorded(_user, _amount, _projectId);
