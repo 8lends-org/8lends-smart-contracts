@@ -50,19 +50,19 @@ contract SetterImprovementsTest is Setup {
 
     function test_fundraise_setTrustedSigner_revertsOnZeroAddress() public {
         vm.prank(manager);
-        vm.expectRevert("Zero address");
+        vm.expectRevert(Fundraise.ZeroAddress.selector);
         fundraise.setTrustedSigner(address(0));
     }
 
     function test_fundraise_setManagerRegistry_revertsOnZeroAddress() public {
         vm.prank(owner);
-        vm.expectRevert("Zero address");
+        vm.expectRevert(Fundraise.ZeroAddress.selector);
         fundraise.setManagerRegistry(address(0));
     }
 
     function test_fundraise_setTreasury_revertsOnZeroAddress() public {
         vm.prank(owner);
-        vm.expectRevert("Zero address");
+        vm.expectRevert(Fundraise.ZeroAddress.selector);
         fundraise.setTreasury(address(0));
     }
 

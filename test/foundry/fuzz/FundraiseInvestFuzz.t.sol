@@ -36,7 +36,7 @@ contract FundraiseInvestFuzzTest is Setup {
         bytes memory sig = _signInvest(investor, pid, amount, currentNonce + 1, inviter);
 
         vm.prank(investor);
-        vm.expectRevert("Investment exceeds hardcap");
+        vm.expectRevert(Fundraise.InvestmentExceedsHardCap.selector);
         fundraise.investUpdateV2(pid, amount, currentNonce + 1, sig, inviter);
     }
 

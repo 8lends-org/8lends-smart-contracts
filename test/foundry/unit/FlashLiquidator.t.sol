@@ -6,6 +6,7 @@ import "../../../contracts/lending/FlashLiquidator.sol";
 import "../../../contracts/lending/interfaces/ILending8.sol";
 import "../../../contracts/lending/interfaces/ILending8Callbacks.sol";
 import "../../../contracts/lending/lib/MarketParamsLib.sol";
+import "../../../contracts/lending/lib/SharesMathLib.sol";
 import "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 
 /// @notice Simple ERC20 mock that avoids OZ IERC20 collision with lending's IERC20.
@@ -189,7 +190,8 @@ contract FlashLiquidatorTest is Test {
         assertTrue(mockLending8.accrueInterestCalled());
         assertTrue(mockLending8.liquidateCalled());
         assertEq(mockLending8.lastLiquidatedBorrower(), borrowerAddr);
-        assertEq(mockLending8.lastRepaidShares(), repaidAssets);
+        uint256 expectedRepaidShares = SharesMathLib.toSharesDown(repaidAssets, 100_000e6, 100_000e6);
+        assertEq(mockLending8.lastRepaidShares(), expectedRepaidShares);
     }
 
     function test_liquidate_revert_zeroRepaidAssets() public {

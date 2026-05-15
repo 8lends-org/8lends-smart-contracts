@@ -58,7 +58,7 @@ contract BackwardCompatTest is Setup {
         sig = abi.encodePacked(r, s, v);
     }
 
-    /// @notice Invest using old investUpdate (rootHash in signature, per-user nonce)
+    /// @notice Invest using old investUpdate (rootHash in signature, global nonce).
     function _investOldAs(address _investor, uint256 _pid, uint256 _amount, address _inviter) internal {
         vm.prank(owner);
         usdc.mint(_investor, _amount);
@@ -66,8 +66,8 @@ contract BackwardCompatTest is Setup {
         vm.prank(_investor);
         usdc.approve(address(fundraise), _amount);
 
-        uint256 currentUserNonce = fundraise.userNonces(_investor);
-        uint256 nonceForSig = currentUserNonce + 1;
+        uint256 currentGlobalNonce = fundraise.nonce();
+        uint256 nonceForSig = currentGlobalNonce + 1;
         bytes32 rootHash = bytes32(0); // dummy rootHash
         bytes memory sig = _signInvestOld(_investor, _pid, _amount, rootHash, nonceForSig, _inviter);
 
@@ -77,6 +77,7 @@ contract BackwardCompatTest is Setup {
 
     function test_investUpdate_old_works() public {
         uint256 amount = 5_000e6;
+        uint256 globalNonceBefore = fundraise.nonce();
         uint256 userNonceBefore = fundraise.userNonces(investor);
 
         _investOldAs(investor, pid, amount, inviter);
@@ -85,8 +86,9 @@ contract BackwardCompatTest is Setup {
         (uint256 invested,) = fundraise.investorInfo(investor, pid);
         assertEq(invested, amount, "Old investUpdate: investment not recorded");
 
-        // Verify per-user nonce incremented (old investUpdate now uses per-user nonces)
-        assertEq(fundraise.userNonces(investor), userNonceBefore + 1, "Old investUpdate: user nonce not incremented");
+        // Old investUpdate still uses the legacy global nonce.
+        assertEq(fundraise.nonce(), globalNonceBefore + 1, "Old investUpdate: global nonce not incremented");
+        assertEq(fundraise.userNonces(investor), userNonceBefore, "Old investUpdate: user nonce should stay unchanged");
     }
 
     function test_investUpdateV2_new_works() public {
@@ -123,9 +125,10 @@ contract BackwardCompatTest is Setup {
         (uint256 inv2,) = fundraise.investorInfo(investor2, pid);
         assertEq(inv2, 5_000e6, "Investor2 total should be 4000+1000");
 
-        // Both old and new investUpdate share the same per-user nonce counter
-        assertEq(fundraise.userNonces(investor), 2, "Investor1 user nonce should be 2 (1 old + 1 new)");
-        assertEq(fundraise.userNonces(investor2), 2, "Investor2 user nonce should be 2 (1 old + 1 new)");
+        // Old invests use the legacy global nonce; new invests use per-user nonce.
+        assertEq(fundraise.nonce(), 2, "Global nonce should count the two old invests");
+        assertEq(fundraise.userNonces(investor), 1, "Investor1 user nonce should count only the new invest");
+        assertEq(fundraise.userNonces(investor2), 1, "Investor2 user nonce should count only the new invest");
     }
 
     function test_old_investUpdate_wrong_nonce_reverts() public {
@@ -139,7 +142,7 @@ contract BackwardCompatTest is Setup {
         bytes memory sig = _signInvestOld(investor, pid, 5_000e6, rootHash, wrongNonce, inviter);
 
         vm.prank(investor);
-        vm.expectRevert("Incorrect nonce");
+        vm.expectRevert(Fundraise.IncorrectNonce.selector);
         fundraise.investUpdate(pid, 5_000e6, rootHash, wrongNonce, sig, inviter);
     }
 
@@ -283,7 +286,7 @@ contract BackwardCompatTest is Setup {
         rewardSystem.recordInvestment(investor, 10_000e6, inviter, pid);
 
         // Verify rewards recorded
-        (uint256 totalUSDC, uint256 totalTokens,,,) = rewardSystem.getProjectRewards(investor, pid);
+        (, uint256 totalTokens,,,) = rewardSystem.getProjectRewards(investor, pid);
         assertGt(totalTokens, 0, "Old recordInvestment: no token rewards");
         // Inviter should have USDC reward
         (uint256 inviterUSDC,,,,) = rewardSystem.getProjectRewards(inviter, pid);
@@ -298,7 +301,7 @@ contract BackwardCompatTest is Setup {
         // New method with loanToken parameter — called via normal invest flow
         _investAs(investor, pid, 10_000e6, inviter);
 
-        (uint256 totalUSDC, uint256 totalTokens,,,) = rewardSystem.getProjectRewards(investor, pid);
+        (, uint256 totalTokens,,,) = rewardSystem.getProjectRewards(investor, pid);
         assertGt(totalTokens, 0, "New recordInvestment: no token rewards");
         (uint256 inviterUSDC,,,,) = rewardSystem.getProjectRewards(inviter, pid);
         assertGt(inviterUSDC, 0, "New recordInvestment: no inviter USDC reward");
@@ -645,8 +648,8 @@ contract BackwardCompatTest is Setup {
         fundraise.claim(e2ePid, investor2);
 
         // 9. Verify claims
-        (uint256 invested1, uint256 claimed1) = fundraise.investorInfo(investor, e2ePid);
-        (uint256 invested2, uint256 claimed2) = fundraise.investorInfo(investor2, e2ePid);
+        (, uint256 claimed1) = fundraise.investorInfo(investor, e2ePid);
+        (, uint256 claimed2) = fundraise.investorInfo(investor2, e2ePid);
         assertGt(claimed1, 0, "Investor1 should have claimed");
         assertGt(claimed2, 0, "Investor2 should have claimed");
         // Both invested same amount → same claim

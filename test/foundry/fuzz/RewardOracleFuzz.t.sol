@@ -120,6 +120,8 @@ contract RewardOracleFuzzTest is Setup {
         // Set oracle prices
         vm.prank(owner);
         mockOracle.setPrice(address(loanToken), loanPrice);
+        vm.prank(owner);
+        fundraise.setOracle(address(mockOracle));
 
         // Create project with this loanToken
         Fundraise.Project memory proj = Fundraise.Project({

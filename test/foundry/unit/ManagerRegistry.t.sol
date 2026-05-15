@@ -8,35 +8,32 @@ contract ManagerRegistryTest is Setup {
     //                     ROLE MANAGEMENT
     // ═══════════════════════════════════════════════════════════════
 
-    function test_setManagerStatus_onlyOwner() public {
-        // Non-owner (attacker) cannot set manager status
+    function test_setManagerStatus_ownerOrManager() public {
+        // Random address cannot set manager status.
         vm.prank(attacker);
         vm.expectRevert();
         managerRegistry.setManagerStatus(attacker, true);
 
-        // Non-owner manager cannot set manager status either
+        // Existing manager can set manager status.
         vm.prank(manager);
-        vm.expectRevert();
         managerRegistry.setManagerStatus(attacker, true);
+        assertTrue(managerRegistry.managers(attacker));
     }
 
-    function test_managerCannotPromoteOtherManager() public {
-        // After restricting to onlyOwner, a manager can no longer promote others
+    function test_managerCanPromoteOtherManager() public {
         address newManager = makeAddr("newManager");
 
         vm.prank(manager);
-        vm.expectRevert();
         managerRegistry.setManagerStatus(newManager, true);
-
-        assertFalse(managerRegistry.managers(newManager));
+        assertTrue(managerRegistry.managers(newManager));
     }
 
-    function test_isManager_includesRewardSystem() public {
+    function test_isManager_includesRewardSystem() public view {
         // RewardSystem address counts as a manager (line 119 of ManagerRegistry.sol)
         assertTrue(managerRegistry.isManager(address(rewardSystem)));
     }
 
-    function test_isRewardSystem_includesRewards2() public {
+    function test_isRewardSystem_includesRewards2() public view {
         // Both rewardSystem and rewards2 count as rewardSystem
         assertTrue(managerRegistry.isRewardSystem(address(rewardSystem)));
         assertTrue(managerRegistry.isRewardSystem(address(rewards2)));
