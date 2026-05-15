@@ -94,7 +94,7 @@ contract RewardSystemOracleTest is Setup {
         bytes memory sig = _signInvest(investor, pid, 25_000e6, currentNonce + 1, inviter);
 
         vm.prank(investor);
-        vm.expectRevert("Oracle not set");
+        vm.expectRevert(Fundraise.OracleNotSet.selector);
         fundraise.investUpdateV2(pid, 25_000e6, currentNonce + 1, sig, inviter);
 
         // Restore original reward system

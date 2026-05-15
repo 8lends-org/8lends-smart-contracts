@@ -6,10 +6,9 @@ import "../../../contracts/lending/FlashLiquidator.sol";
 import "../../../contracts/lending/interfaces/ILending8.sol";
 import "../../../contracts/lending/interfaces/ILending8Callbacks.sol";
 import "../../../contracts/lending/lib/MarketParamsLib.sol";
-import "../../../contracts/lending/lib/SharesMathLib.sol";
 import "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 
-/// @notice Simple ERC20 mock that avoids OZ IERC20 collision with lending's IERC20
+/// @notice Simple ERC20 mock that avoids OZ IERC20 collision with lending's IERC20.
 contract MockLoanToken {
     string public name = "Mock Loan";
     string public symbol = "MLOAN";
@@ -45,7 +44,7 @@ contract MockLoanToken {
     }
 }
 
-/// @notice Mock Lending8 that simulates flash loan + liquidation
+/// @notice Mock Lending8 that simulates the minimal FlashLiquidator integration surface.
 contract MockLending8 {
     using MarketParamsLib for MarketParams;
 
@@ -56,23 +55,25 @@ contract MockLending8 {
     bool public liquidateCalled;
     address public lastLiquidatedBorrower;
     uint256 public lastRepaidShares;
-
-    bool public flashLoanShouldFail;
-
-    function setFlashLoanShouldFail(bool _fail) external {
-        flashLoanShouldFail = _fail;
-    }
+    MarketParams internal storedMarketParams;
 
     function setMarketState(uint128 _totalBorrowAssets, uint128 _totalBorrowShares) external {
         totalBorrowAssets = _totalBorrowAssets;
         totalBorrowShares = _totalBorrowShares;
     }
 
+    function setMarketParams(MarketParams memory marketParams) external {
+        storedMarketParams = marketParams;
+    }
+
     function accrueInterest(MarketParams memory) external {
         accrueInterestCalled = true;
     }
 
-    function market(Id) external view returns (Market memory) {
+    function market(Id marketId) external view returns (Market memory) {
+        if (Id.unwrap(marketId) != Id.unwrap(MarketParamsLib.id(storedMarketParams))) {
+            return Market(0, 0, 0, 0, 0, 0);
+        }
         return Market({
             totalSupplyAssets: 1_000_000e6,
             totalSupplyShares: 1_000_000e6,
@@ -83,16 +84,16 @@ contract MockLending8 {
         });
     }
 
+    function idToMarketParams(Id marketId) external view returns (MarketParams memory) {
+        if (Id.unwrap(marketId) != Id.unwrap(MarketParamsLib.id(storedMarketParams))) {
+            return MarketParams({ loanToken: address(0), collateralToken: address(0), irm: address(0), lltv: 0 });
+        }
+        return storedMarketParams;
+    }
+
     function flashLoan(address token, uint256 assets, bytes calldata data) external {
-        require(!flashLoanShouldFail, "MockLending8: flash loan failed");
-
-        // Transfer tokens to caller (flash loan)
         MockLoanToken(token).transfer(msg.sender, assets);
-
-        // Call the callback
         ILending8FlashLoanCallback(msg.sender).onLending8FlashLoan(assets, data);
-
-        // Pull tokens back (repayment)
         MockLoanToken(token).transferFrom(msg.sender, address(this), assets);
     }
 
@@ -106,7 +107,7 @@ contract MockLending8 {
         liquidateCalled = true;
         lastLiquidatedBorrower = borrower;
         lastRepaidShares = repaidShares;
-        return (0, 0);
+        return (0, repaidShares);
     }
 }
 
@@ -128,35 +129,32 @@ contract FlashLiquidatorTest is Test {
         borrowerAddr = makeAddr("borrower");
 
         vm.startPrank(ownerAddr);
-
-        // Deploy mocks
         loanToken = new MockLoanToken();
         collateralToken = new MockLoanToken();
         mockLending8 = new MockLending8();
-
-        // Deploy FlashLiquidator (UUPS proxy)
-        {
-            FlashLiquidator impl = new FlashLiquidator();
-            bytes memory initData = abi.encodeCall(
-                FlashLiquidator.initialize,
-                (ILending8(address(mockLending8)), ownerAddr)
-            );
-            ERC1967Proxy proxy = new ERC1967Proxy(address(impl), initData);
-            flashLiquidator = FlashLiquidator(address(proxy));
-        }
-
-        // Seed mock lending with loan tokens for flash loans
-        loanToken.mint(address(mockLending8), 1_000_000e6);
-
-        // Setup market params
         testMarketParams = MarketParams({
             loanToken: address(loanToken),
             collateralToken: address(collateralToken),
             irm: address(0),
-            lltv: 800_000_000_000_000_000 // 80%
+            lltv: 800_000_000_000_000_000
         });
-
+        mockLending8.setMarketParams(testMarketParams);
+        FlashLiquidator impl = new FlashLiquidator();
+        bytes memory initData = abi.encodeCall(
+            FlashLiquidator.initialize,
+            (ILending8(address(mockLending8)), ownerAddr, address(0))
+        );
+        ERC1967Proxy proxy = new ERC1967Proxy(address(impl), initData);
+        flashLiquidator = FlashLiquidator(address(proxy));
         vm.stopPrank();
+    }
+
+    function _marketId() internal view returns (Id) {
+        return MarketParamsLib.id(testMarketParams);
+    }
+
+    function _seedLiquidator(uint256 amount) internal {
+        loanToken.mint(address(flashLiquidator), amount);
     }
 
     // ═══════════════════════════════════════════════════════════════
@@ -171,73 +169,92 @@ contract FlashLiquidatorTest is Test {
         assertEq(flashLiquidator.owner(), ownerAddr);
     }
 
+    function test_initialize_setsRouter() public view {
+        assertEq(flashLiquidator.uniswapV2Router(), address(0));
+    }
+
     function test_initialize_revert_doubleInit() public {
         vm.expectRevert();
-        flashLiquidator.initialize(ILending8(address(mockLending8)), ownerAddr);
+        flashLiquidator.initialize(ILending8(address(mockLending8)), ownerAddr, address(0));
     }
 
     // ═══════════════════════════════════════════════════════════════
-    //                    flashLiquidate
+    //                    liquidate
     // ═══════════════════════════════════════════════════════════════
 
-    function test_flashLiquidate_success() public {
-        uint256 repaidShares = 10_000e6;
-
-        flashLiquidator.flashLiquidate(testMarketParams, borrowerAddr, repaidShares);
-
+    function test_liquidate_success_withoutFlashLoan() public {
+        uint256 repaidAssets = 10_000e6;
+        _seedLiquidator(repaidAssets);
+        flashLiquidator.liquidate(_marketId(), borrowerAddr, repaidAssets);
         assertTrue(mockLending8.accrueInterestCalled());
         assertTrue(mockLending8.liquidateCalled());
         assertEq(mockLending8.lastLiquidatedBorrower(), borrowerAddr);
-        assertEq(mockLending8.lastRepaidShares(), repaidShares);
+        assertEq(mockLending8.lastRepaidShares(), repaidAssets);
     }
 
-    function test_flashLiquidate_revert_zeroShares() public {
-        vm.expectRevert("zero repaidShares");
-        flashLiquidator.flashLiquidate(testMarketParams, borrowerAddr, 0);
+    function test_liquidate_revert_zeroRepaidAssets() public {
+        vm.expectRevert("FlashLiq: zero repaidAssets");
+        flashLiquidator.liquidate(_marketId(), borrowerAddr, 0);
     }
 
-    function test_flashLiquidate_anyoneCanCall() public {
+    function test_liquidate_anyoneCanCall() public {
+        uint256 repaidAssets = 1_000e6;
+        _seedLiquidator(repaidAssets);
         vm.prank(attackerAddr);
-        flashLiquidator.flashLiquidate(testMarketParams, borrowerAddr, 1_000e6);
+        flashLiquidator.liquidate(_marketId(), borrowerAddr, repaidAssets);
         assertTrue(mockLending8.liquidateCalled());
     }
 
-    function test_flashLiquidate_revert_flashLoanFails() public {
-        mockLending8.setFlashLoanShouldFail(true);
-        vm.expectRevert("MockLending8: flash loan failed");
-        flashLiquidator.flashLiquidate(testMarketParams, borrowerAddr, 1_000e6);
+    function test_liquidate_revert_insufficientLoanBalance() public {
+        vm.expectRevert("FlashLiq: insufficient loan balance");
+        flashLiquidator.liquidate(_marketId(), borrowerAddr, 1_000e6);
     }
 
     // ═══════════════════════════════════════════════════════════════
-    //                    testFlashLoan
+    //                    ADMIN
     // ═══════════════════════════════════════════════════════════════
 
-    function test_testFlashLoan_success() public {
+    function test_setUniswapV2Router_success() public {
+        address router = makeAddr("router");
         vm.prank(ownerAddr);
-        flashLiquidator.testFlashLoan(address(loanToken), 1_000e6);
+        flashLiquidator.setUniswapV2Router(router);
+        assertEq(flashLiquidator.uniswapV2Router(), router);
     }
 
-    function test_testFlashLoan_revert_notOwner() public {
+    function test_setUniswapV2Router_revert_notOwner() public {
         vm.prank(attackerAddr);
         vm.expectRevert();
-        flashLiquidator.testFlashLoan(address(loanToken), 1_000e6);
+        flashLiquidator.setUniswapV2Router(makeAddr("router"));
     }
 
-    function test_testFlashLoan_revert_zeroAmount() public {
+    function test_withdraw_success() public {
+        uint256 amount = 1_000e6;
+        _seedLiquidator(amount);
         vm.prank(ownerAddr);
-        vm.expectRevert("zero amount");
-        flashLiquidator.testFlashLoan(address(loanToken), 0);
+        flashLiquidator.withdraw(address(loanToken), ownerAddr, amount);
+        assertEq(loanToken.balanceOf(ownerAddr), amount);
+    }
+
+    function test_withdraw_revert_zeroTo() public {
+        vm.prank(ownerAddr);
+        vm.expectRevert("FlashLiq: zero to");
+        flashLiquidator.withdraw(address(loanToken), address(0), 1_000e6);
+    }
+
+    function test_withdraw_revert_notOwner() public {
+        vm.prank(attackerAddr);
+        vm.expectRevert();
+        flashLiquidator.withdraw(address(loanToken), attackerAddr, 1_000e6);
     }
 
     // ═══════════════════════════════════════════════════════════════
-    //                    onLending8FlashLoan CALLBACK
+    //                    CALLBACK
     // ═══════════════════════════════════════════════════════════════
 
     function test_callback_revert_notLending8() public {
         bytes memory data = abi.encode(testMarketParams, borrowerAddr, uint256(100));
-
         vm.prank(attackerAddr);
-        vm.expectRevert("only Lending8");
+        vm.expectRevert("FlashLiq: only Lending8");
         flashLiquidator.onLending8FlashLoan(1_000e6, data);
     }
 

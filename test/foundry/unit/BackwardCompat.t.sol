@@ -261,27 +261,12 @@ contract BackwardCompatTest is Setup {
     }
 
     // ═══════════════════════════════════════════════════════════════════
-    //  SECTION 4: Fundraise — deprecated whitelistRoots / setWhitelist
+    //  SECTION 4: Fundraise — deprecated whitelistRoots
     // ═══════════════════════════════════════════════════════════════════
 
     function test_whitelistRoots_returns_zero() public view {
         bytes32 root = fundraise.whitelistRoots(pid);
         assertEq(root, bytes32(0), "whitelistRoots should return 0 for new projects");
-    }
-
-    function test_setWhitelist_is_noop() public {
-        vm.prank(manager);
-        fundraise.setWhitelist(bytes32(uint256(0xbeef)), pid);
-
-        // Should still return 0 — no-op
-        bytes32 root = fundraise.whitelistRoots(pid);
-        assertEq(root, bytes32(0), "setWhitelist should be a no-op");
-    }
-
-    function test_setWhitelist_requires_manager() public {
-        vm.prank(attacker);
-        vm.expectRevert("Not a manager");
-        fundraise.setWhitelist(bytes32(uint256(0xbeef)), pid);
     }
 
     // ═══════════════════════════════════════════════════════════════════

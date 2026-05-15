@@ -6,9 +6,13 @@ import "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
 import "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
+import "@openzeppelin/contracts/token/ERC20/extensions/IERC20Metadata.sol";
+import "@openzeppelin/contracts/utils/math/Math.sol";
 import "./interfaces/IManagerRegistry.sol";
 import "./interfaces/IRewardSystem.sol";
 import "./interfaces/ILimitedSeller.sol";
+import "./interfaces/IOracle.sol";
+
 /// @title Fundraise - 8lends RWA lending platform
 /// @notice Only standard ERC20 tokens are supported as loanToken.
 /// Fee-on-transfer, rebasing, and deflationary tokens are NOT supported
@@ -19,6 +23,54 @@ import "./interfaces/ILimitedSeller.sol";
 /// non-repayment is handled through off-chain legal framework.
 contract Fundraise is Initializable, UUPSUpgradeable, OwnableUpgradeable {
     using SafeERC20 for IERC20;
+
+    error IncorrectNonce();
+    error InvalidSignatureSValue();
+    error InvalidSignature();
+    error NotTrustedSigner();
+    error InviterCannotBeInvestor();
+    error ProjectNotFound();
+    error CannotInvestInOwnProject();
+    error ProjectClosedYet();
+    error InvestmentExceedsHardCap();
+    error NotAManager();
+    error ProjectDoesNotExist();
+    error ProjectNotCanceled();
+    error NoInvestmentToWithdraw();
+    error InvalidStageForCancellation();
+    error NotAMarket();
+    error ProjectNotInFundedStage();
+    error AddressZeroFrom();
+    error AddressZeroTo();
+    error FromAndToSame();
+    error FromNotFoundInProject();
+    error PositionIndexOutOfBounds();
+    error PositionHasZeroAmount();
+    error InvalidStageForTransfer();
+    error NotFundedEnough();
+    error RepaymentWrongStage();
+    error InvalidStageForClaiming();
+    error NoInvestmentFound();
+    error CantUpdateFundedProject();
+    error OpenStageExtensionTooLong();
+    error WrongPercents();
+    error ZeroAddress();
+    error TotalInvestedMustBeZero();
+    error TotalRepaidMustBeZero();
+    error SoftCapMustBePositive();
+    error HardCapMustBePositive();
+    error SoftCapExceedsHardCap();
+    error PreFundDurationMustBePositive();
+    error BorrowerMustBeSet();
+    error LoanTokenMustBeSet();
+    error PositionsAlreadyExist();
+    error InvestorHasClaimed();
+    error AmountMustBePositive();
+    error SumMismatchWithAggregate();
+    error InvalidSignatureLength();
+    error OracleNotSet();
+    error LoanTokenPriceZero();
+    error ArrayLengthMismatch();
 
     event ProjectCreated(uint256 indexed projectId, address borrower, uint256 projectHash);
     event Invest(uint256 indexed projectId, address investor, uint256 amount);
@@ -31,12 +83,22 @@ contract Fundraise is Initializable, UUPSUpgradeable, OwnableUpgradeable {
     event ProjectStatusChanged(uint256 indexed projectId, uint8 status);
     event ProjectUpdated(uint256 indexed projectId);
     event InvestorClaimAddressSet(address indexed investor, address indexed claimAddress);
-    event InvestmentTransferred(uint256 indexed projectId, address indexed from, address indexed to, uint256 amount, uint256 id);
+    event InvestmentTransferred(
+        uint256 indexed projectId,
+        address indexed from,
+        address indexed to,
+        uint256 amount,
+        uint256 id
+    );
     event ManagerRegistryUpdated(address managerRegistry);
     event TreasuryUpdated(address treasury);
     event RewardSystemUpdated(address rewardSystem);
     event TrustedSignerUpdated(address signer);
     event LimitedSellerUpdated(address limitedSeller);
+    event OracleUpdated(address oracle);
+
+    uint256 public constant BASIS_POINTS = 1000000; // 1% = 10000
+    uint256 public constant MAX_KYC_LESS_INVEST_USD = 500 * BASIS_POINTS; // 500_000_000 = 500 USD
 
     enum Stage {
         ComingSoon,
@@ -91,8 +153,6 @@ contract Fundraise is Initializable, UUPSUpgradeable, OwnableUpgradeable {
     uint256 public nonce;
 
     address public trustedSigner;
-    // 1% = 10000
-    uint256 public constant BASIS_POINTS = 1000000;
 
     address public rewardSystem;
 
@@ -106,19 +166,22 @@ contract Fundraise is Initializable, UUPSUpgradeable, OwnableUpgradeable {
     /// Each invest() call pushes a new entry. Index serves as position ID.
     mapping(address => mapping(uint256 => InvestorInfo[])) internal _investorPositions;
 
-    /**
-     * END of VARS *
-     */
+    /// @notice All time invested USD by investor 
+    mapping(address => uint256) public allTimeInvestedUSD;
+
+    address public oracle;
 
     /// @custom:oz-upgrades-unsafe-allow constructor
     constructor() {
         _disableInitializers();
     }
 
-    function initialize(address _treasury, address _managerRegistry, address _trustedSigner, address _rewardSystem)
-        public
-        initializer
-    {
+    function initialize(
+        address _treasury,
+        address _managerRegistry,
+        address _trustedSigner,
+        address _rewardSystem
+    ) public initializer {
         __UUPSUpgradeable_init();
         __Ownable_init(msg.sender);
 
@@ -129,10 +192,6 @@ contract Fundraise is Initializable, UUPSUpgradeable, OwnableUpgradeable {
     }
 
     function _authorizeUpgrade(address) internal override onlyOwner {}
-
-    /**
-     * LOGIC FUNCTIONS
-     */
 
     /// @notice LEGACY — old frontend/backend use global nonce + rootHash in signature.
     /// @dev TODO: remove after frontend migrates to investUpdateV2.
@@ -150,7 +209,7 @@ contract Fundraise is Initializable, UUPSUpgradeable, OwnableUpgradeable {
         bytes memory _sig,
         address _inviter
     ) external {
-        require(_nonce == nonce + 1, "Incorrect nonce");
+        if (_nonce != nonce + 1) revert IncorrectNonce();
 
         bytes32 ethSignedMessageHash = keccak256(
             abi.encodePacked(
@@ -179,7 +238,7 @@ contract Fundraise is Initializable, UUPSUpgradeable, OwnableUpgradeable {
         bytes memory _sig,
         address _inviter
     ) external {
-        require(_nonce == userNonces[msg.sender] + 1, "Incorrect nonce");
+        if (_nonce != userNonces[msg.sender] + 1) revert IncorrectNonce();
 
         // New signature format without rootHash
         bytes32 ethSignedMessageHash = keccak256(
@@ -199,17 +258,21 @@ contract Fundraise is Initializable, UUPSUpgradeable, OwnableUpgradeable {
     function _verifySignature(bytes32 ethSignedMessageHash, bytes memory _sig) internal view {
         (bytes32 r, bytes32 s, uint8 v) = splitSignature(_sig);
         // Prevent signature malleability (as in OpenZeppelin ECDSA)
-        require(uint256(s) <= 0x7FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF5D576E7357A4501DDFE92F46681B20A0, "Invalid signature 's' value");
+        if (
+            uint256(s) > 0x7FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF5D576E7357A4501DDFE92F46681B20A0
+        ) {
+            revert InvalidSignatureSValue();
+        }
         address signer = ecrecover(ethSignedMessageHash, v, r, s);
-        require(signer != address(0), "Invalid signature");
-        require(signer == trustedSigner, "Not a trusted signer");
+        if (signer == address(0)) revert InvalidSignature();
+        if (signer != trustedSigner) revert NotTrustedSigner();
     }
 
     function _invest(uint256 _pid, uint256 _amount, address _inviter) internal returns (bool) {
-        require(_inviter != msg.sender, "Inviter cannot be the same as the investor");
+        if (_inviter == msg.sender) revert InviterCannotBeInvestor();
         Project storage project = projects[_pid];
-        require(project.softCap > 0 || project.hardCap > 0, "Project not found");
-        require(project.innerStruct.borrower != msg.sender, "Cannot invest in your own project");
+        if (!(project.softCap > 0 || project.hardCap > 0)) revert ProjectNotFound();
+        if (project.innerStruct.borrower == msg.sender) revert CannotInvestInOwnProject();
 
         if (project.innerStruct.stage == Stage.ComingSoon) {
             if (block.timestamp >= project.startAt) {
@@ -219,7 +282,7 @@ contract Fundraise is Initializable, UUPSUpgradeable, OwnableUpgradeable {
                 return false;
             }
         }
-        require(project.innerStruct.stage == Stage.Open, "Project is closed yet");
+        if (project.innerStruct.stage != Stage.Open) revert ProjectClosedYet();
         if (block.timestamp > project.openStageEndAt) {
             if (project.totalInvested >= project.softCap) {
                 project.innerStruct.stage = Stage.PreFunded;
@@ -233,12 +296,20 @@ contract Fundraise is Initializable, UUPSUpgradeable, OwnableUpgradeable {
             }
         }
 
-        require(project.totalInvested + _amount <= project.hardCap, "Investment exceeds hardcap");
+        if (project.totalInvested + _amount > project.hardCap) revert InvestmentExceedsHardCap();
+
+        allTimeInvestedUSD[msg.sender] += _toUSD(_amount, address(project.innerStruct.loanToken));
 
         project.innerStruct.loanToken.safeTransferFrom(msg.sender, address(this), _amount);
 
         if (rewardSystem != address(0)) {
-            IRewardSystem(rewardSystem).recordInvestment(msg.sender, _amount, _inviter, _pid, address(project.innerStruct.loanToken));
+            IRewardSystem(rewardSystem).recordInvestment(
+                msg.sender,
+                _amount,
+                _inviter,
+                _pid,
+                address(project.innerStruct.loanToken)
+            );
         }
 
         if (limitedSeller != address(0)) {
@@ -253,6 +324,7 @@ contract Fundraise is Initializable, UUPSUpgradeable, OwnableUpgradeable {
             project.innerStruct.stage = Stage.PreFunded;
             emit ProjectStatusChanged(_pid, uint8(Stage.PreFunded));
         }
+
         emit Invest(_pid, msg.sender, _amount);
         return true;
     }
@@ -262,13 +334,13 @@ contract Fundraise is Initializable, UUPSUpgradeable, OwnableUpgradeable {
     /// @param _investor User address, in case if manager will withdraw money for user
     function withdrawInvestment(uint256 _projectId, address _investor) external {
         if (msg.sender != _investor) {
-            if (!IManagerRegistry(managerRegistry).isManager(msg.sender)) revert("Not a manager");
+            if (!IManagerRegistry(managerRegistry).isManager(msg.sender)) revert NotAManager();
         }
         Project storage project = projects[_projectId];
-        require(_projectId < projectCount, "Project doesn't exist");
-        require(project.innerStruct.stage == Stage.Canceled, "Project not canceled");
+        if (_projectId >= projectCount) revert ProjectDoesNotExist();
+        if (project.innerStruct.stage != Stage.Canceled) revert ProjectNotCanceled();
         uint256 amount = investorInfo[_investor][_projectId].investedAmount;
-        require(amount > 0, "No investment to withdraw");
+        if (amount == 0) revert NoInvestmentToWithdraw();
 
         investorInfo[_investor][_projectId].investedAmount = 0;
         project.totalInvested -= amount;
@@ -291,40 +363,44 @@ contract Fundraise is Initializable, UUPSUpgradeable, OwnableUpgradeable {
     /// @param _projectId Project info
     function cancelProject(uint256 _projectId) external {
         Project storage project = projects[_projectId];
-        require(_projectId < projectCount, "Project does not exist");
-        require(
-            project.innerStruct.stage == Stage.Open || project.innerStruct.stage == Stage.PreFunded
-                || project.innerStruct.stage == Stage.ComingSoon,
-            "Invalid stage for cancellation"
-        );
+        if (_projectId >= projectCount) revert ProjectDoesNotExist();
         if (
-            project.innerStruct.stage == Stage.PreFunded
-                && block.timestamp > project.openStageEndAt + project.preFundDuration
+            !(
+                project.innerStruct.stage == Stage.Open ||
+                project.innerStruct.stage == Stage.PreFunded ||
+                project.innerStruct.stage == Stage.ComingSoon
+            )
+        ) {
+            revert InvalidStageForCancellation();
+        }
+        if (
+            project.innerStruct.stage == Stage.PreFunded &&
+            block.timestamp > project.openStageEndAt + project.preFundDuration
         ) {
             project.innerStruct.stage = Stage.Canceled;
             emit ProjectStatusChanged(_projectId, uint8(Stage.Canceled));
             return;
         } else {
-            require(IManagerRegistry(managerRegistry).isManager(msg.sender), "Not a manager");
+            if (!IManagerRegistry(managerRegistry).isManager(msg.sender)) revert NotAManager();
         }
         project.innerStruct.stage = Stage.Canceled;
         emit ProjectStatusChanged(_projectId, uint8(Stage.Canceled));
     }
 
     function transferInvestment(uint256 _projectId, address _from, address _to, bool _isSell, uint256 _id) external {
-        require(IManagerRegistry(managerRegistry).isMarket(msg.sender), "Not a market");
+        if (!IManagerRegistry(managerRegistry).isMarket(msg.sender)) revert NotAMarket();
         Project storage project = projects[_projectId];
-        require(_projectId < projectCount, "Project does not exist");
-        if(_isSell) {
-            require(project.innerStruct.stage == Stage.Funded, "Project is not funded");
+        if (_projectId >= projectCount) revert ProjectDoesNotExist();
+        if (_isSell) {
+            if (project.innerStruct.stage != Stage.Funded) revert ProjectNotInFundedStage();
         }
-        require(_from != address(0), "From address is zero");
-        require(_to != address(0), "To address is zero");
-        require(_from != _to, "From and to are the same");
+        if (_from == address(0)) revert AddressZeroFrom();
+        if (_to == address(0)) revert AddressZeroTo();
+        if (_from == _to) revert FromAndToSame();
         uint256 amountInvested = investorInfo[_from][_projectId].investedAmount;
         uint256 amountClaimed = investorInfo[_from][_projectId].totalClaimed;
 
-        require(amountInvested > 0, "From not found in this project");
+        if (amountInvested == 0) revert FromNotFoundInProject();
 
         investorInfo[_to][_projectId].investedAmount += amountInvested;
         investorInfo[_to][_projectId].totalClaimed += amountClaimed;
@@ -339,18 +415,24 @@ contract Fundraise is Initializable, UUPSUpgradeable, OwnableUpgradeable {
     /// @param _to Destination address (market cell or buyer)
     /// @param _positionIndex Index of the position in _from's positions array
     /// @param _id Sale ID for event tracking
-    function transferPosition(uint256 _projectId, address _from, address _to, uint256 _positionIndex, uint256 _id) external {
-        require(IManagerRegistry(managerRegistry).isMarket(msg.sender), "Not a market");
-        require(_projectId < projectCount, "Project does not exist");
-        require(_from != address(0), "From address is zero");
-        require(_to != address(0), "To address is zero");
-        require(_from != _to, "From and to are the same");
-        require(_positionIndex < _investorPositions[_from][_projectId].length, "Position index out of bounds");
+    function transferPosition(
+        uint256 _projectId,
+        address _from,
+        address _to,
+        uint256 _positionIndex,
+        uint256 _id
+    ) external {
+        if (!IManagerRegistry(managerRegistry).isMarket(msg.sender)) revert NotAMarket();
+        if (_projectId >= projectCount) revert ProjectDoesNotExist();
+        if (_from == address(0)) revert AddressZeroFrom();
+        if (_to == address(0)) revert AddressZeroTo();
+        if (_from == _to) revert FromAndToSame();
+        if (_positionIndex >= _investorPositions[_from][_projectId].length) revert PositionIndexOutOfBounds();
 
         InvestorInfo storage pos = _investorPositions[_from][_projectId][_positionIndex];
         uint256 posAmount = pos.investedAmount;
         uint256 posClaimed = pos.totalClaimed;
-        require(posAmount > 0, "Position has zero amount");
+        if (posAmount == 0) revert PositionHasZeroAmount();
 
         // Update aggregate mappings
         investorInfo[_from][_projectId].investedAmount -= posAmount;
@@ -375,26 +457,27 @@ contract Fundraise is Initializable, UUPSUpgradeable, OwnableUpgradeable {
     }
 
     /// @notice When project is funded, transfer money for a borrower with max USD for reward
+    /// @param _maxUSDForReward - how much USD is allowed to be used for reward, for frontrun protection
+    /// @dev Calculation of _maxUSDForReward: Set to 6% of project.totalInvested, then add 1% of that 6% as a slippage buffer.
     /// @param _projectId Project info
     function _transferFundsToBorrower(uint256 _projectId, uint256 _maxUSDForReward) internal {
         Project storage project = projects[_projectId];
-        require(_projectId < projectCount, "Project does not exist");
+        if (_projectId >= projectCount) revert ProjectDoesNotExist();
         if (msg.sender != project.innerStruct.borrower) {
-            if (!IManagerRegistry(managerRegistry).isManager(msg.sender)) revert("Not a manager");
+            if (!IManagerRegistry(managerRegistry).isManager(msg.sender)) revert NotAManager();
         }
-        require(
-            project.innerStruct.stage == Stage.Open || project.innerStruct.stage == Stage.PreFunded,
-            "Invalid stage for transfer"
-        );
+        if (
+            !(project.innerStruct.stage == Stage.Open || project.innerStruct.stage == Stage.PreFunded)
+        ) {
+            revert InvalidStageForTransfer();
+        }
 
         if (project.innerStruct.stage == Stage.Open) {
-            if (project.totalInvested < project.softCap) revert("Not funded enough");
+            if (project.totalInvested < project.softCap) revert NotFundedEnough();
         }
 
         uint256 platformFee = (project.totalInvested * project.innerStruct.platformInterestRate) / BASIS_POINTS;
-        project.innerStruct.loanToken.safeTransfer(
-            project.innerStruct.borrower, project.totalInvested - platformFee
-        );
+        project.innerStruct.loanToken.safeTransfer(project.innerStruct.borrower, project.totalInvested - platformFee);
         project.innerStruct.stage = Stage.Funded;
         project.innerStruct.fundedTime = block.timestamp;
 
@@ -406,9 +489,7 @@ contract Fundraise is Initializable, UUPSUpgradeable, OwnableUpgradeable {
 
         emit ProjectFunded(_projectId, project.innerStruct.borrower, project.totalInvested, platformFee);
         emit ProjectStatusChanged(_projectId, uint8(Stage.Funded));
-
     }
-
 
     /// @notice Borrower repays money for a user
     /// @dev Repayment is enforced through off-chain legal agreements,
@@ -420,18 +501,18 @@ contract Fundraise is Initializable, UUPSUpgradeable, OwnableUpgradeable {
     /// @param _amount Amount of usdt for repayment
     function makeRepayment(uint256 _projectId, uint256 _amount) external {
         Project storage project = projects[_projectId];
-        require(_projectId < projectCount, "Project does not exist");
-        require(project.innerStruct.stage == Stage.Funded, "Project isn't Funded stage");
+        if (_projectId >= projectCount) revert ProjectDoesNotExist();
+        if (project.innerStruct.stage != Stage.Funded) revert RepaymentWrongStage();
         if (msg.sender != project.innerStruct.borrower) {
-            if (!IManagerRegistry(managerRegistry).isManager(msg.sender)) revert("Not a manager");
+            if (!IManagerRegistry(managerRegistry).isManager(msg.sender)) revert NotAManager();
         }
 
         project.innerStruct.loanToken.safeTransferFrom(msg.sender, address(this), _amount);
         project.innerStruct.totalRepaid += _amount;
 
         if (
-            project.innerStruct.totalRepaid
-                >= project.totalInvested + ((project.totalInvested * project.investorInterestRate) / BASIS_POINTS)
+            project.innerStruct.totalRepaid >=
+            project.totalInvested + ((project.totalInvested * project.investorInterestRate) / BASIS_POINTS)
         ) {
             project.innerStruct.stage = Stage.Repaid;
             emit PrincipalRepayment(_projectId, _amount);
@@ -446,18 +527,17 @@ contract Fundraise is Initializable, UUPSUpgradeable, OwnableUpgradeable {
     /// @param _investor User address, in case if manager will withdraw money for user
     function claim(uint256 _projectId, address _investor) external {
         if (msg.sender != _investor) {
-            if (!IManagerRegistry(managerRegistry).isManager(msg.sender)) revert("Not a manager");
+            if (!IManagerRegistry(managerRegistry).isManager(msg.sender)) revert NotAManager();
         }
 
         Project storage project = projects[_projectId];
-        require(_projectId < projectCount, "Project does not exist");
-        require(
-            project.innerStruct.stage == Stage.Funded || project.innerStruct.stage == Stage.Repaid,
-            "Invalid stage for claiming"
-        );
+        if (_projectId >= projectCount) revert ProjectDoesNotExist();
+        if (!(project.innerStruct.stage == Stage.Funded || project.innerStruct.stage == Stage.Repaid)) {
+            revert InvalidStageForClaiming();
+        }
 
         InvestorInfo storage investor = investorInfo[_investor][_projectId];
-        require(investor.investedAmount > 0, "No investment found");
+        if (investor.investedAmount == 0) revert NoInvestmentFound();
         uint256 investorShare = (investor.investedAmount * BASIS_POINTS) / project.totalInvested; // Basis points
         uint256 claimableShare = (project.innerStruct.totalRepaid * investorShare) / BASIS_POINTS; // Numeric
 
@@ -473,20 +553,9 @@ contract Fundraise is Initializable, UUPSUpgradeable, OwnableUpgradeable {
         emit Claimed(_projectId, _investor, claimable);
     }
 
-    /**
-     * END of LOGIC FUNCTIONS
-     */
-
-    /**
-     * ADMIN FUNCTIONS
-     */
-
     /// @notice Backward-compatible: create project with whitelistRoot (ignored).
     /// @dev TODO: remove after admin frontend stops passing whitelistRoot.
-    function createProject(Project memory _project, bytes32, uint256 _projectHash)
-        external
-        returns (uint256)
-    {
+    function createProject(Project memory _project, bytes32, uint256 _projectHash) external returns (uint256) {
         return _createProjectInternal(_project, _projectHash);
     }
 
@@ -495,18 +564,12 @@ contract Fundraise is Initializable, UUPSUpgradeable, OwnableUpgradeable {
     /// Fee-on-transfer, rebasing, and deflationary tokens will cause accounting errors.
     /// @param _project Project info
     /// @param _projectHash project hash, for event
-    function createProject(Project memory _project, uint256 _projectHash)
-        external
-        returns (uint256)
-    {
+    function createProject(Project memory _project, uint256 _projectHash) external returns (uint256) {
         return _createProjectInternal(_project, _projectHash);
     }
 
-    function _createProjectInternal(Project memory _project, uint256 _projectHash)
-        internal
-        returns (uint256)
-    {
-        require(IManagerRegistry(managerRegistry).isManager(msg.sender), "Not a manager");
+    function _createProjectInternal(Project memory _project, uint256 _projectHash) internal returns (uint256) {
+        if (!IManagerRegistry(managerRegistry).isManager(msg.sender)) revert NotAManager();
         _validateProject(_project);
 
         uint256 projectId = projectCount++;
@@ -519,7 +582,7 @@ contract Fundraise is Initializable, UUPSUpgradeable, OwnableUpgradeable {
     /// @notice Update project stage
     /// @param _projectId Project id
     function moveProjectStage(uint256 _projectId) external {
-        require(IManagerRegistry(managerRegistry).isManager(msg.sender), "Not a manager");
+        if (!IManagerRegistry(managerRegistry).isManager(msg.sender)) revert NotAManager();
 
         Project storage project = projects[_projectId];
 
@@ -541,12 +604,15 @@ contract Fundraise is Initializable, UUPSUpgradeable, OwnableUpgradeable {
     /// @param _projectId Project id
     /// @param _project new project info
     function setProject(uint256 _projectId, Project memory _project) external {
-        require(IManagerRegistry(managerRegistry).isManager(msg.sender), "Not a manager");
-        require(
-            projects[_projectId].innerStruct.stage == Stage.ComingSoon
-                || projects[_projectId].innerStruct.stage == Stage.Open,
-            "Can't update funded project"
-        );
+        if (!IManagerRegistry(managerRegistry).isManager(msg.sender)) revert NotAManager();
+        if (
+            !(
+                projects[_projectId].innerStruct.stage == Stage.ComingSoon ||
+                projects[_projectId].innerStruct.stage == Stage.Open
+            )
+        ) {
+            revert CantUpdateFundedProject();
+        }
         if (
             projects[_projectId].innerStruct.stage == Stage.ComingSoon && _project.innerStruct.stage == Stage.ComingSoon
         ) {
@@ -555,18 +621,24 @@ contract Fundraise is Initializable, UUPSUpgradeable, OwnableUpgradeable {
             emit ProjectUpdated(_projectId);
         } else if (projects[_projectId].innerStruct.stage == Stage.Open) {
             if (_project.openStageEndAt != projects[_projectId].openStageEndAt) {
-                require(_project.openStageEndAt - projects[_projectId].openStageEndAt <= 30 days, "Too long");
+                if (_project.openStageEndAt - projects[_projectId].openStageEndAt > 30 days) {
+                    revert OpenStageExtensionTooLong();
+                }
                 projects[_projectId].openStageEndAt = _project.openStageEndAt;
             }
             if (_project.innerStruct.platformInterestRate != projects[_projectId].innerStruct.platformInterestRate) {
-                require(
-                    _project.innerStruct.platformInterestRate > projects[_projectId].innerStruct.platformInterestRate,
-                    "Wrong percents"
-                );
+                if (
+                    _project.innerStruct.platformInterestRate <=
+                    projects[_projectId].innerStruct.platformInterestRate
+                ) {
+                    revert WrongPercents();
+                }
                 projects[_projectId].innerStruct.platformInterestRate = _project.innerStruct.platformInterestRate;
             }
             if (_project.investorInterestRate != projects[_projectId].investorInterestRate) {
-                require(_project.investorInterestRate > projects[_projectId].investorInterestRate, "Wrong percents");
+                if (_project.investorInterestRate <= projects[_projectId].investorInterestRate) {
+                    revert WrongPercents();
+                }
                 projects[_projectId].investorInterestRate = _project.investorInterestRate;
             }
             emit ProjectUpdated(_projectId);
@@ -579,17 +651,11 @@ contract Fundraise is Initializable, UUPSUpgradeable, OwnableUpgradeable {
         return __deprecated_whitelistRoots[_pid];
     }
 
-    /// @dev TODO: remove after admin frontend stops calling setWhitelist. Deprecated no-op.
-    function setWhitelist(bytes32, uint256) external {
-        require(IManagerRegistry(managerRegistry).isManager(msg.sender), "Not a manager");
-        // no-op: whitelist roots are no longer stored on-chain
-    }
-
     /// @notice Update address of trusted signer
     /// @param _signer New address
     function setTrustedSigner(address _signer) external {
-        require(IManagerRegistry(managerRegistry).isManager(msg.sender), "Not a manager");
-        require(_signer != address(0), "Zero address");
+        if (!IManagerRegistry(managerRegistry).isManager(msg.sender)) revert NotAManager();
+        if (_signer == address(0)) revert ZeroAddress();
         trustedSigner = _signer;
         emit TrustedSignerUpdated(_signer);
     }
@@ -597,7 +663,7 @@ contract Fundraise is Initializable, UUPSUpgradeable, OwnableUpgradeable {
     /// @notice Update manager registry address
     /// @param _managerRegistry New manager registry address
     function setManagerRegistry(address _managerRegistry) external onlyOwner {
-        require(_managerRegistry != address(0), "Zero address");
+        if (_managerRegistry == address(0)) revert ZeroAddress();
         managerRegistry = _managerRegistry;
         emit ManagerRegistryUpdated(_managerRegistry);
     }
@@ -605,7 +671,7 @@ contract Fundraise is Initializable, UUPSUpgradeable, OwnableUpgradeable {
     /// @notice Update treasury address
     /// @param _treasury New treasury address
     function setTreasury(address _treasury) external onlyOwner {
-        require(_treasury != address(0), "Zero address");
+        if (_treasury == address(0)) revert ZeroAddress();
         treasury = _treasury;
         emit TreasuryUpdated(_treasury);
     }
@@ -628,14 +694,14 @@ contract Fundraise is Initializable, UUPSUpgradeable, OwnableUpgradeable {
 
     /// @notice Validate project struct invariants
     function _validateProject(Project memory _project) internal pure {
-        require(_project.totalInvested == 0, "totalInvested must be 0");
-        require(_project.innerStruct.totalRepaid == 0, "totalRepaid must be 0");
-        require(_project.softCap > 0, "softCap must be positive");
-        require(_project.hardCap > 0, "hardCap must be positive");
-        require(_project.softCap <= _project.hardCap, "softCap > hardCap");
-        require(_project.preFundDuration > 0, "preFundDuration must be positive");
-        require(_project.innerStruct.borrower != address(0), "borrower must be set");
-        require(address(_project.innerStruct.loanToken) != address(0), "loanToken must be set");
+        if (_project.totalInvested != 0) revert TotalInvestedMustBeZero();
+        if (_project.innerStruct.totalRepaid != 0) revert TotalRepaidMustBeZero();
+        if (_project.softCap == 0) revert SoftCapMustBePositive();
+        if (_project.hardCap == 0) revert HardCapMustBePositive();
+        if (_project.softCap > _project.hardCap) revert SoftCapExceedsHardCap();
+        if (_project.preFundDuration == 0) revert PreFundDurationMustBePositive();
+        if (_project.innerStruct.borrower == address(0)) revert BorrowerMustBeSet();
+        if (address(_project.innerStruct.loanToken) == address(0)) revert LoanTokenMustBeSet();
     }
 
     /// @notice Backfill individual positions for an existing investor from event history.
@@ -644,25 +710,18 @@ contract Fundraise is Initializable, UUPSUpgradeable, OwnableUpgradeable {
     /// @param _projectId Project ID
     /// @param _amounts Array of individual investment amounts (from Invest event logs)
     function backfillPositions(address _investor, uint256 _projectId, uint256[] calldata _amounts) external {
-        require(IManagerRegistry(managerRegistry).isManager(msg.sender), "Not a manager");
-        require(_investorPositions[_investor][_projectId].length == 0, "Positions already exist");
-        require(investorInfo[_investor][_projectId].totalClaimed == 0, "Investor has claimed");
+        if (!IManagerRegistry(managerRegistry).isManager(msg.sender)) revert NotAManager();
+        if (_investorPositions[_investor][_projectId].length != 0) revert PositionsAlreadyExist();
+        if (investorInfo[_investor][_projectId].totalClaimed != 0) revert InvestorHasClaimed();
         uint256 total = 0;
         for (uint256 i = 0; i < _amounts.length; i++) {
-            require(_amounts[i] > 0, "Amount must be positive");
+            if (_amounts[i] == 0) revert AmountMustBePositive();
             _investorPositions[_investor][_projectId].push(InvestorInfo(_amounts[i], 0));
             total += _amounts[i];
         }
-        require(total == investorInfo[_investor][_projectId].investedAmount, "Sum mismatch with aggregate");
+        if (total != investorInfo[_investor][_projectId].investedAmount) revert SumMismatchWithAggregate();
     }
 
-    /**
-     * END of ADMIN FUNCTIONS
-     */
-
-    /**
-     * GETTERS
-     */
 
     /// @notice Get investors available amount for claim
     /// @param _projectId ProjectId
@@ -685,7 +744,7 @@ contract Fundraise is Initializable, UUPSUpgradeable, OwnableUpgradeable {
     }
 
     function splitSignature(bytes memory sig) public pure returns (bytes32 r, bytes32 s, uint8 v) {
-        require(sig.length == 65, "invalid signature length");
+        if (sig.length != 65) revert InvalidSignatureLength();
 
         assembly {
             /*
@@ -720,7 +779,57 @@ contract Fundraise is Initializable, UUPSUpgradeable, OwnableUpgradeable {
         return _investorPositions[_investor][_projectId].length;
     }
 
-    /**
-     * END of GETTERS
-     */
+    /// @notice Off-chain pre-check for KYC-less cap ($500): same `_toUSD` + `allTimeInvestedUSD` increment as `_invest`.
+    /// @dev `eth_call` before trusted signature; if `false`, do not sign. Invalid `_projectId` returns `false` (no revert).
+    function kycLessInvestable(uint256 _projectId, address _investor, uint256 _investAmount) external view returns (bool) {
+        if (_projectId >= projectCount) return false;
+        uint256 amountInUSD = _toUSD(_investAmount, address(projects[_projectId].innerStruct.loanToken));
+        if (allTimeInvestedUSD[_investor] + amountInUSD > MAX_KYC_LESS_INVEST_USD) {
+            return false;
+        }
+        return true;
+    }
+
+    /// @notice Set oracle address for manipulation-resistant pricing
+    /// @param _oracle Oracle contract address
+    function setOracle(address _oracle) external onlyOwner {
+        if (_oracle == address(0)) revert ZeroAddress();
+        oracle = _oracle;
+        emit OracleUpdated(_oracle);
+    }
+
+    /// @notice Convert token amount to USD in Fundraise scale (BASIS_POINTS = 1 USD = 1_000_000).
+    /// @dev If oracle is not set, falls back to 1:1 for USDC (6 dec, same scale as BASIS_POINTS).
+    ///      For any other token without oracle — reverts.
+    function _toUSD(uint256 _amount, address _loanToken) internal view returns (uint256) {
+        if (oracle == address(0)) {
+            bool isUsdc = rewardSystem != address(0) &&
+                _loanToken == IRewardSystem(rewardSystem).usdc();
+            if (!isUsdc) revert OracleNotSet();
+            return _amount;
+        }
+        IOracle.PriceResult memory loanPriceResult = IOracle(oracle).getPrice(_loanToken);
+        if (loanPriceResult.price == 0) revert LoanTokenPriceZero();
+        uint8 priceDecimals = IOracle(oracle).priceDecimals();
+        uint8 loanTokenDecimals = IERC20Metadata(_loanToken).decimals();
+        return Math.mulDiv(
+            _amount,
+            uint256(loanPriceResult.price) * BASIS_POINTS,
+            10 ** (uint256(priceDecimals) + uint256(loanTokenDecimals))
+        );
+    }
+
+    /// @notice Adds off-chain USD history into `allTimeInvestedUSD` (BASIS_POINTS scale; repeatable — each call adds).
+    /// @param _investors Investor addresses
+    /// @param _investAmountsUSD Amounts in USD: 1_000_000 = 1 USD
+    function migrateAllTimeInvestedUSD(address[] memory _investors, uint256[] memory _investAmountsUSD) external {
+        if (!IManagerRegistry(managerRegistry).isManager(msg.sender)) revert NotAManager();
+        if (_investors.length != _investAmountsUSD.length) revert ArrayLengthMismatch();
+        for (uint256 i = 0; i < _investors.length; i++) {
+            address investor = _investors[i];
+            uint256 investAmountUsd = _investAmountsUSD[i];
+            allTimeInvestedUSD[investor] += investAmountUsd;
+        }
+    }
+
 }

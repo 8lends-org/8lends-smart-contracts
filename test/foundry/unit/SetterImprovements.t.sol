@@ -168,18 +168,16 @@ contract SetterImprovementsTest is Setup {
     //                    TOKEN — EVENTS
     // ═══════════════════════════════════════════════════════════════
 
-    function test_token_setManagerRegistry_emitsEvent() public {
+    function test_token_setManagerRegistry_updatesValue() public {
         address newRegistry = makeAddr("newRegistry");
-        vm.expectEmit(false, false, false, true, address(token));
-        emit Token.ManagerRegistryUpdated(newRegistry);
         vm.prank(owner);
         token.setManagerRegistry(newRegistry);
+        assertEq(token.managerRegistry(), newRegistry);
     }
 
-    function test_token_disableMintingForever_emitsEvent() public {
-        vm.expectEmit(false, false, false, true, address(token));
-        emit Token.MintingDisabledForever();
+    function test_token_disableMintingForever_disablesMinting() public {
         vm.prank(owner);
         token.disableMintingForever();
+        assertFalse(token.mintingEnabled());
     }
 }

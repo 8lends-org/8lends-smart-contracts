@@ -16,6 +16,41 @@
     "type": "error"
   },
   {
+    "inputs": [],
+    "name": "AddressZeroFrom",
+    "type": "error"
+  },
+  {
+    "inputs": [],
+    "name": "AddressZeroTo",
+    "type": "error"
+  },
+  {
+    "inputs": [],
+    "name": "AmountMustBePositive",
+    "type": "error"
+  },
+  {
+    "inputs": [],
+    "name": "ArrayLengthMismatch",
+    "type": "error"
+  },
+  {
+    "inputs": [],
+    "name": "BorrowerMustBeSet",
+    "type": "error"
+  },
+  {
+    "inputs": [],
+    "name": "CannotInvestInOwnProject",
+    "type": "error"
+  },
+  {
+    "inputs": [],
+    "name": "CantUpdateFundedProject",
+    "type": "error"
+  },
+  {
     "inputs": [
       {
         "internalType": "address",
@@ -38,12 +73,127 @@
   },
   {
     "inputs": [],
+    "name": "FromAndToSame",
+    "type": "error"
+  },
+  {
+    "inputs": [],
+    "name": "FromNotFoundInProject",
+    "type": "error"
+  },
+  {
+    "inputs": [],
+    "name": "HardCapMustBePositive",
+    "type": "error"
+  },
+  {
+    "inputs": [],
+    "name": "IncorrectNonce",
+    "type": "error"
+  },
+  {
+    "inputs": [],
     "name": "InvalidInitialization",
     "type": "error"
   },
   {
     "inputs": [],
+    "name": "InvalidSignature",
+    "type": "error"
+  },
+  {
+    "inputs": [],
+    "name": "InvalidSignatureLength",
+    "type": "error"
+  },
+  {
+    "inputs": [],
+    "name": "InvalidSignatureSValue",
+    "type": "error"
+  },
+  {
+    "inputs": [],
+    "name": "InvalidStageForCancellation",
+    "type": "error"
+  },
+  {
+    "inputs": [],
+    "name": "InvalidStageForClaiming",
+    "type": "error"
+  },
+  {
+    "inputs": [],
+    "name": "InvalidStageForTransfer",
+    "type": "error"
+  },
+  {
+    "inputs": [],
+    "name": "InvestmentExceedsHardCap",
+    "type": "error"
+  },
+  {
+    "inputs": [],
+    "name": "InvestorHasClaimed",
+    "type": "error"
+  },
+  {
+    "inputs": [],
+    "name": "InviterCannotBeInvestor",
+    "type": "error"
+  },
+  {
+    "inputs": [],
+    "name": "LoanTokenMustBeSet",
+    "type": "error"
+  },
+  {
+    "inputs": [],
+    "name": "LoanTokenPriceZero",
+    "type": "error"
+  },
+  {
+    "inputs": [],
+    "name": "NoInvestmentFound",
+    "type": "error"
+  },
+  {
+    "inputs": [],
+    "name": "NoInvestmentToWithdraw",
+    "type": "error"
+  },
+  {
+    "inputs": [],
+    "name": "NotAManager",
+    "type": "error"
+  },
+  {
+    "inputs": [],
+    "name": "NotAMarket",
+    "type": "error"
+  },
+  {
+    "inputs": [],
+    "name": "NotFundedEnough",
+    "type": "error"
+  },
+  {
+    "inputs": [],
     "name": "NotInitializing",
+    "type": "error"
+  },
+  {
+    "inputs": [],
+    "name": "NotTrustedSigner",
+    "type": "error"
+  },
+  {
+    "inputs": [],
+    "name": "OpenStageExtensionTooLong",
+    "type": "error"
+  },
+  {
+    "inputs": [],
+    "name": "OracleNotSet",
     "type": "error"
   },
   {
@@ -69,6 +219,56 @@
     "type": "error"
   },
   {
+    "inputs": [],
+    "name": "PositionHasZeroAmount",
+    "type": "error"
+  },
+  {
+    "inputs": [],
+    "name": "PositionIndexOutOfBounds",
+    "type": "error"
+  },
+  {
+    "inputs": [],
+    "name": "PositionsAlreadyExist",
+    "type": "error"
+  },
+  {
+    "inputs": [],
+    "name": "PreFundDurationMustBePositive",
+    "type": "error"
+  },
+  {
+    "inputs": [],
+    "name": "ProjectClosedYet",
+    "type": "error"
+  },
+  {
+    "inputs": [],
+    "name": "ProjectDoesNotExist",
+    "type": "error"
+  },
+  {
+    "inputs": [],
+    "name": "ProjectNotCanceled",
+    "type": "error"
+  },
+  {
+    "inputs": [],
+    "name": "ProjectNotFound",
+    "type": "error"
+  },
+  {
+    "inputs": [],
+    "name": "ProjectNotInFundedStage",
+    "type": "error"
+  },
+  {
+    "inputs": [],
+    "name": "RepaymentWrongStage",
+    "type": "error"
+  },
+  {
     "inputs": [
       {
         "internalType": "address",
@@ -77,6 +277,31 @@
       }
     ],
     "name": "SafeERC20FailedOperation",
+    "type": "error"
+  },
+  {
+    "inputs": [],
+    "name": "SoftCapExceedsHardCap",
+    "type": "error"
+  },
+  {
+    "inputs": [],
+    "name": "SoftCapMustBePositive",
+    "type": "error"
+  },
+  {
+    "inputs": [],
+    "name": "SumMismatchWithAggregate",
+    "type": "error"
+  },
+  {
+    "inputs": [],
+    "name": "TotalInvestedMustBeZero",
+    "type": "error"
+  },
+  {
+    "inputs": [],
+    "name": "TotalRepaidMustBeZero",
     "type": "error"
   },
   {
@@ -93,6 +318,16 @@
       }
     ],
     "name": "UUPSUnsupportedProxiableUUID",
+    "type": "error"
+  },
+  {
+    "inputs": [],
+    "name": "WrongPercents",
+    "type": "error"
+  },
+  {
+    "inputs": [],
+    "name": "ZeroAddress",
     "type": "error"
   },
   {
@@ -257,6 +492,19 @@
       }
     ],
     "name": "ManagerRegistryUpdated",
+    "type": "event"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": false,
+        "internalType": "address",
+        "name": "oracle",
+        "type": "address"
+      }
+    ],
+    "name": "OracleUpdated",
     "type": "event"
   },
   {
@@ -477,12 +725,44 @@
   },
   {
     "inputs": [],
+    "name": "MAX_KYC_LESS_INVEST_USD",
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
     "name": "UPGRADE_INTERFACE_VERSION",
     "outputs": [
       {
         "internalType": "string",
         "name": "",
         "type": "string"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "address",
+        "name": "",
+        "type": "address"
+      }
+    ],
+    "name": "allTimeInvestedUSD",
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
       }
     ],
     "stateMutability": "view",
@@ -956,6 +1236,35 @@
     "type": "function"
   },
   {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "_projectId",
+        "type": "uint256"
+      },
+      {
+        "internalType": "address",
+        "name": "_investor",
+        "type": "address"
+      },
+      {
+        "internalType": "uint256",
+        "name": "_investAmount",
+        "type": "uint256"
+      }
+    ],
+    "name": "kycLessInvestable",
+    "outputs": [
+      {
+        "internalType": "bool",
+        "name": "",
+        "type": "bool"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
     "inputs": [],
     "name": "limitedSeller",
     "outputs": [
@@ -1002,6 +1311,24 @@
   {
     "inputs": [
       {
+        "internalType": "address[]",
+        "name": "_investors",
+        "type": "address[]"
+      },
+      {
+        "internalType": "uint256[]",
+        "name": "_investAmountsUSD",
+        "type": "uint256[]"
+      }
+    ],
+    "name": "migrateAllTimeInvestedUSD",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
         "internalType": "uint256",
         "name": "_projectId",
         "type": "uint256"
@@ -1020,6 +1347,19 @@
         "internalType": "uint256",
         "name": "",
         "type": "uint256"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "oracle",
+    "outputs": [
+      {
+        "internalType": "address",
+        "name": "",
+        "type": "address"
       }
     ],
     "stateMutability": "view",
@@ -1199,6 +1539,19 @@
   {
     "inputs": [
       {
+        "internalType": "address",
+        "name": "_oracle",
+        "type": "address"
+      }
+    ],
+    "name": "setOracle",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
         "internalType": "uint256",
         "name": "_projectId",
         "type": "uint256"
@@ -1323,24 +1676,6 @@
       }
     ],
     "name": "setTrustedSigner",
-    "outputs": [],
-    "stateMutability": "nonpayable",
-    "type": "function"
-  },
-  {
-    "inputs": [
-      {
-        "internalType": "bytes32",
-        "name": "",
-        "type": "bytes32"
-      },
-      {
-        "internalType": "uint256",
-        "name": "",
-        "type": "uint256"
-      }
-    ],
-    "name": "setWhitelist",
     "outputs": [],
     "stateMutability": "nonpayable",
     "type": "function"
