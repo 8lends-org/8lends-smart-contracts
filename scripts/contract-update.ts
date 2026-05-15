@@ -68,16 +68,18 @@ async function main(): Promise<void> {
     throw new Error(`${contractName} contract not found in config`);
   }
 
-  const proxyAddress = config[contractKey] as string;
-  const contract = await ethers.getContractAt(contractName!, proxyAddress);
-  const allowed = await signerMayUpgrade(contract, signerAddress);
-  if (!allowed) {
-    console.log(`Proxy: ${proxyAddress}`);
-    console.log(`Signer: ${signerAddress}`);
-    throw new Error(
-      "Signer cannot upgrade this proxy (need UPGRADER_ROLE, DEFAULT_ADMIN_ROLE, or owner())"
-    );
-  }
+  // Check owner rights
+  const contract = await ethers.getContractAt(contractName!, config[contractKey] as string);
+  
+
+    const owner = await contract.owner();
+    if (owner.toLowerCase() !== (await signer.getAddress()).toLowerCase()) {
+      console.log(`Contract: ${config[contractKey]}`);
+      console.log(`Owner: ${owner}`);
+      console.log(`Signer: ${await signer.getAddress()}`);
+      throw new Error("Not the owner");
+    }
+  
 
   await hre.run("clean");
   await hre.run("compile");

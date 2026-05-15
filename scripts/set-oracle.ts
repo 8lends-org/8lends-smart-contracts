@@ -47,4 +47,8 @@ async function main(): Promise<void> {
 main().catch((error) => {
     console.error("\n❌ Critical error:", error);
     process.exitCode = 1;
+<<<<<<< HEAD
 });
+=======
+});
+>>>>>>> c3cf245968ed6120c7e1a990127bc6a59e9d3c7c
