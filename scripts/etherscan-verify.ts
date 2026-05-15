@@ -3,26 +3,13 @@ import hre, { ethers } from "hardhat";
 import { readJsonFile } from "./helpers";
 dotenv.config();
 
-type VerifyPayload = {
-  address: string;
-  constructorArguments: unknown[];
-  contract?: string;
-};
-
-const CONTRACT_PATH_BY_NAME: Record<string, string> = {
-  TestERC20: "contracts/test-tokens/testerc20.sol:TestERC20",
-  USDC: "contracts/test-tokens/usdc.sol:USDC",
-  WBTC: "contracts/test-tokens/wbtc.sol:WBTC",
-  WETH: "contracts/test-tokens/weth.sol:WETH",
-};
-
 async function main() {
   const config = await readJsonFile(
     `./scripts/config/${(await ethers.provider.getNetwork()).chainId}-config.json`
   );
   console.log(`\n🔍 Verifying contracts on ${(await ethers.provider.getNetwork()).name}\n`);
 
-  const verify = async (name: string, address: string, args: unknown[] = []) => {
+  const verify = async (name: string, address: string, args: any[] = []) => {
     if (!address) return { name, status: "⚠️ Skipped" };
     // Check if contract is already verified
     try {
@@ -31,12 +18,7 @@ async function main() {
         console.log(`⚠️ ${name} not deployed at ${address}, skipping`);
         return { name, status: "⚠️ Not deployed" };
       }
-      const contractPath = CONTRACT_PATH_BY_NAME[name];
-      const payload: VerifyPayload = { address, constructorArguments: args };
-      if (contractPath) {
-        payload.contract = contractPath;
-      }
-      const resp = await hre.run("verify:verify", payload);
+      const resp = await hre.run("verify:verify", { address, constructorArguments: args });
       console.log("resp", resp);
       console.log(`✅ ${name} verified`);
       return { name, status: "✅ Success" };

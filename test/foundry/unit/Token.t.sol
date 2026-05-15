@@ -115,15 +115,22 @@ contract TokenTest is Setup {
         assertEq(token.canDisableBuying(), false);
     }
 
-    function test_disableBuying_afterEnableBuyingForever_stillWorks() public {
-        // BUG: canDisableBuying flag is never actually checked in disableBuying()
+    function test_enableBuyingForever_thenDisableBuying_reverts() public {
         vm.prank(owner);
         token.enableBuyingForever();
 
-        // This should arguably fail, but disableBuying() doesn't check canDisableBuying
+        vm.prank(owner);
+        vm.expectRevert("Token: Buying cannot be disabled");
+        token.disableBuying();
+    }
+
+    function test_disableBuying_worksBeforeForever() public {
+        vm.prank(owner);
+        token.enableBuying();
+
         vm.prank(owner);
         token.disableBuying();
 
-        assertEq(token.buyingEnabled(), false, "Owner can still disable buying after enableBuyingForever");
+        assertEq(token.buyingEnabled(), false);
     }
 }
