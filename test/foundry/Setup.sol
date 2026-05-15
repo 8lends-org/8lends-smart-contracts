@@ -17,6 +17,7 @@ import "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 // Mocks
 import "./mocks/MockUSDC.sol";
 import "./mocks/MockUniswapV2Router.sol";
+import {MockOracle} from "../../contracts/mocks/MockOracle.sol";
 
 /// @notice Base test setup — deploys all protocol contracts and configures roles.
 /// @dev Mirrors the Hardhat deployment from test/helpers.ts.
@@ -31,6 +32,7 @@ abstract contract Setup is Test {
     Treasury public treasury;
     MockUSDC public usdc;
     MockUniswapV2Router public mockRouter;
+    MockOracle public mockOracle;
 
     // ── Actors ──
     address public owner;
@@ -104,6 +106,14 @@ abstract contract Setup is Test {
             ERC1967Proxy proxy = new ERC1967Proxy(address(impl), initData);
             rewardSystem = RewardSystem(address(proxy));
         }
+
+        // ── Deploy MockOracle and configure on RewardSystem ──
+        mockOracle = new MockOracle();
+        // 1 token = 0.01 USD → price = 0.01 * 1e8 = 1_000_000 (8 decimals)
+        mockOracle.setPrice(address(token), 1_000_000);
+        // USDC = 1.00 USD → price = 1e8 (8 decimals)
+        mockOracle.setPrice(address(usdc), 1e8);
+        rewardSystem.setOracle(address(mockOracle));
 
         // ── Deploy Fundraise (UUPS proxy) ──
         {
@@ -188,7 +198,7 @@ abstract contract Setup is Test {
         });
 
         vm.prank(manager);
-        projectId = fundraise.createProject(proj, bytes32(0), 1);
+        projectId = fundraise.createProject(proj, 1);
     }
 
     /// @notice Build the EIP-191 signature for investUpdate
@@ -196,11 +206,10 @@ abstract contract Setup is Test {
         address _investor,
         uint256 _pid,
         uint256 _amount,
-        bytes32 _rootHash,
         uint256 _nonce,
         address _inviter
     ) internal view returns (bytes memory sig) {
-        bytes32 innerHash = keccak256(abi.encodePacked(_investor, _pid, _amount, _rootHash, _nonce, _inviter));
+        bytes32 innerHash = keccak256(abi.encodePacked(_investor, _pid, _amount, _nonce, _inviter));
         bytes32 ethSignedHash = keccak256(abi.encodePacked("\x19Ethereum Signed Message:\n32", innerHash));
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(backendPk, ethSignedHash);
         sig = abi.encodePacked(r, s, v);
@@ -217,14 +226,13 @@ abstract contract Setup is Test {
         usdc.approve(address(fundraise), _amount);
 
         // Build signature
-        uint256 currentNonce = fundraise.nonce();
+        uint256 currentNonce = fundraise.userNonces(_investor);
         uint256 nonceForSig = currentNonce + 1;
-        bytes32 rootHash = keccak256(abi.encodePacked("test-root"));
-        bytes memory sig = _signInvest(_investor, _pid, _amount, rootHash, nonceForSig, _inviter);
+        bytes memory sig = _signInvest(_investor, _pid, _amount, nonceForSig, _inviter);
 
         // Invest
         vm.prank(_investor);
-        fundraise.investUpdate(_pid, _amount, rootHash, nonceForSig, sig, _inviter);
+        fundraise.investUpdateV2(_pid, _amount, nonceForSig, sig, _inviter);
     }
 
     /// @notice Transfer funds to borrower (transitions project to Funded)

@@ -13,9 +13,9 @@ import {
 } from "../typechain-types";
 import { HardhatEthersSigner } from "@nomicfoundation/hardhat-ethers/signers";
 import { time } from "@nomicfoundation/hardhat-network-helpers";
-import { createMerkleTree, hashAddress, Stage } from "../scripts/helpers";
+import { Stage } from "../scripts/helpers";
 import { formatEther, formatUnits, parseEther, parseUnits, Wallet } from "ethers";
-import MerkleTree from "merkletreejs";
+
 import { BalanceTable, BalanceEntry } from "./balance-table";
 
 
@@ -50,7 +50,6 @@ describe("🚀 8lends Protocol - General Flow Tests", function () {
 
   // 📊 Test Data
   let projectData: any;
-  let merkleTreeInvestOnly: MerkleTree;
   let project: {
     hardCap: bigint;
     softCap: bigint;
@@ -86,17 +85,16 @@ describe("🚀 8lends Protocol - General Flow Tests", function () {
   }
 
   async function invest(projectId: bigint, amount: bigint){
-    const rootHash1 = ethers.keccak256(ethers.toUtf8Bytes("test-root-1"));
-    const currentNonce1 = await fundraise.nonce();
+    const currentNonce1 = await fundraise.userNonces(await investor.getAddress());
     const nonceForSignature1 = currentNonce1 + 1n;
     const messageHash1 = ethers.solidityPackedKeccak256(
-      ["address", "uint256", "uint256", "bytes32", "uint256", "address"],
-      [await investor.getAddress(), projectId, amount, rootHash1, nonceForSignature1, await inviter.getAddress()]
+      ["address", "uint256", "uint256", "uint256", "address"],
+      [await investor.getAddress(), projectId, amount, nonceForSignature1, await inviter.getAddress()]
     );
     const signature1 = await backend.signMessage(ethers.getBytes(messageHash1));
     await usdcToken.connect(investor).approve(await fundraise.getAddress(), amount);
 
-    await fundraise.connect(investor).investUpdate(projectId, amount, rootHash1, nonceForSignature1, signature1, inviter);
+    await fundraise.connect(investor).investUpdate(projectId, amount, nonceForSignature1, signature1, inviter);
   }
 
   /**
@@ -194,8 +192,7 @@ describe("🚀 8lends Protocol - General Flow Tests", function () {
     };
 
     const projectId = await fundraise.projectCount();
-    merkleTreeInvestOnly = await createMerkleTree([await investor.getAddress()]);
-    await fundraise.connect(manager).createProject(projectData, merkleTreeInvestOnly.getHexRoot(), 1);
+    await fundraise.connect(manager).createProject(projectData, 1);
     return fundraise.projects(projectId);
   }
 
@@ -232,13 +229,11 @@ describe("🚀 8lends Protocol - General Flow Tests", function () {
 
     // 📊 Test Variables
     let softCap: bigint;
-    let investorProof: string[];
 
     it("💵 Mint USDC for testing", async function () {
       softCap = project.softCap;
       await usdcToken.mint(investor.address, softCap); // 10k USDC    
       await usdcToken.connect(investor).approve(await fundraise.getAddress(), softCap);
-      investorProof = merkleTreeInvestOnly.getHexProof(hashAddress(await investor.getAddress()));
       await trackBalances("Minted USDC");
     });
 
@@ -270,28 +265,26 @@ describe("🚀 8lends Protocol - General Flow Tests", function () {
 
     it("💰 Investment in project should succeed", async function () {
         // Create signature for first investment
-        const rootHash1 = ethers.keccak256(ethers.toUtf8Bytes("test-root-1"));
-        const currentNonce1 = await fundraise.nonce();
+        const currentNonce1 = await fundraise.userNonces(await investor.getAddress());
         const nonceForSignature1 = currentNonce1 + 1n;
         const messageHash1 = ethers.solidityPackedKeccak256(
-          ["address", "uint256", "uint256", "bytes32", "uint256", "address"],
-          [await investor.getAddress(), 0, softCap/2n, rootHash1, nonceForSignature1, await inviter.getAddress()]
+          ["address", "uint256", "uint256", "uint256", "address"],
+          [await investor.getAddress(), 0, softCap/2n, nonceForSignature1, await inviter.getAddress()]
         );
         const signature1 = await backend.signMessage(ethers.getBytes(messageHash1));
-        
-        await fundraise.connect(investor).investUpdate(0, softCap/2n, rootHash1, nonceForSignature1, signature1, inviter);
-        
+
+        await fundraise.connect(investor).investUpdate(0, softCap/2n, nonceForSignature1, signature1, inviter);
+
         // Create signature for second investment
-        const rootHash2 = ethers.keccak256(ethers.toUtf8Bytes("test-root-2"));
-        const currentNonce2 = await fundraise.nonce();
+        const currentNonce2 = await fundraise.userNonces(await investor.getAddress());
         const nonceForSignature2 = currentNonce2 + 1n;
         const messageHash2 = ethers.solidityPackedKeccak256(
-          ["address", "uint256", "uint256", "bytes32", "uint256", "address"],
-          [await investor.getAddress(), 0, softCap/2n, rootHash2, nonceForSignature2, await inviter.getAddress()]
+          ["address", "uint256", "uint256", "uint256", "address"],
+          [await investor.getAddress(), 0, softCap/2n, nonceForSignature2, await inviter.getAddress()]
         );
         const signature2 = await backend.signMessage(ethers.getBytes(messageHash2));
-        
-        await fundraise.connect(investor).investUpdate(0, softCap/2n, rootHash2, nonceForSignature2, signature2, inviter);
+
+        await fundraise.connect(investor).investUpdate(0, softCap/2n, nonceForSignature2, signature2, inviter);
         project = await fundraise.projects(0);
         expect(project.totalInvested).to.equal(softCap);
         expect(project.innerStruct.stage).to.equal(Stage.Open); // Open
@@ -561,25 +554,22 @@ describe("🚀 8lends Protocol - General Flow Tests", function () {
       };
 
       const projectId2 = await fundraise.projectCount();
-      const merkleTree2 = await createMerkleTree([await investor.getAddress()]);
-      await fundraise.connect(manager).createProject(projectData2, merkleTree2.getHexRoot(), 2);
-      
+      await fundraise.connect(manager).createProject(projectData2, 2);
+
       // Invest in project
       await usdcToken.mint(investor.address, ethers.parseUnits("5000", 6));
       await usdcToken.connect(investor).approve(await fundraise.getAddress(), ethers.parseUnits("5000", 6));
-      const proof2 = merkleTree2.getHexProof(hashAddress(await investor.getAddress()));
-      
+
       // Create signature for investment
-      const rootHash2 = ethers.keccak256(ethers.toUtf8Bytes("test-root-project2"));
-      const currentNonce2 = await fundraise.nonce();
+      const currentNonce2 = await fundraise.userNonces(await investor.getAddress());
       const nonceForSignature2 = currentNonce2 + 1n;
       const messageHash2 = ethers.solidityPackedKeccak256(
-        ["address", "uint256", "uint256", "bytes32", "uint256", "address"],
-        [await investor.getAddress(), projectId2, ethers.parseUnits("5000", 6), rootHash2, nonceForSignature2, await inviter.getAddress()]
+        ["address", "uint256", "uint256", "uint256", "address"],
+        [await investor.getAddress(), projectId2, ethers.parseUnits("5000", 6), nonceForSignature2, await inviter.getAddress()]
       );
       const signature2 = await backend.signMessage(ethers.getBytes(messageHash2));
-      
-      await fundraise.connect(investor).investUpdate(projectId2, ethers.parseUnits("5000", 6), rootHash2, nonceForSignature2, signature2, inviter);
+
+      await fundraise.connect(investor).investUpdate(projectId2, ethers.parseUnits("5000", 6), nonceForSignature2, signature2, inviter);
       
       // Cancel project
       await fundraise.connect(manager).cancelProject(projectId2);
@@ -687,8 +677,7 @@ describe("🚀 8lends Protocol - General Flow Tests", function () {
       };
 
       const projectId = await fundraise.projectCount();
-      const merkleTree = await createMerkleTree([await investor.getAddress()]);
-      await fundraise.connect(manager).createProject(newProjectData, merkleTree.getHexRoot(), 1);
+      await fundraise.connect(manager).createProject(newProjectData, 1);
       
       let newProject = await fundraise.projects(projectId);
       expect(newProject.innerStruct.stage).to.equal(Stage.ComingSoon);
@@ -819,19 +808,16 @@ describe("🚀 8lends Protocol - General Flow Tests", function () {
       await usdcToken.mint(await investor.getAddress(), investmentAmount);
       await usdcToken.connect(investor).approve(await fundraise.getAddress(), investmentAmount);
       
-      const proof = merkleTreeInvestOnly.getHexProof(hashAddress(await investor.getAddress()));
-      
       // Create signature for investment
-      const rootHash = ethers.keccak256(ethers.toUtf8Bytes("test-root-investment"));
-      const currentNonce = await fundraise.nonce();
+      const currentNonce = await fundraise.userNonces(await investor.getAddress());
       const nonceForSignature = currentNonce + 1n;
       const messageHash = ethers.solidityPackedKeccak256(
-        ["address", "uint256", "uint256", "bytes32", "uint256", "address"],
-        [await investor.getAddress(), projectId, investmentAmount, rootHash, nonceForSignature, inviter]
+        ["address", "uint256", "uint256", "uint256", "address"],
+        [await investor.getAddress(), projectId, investmentAmount, nonceForSignature, inviter]
       );
       const signature = await backend.signMessage(ethers.getBytes(messageHash));
-      
-      await fundraise.connect(investor).investUpdate(projectId, investmentAmount, rootHash, nonceForSignature, signature, inviter);
+
+      await fundraise.connect(investor).investUpdate(projectId, investmentAmount, nonceForSignature, signature, inviter);
       
       const currentProject = await fundraise.projects(projectId);
       log("🔍 Project stage:", currentProject.innerStruct.stage.toString());
@@ -875,19 +861,16 @@ describe("🚀 8lends Protocol - General Flow Tests", function () {
       await usdcToken.mint(await investor.getAddress(), investmentAmount);
       await usdcToken.connect(investor).approve(await fundraise.getAddress(), investmentAmount);
       
-      const proof = merkleTreeInvestOnly.getHexProof(hashAddress(await investor.getAddress()));
-      
       // Create signature for investment
-      const rootHash = ethers.keccak256(ethers.toUtf8Bytes("test-root-platform-rate"));
-      const currentNonce = await fundraise.nonce();
+      const currentNonce = await fundraise.userNonces(await investor.getAddress());
       const nonceForSignature = currentNonce + 1n;
       const messageHash = ethers.solidityPackedKeccak256(
-        ["address", "uint256", "uint256", "bytes32", "uint256", "address"],
-        [await investor.getAddress(), projectId, investmentAmount, rootHash, nonceForSignature, inviter]
+        ["address", "uint256", "uint256", "uint256", "address"],
+        [await investor.getAddress(), projectId, investmentAmount, nonceForSignature, inviter]
       );
       const signature = await backend.signMessage(ethers.getBytes(messageHash));
-      
-      await fundraise.connect(investor).investUpdate(projectId, investmentAmount, rootHash, nonceForSignature, signature, inviter);
+
+      await fundraise.connect(investor).investUpdate(projectId, investmentAmount, nonceForSignature, signature, inviter);
       
       const currentProject = await fundraise.projects(projectId);
       log("🔍 Project stage:", currentProject.innerStruct.stage.toString());
@@ -927,19 +910,16 @@ describe("🚀 8lends Protocol - General Flow Tests", function () {
       await usdcToken.mint(await investor.getAddress(), investmentAmount);
       await usdcToken.connect(investor).approve(await fundraise.getAddress(), investmentAmount);
       
-      const proof = merkleTreeInvestOnly.getHexProof(hashAddress(await investor.getAddress()));
-      
       // Create signature for investment
-      const rootHash = ethers.keccak256(ethers.toUtf8Bytes("test-root-investor-rate"));
-      const currentNonce = await fundraise.nonce();
+      const currentNonce = await fundraise.userNonces(await investor.getAddress());
       const nonceForSignature = currentNonce + 1n;
       const messageHash = ethers.solidityPackedKeccak256(
-        ["address", "uint256", "uint256", "bytes32", "uint256", "address"],
-        [await investor.getAddress(), projectId, investmentAmount, rootHash, nonceForSignature, inviter]
+        ["address", "uint256", "uint256", "uint256", "address"],
+        [await investor.getAddress(), projectId, investmentAmount, nonceForSignature, inviter]
       );
       const signature = await backend.signMessage(ethers.getBytes(messageHash));
-      
-      await fundraise.connect(investor).investUpdate(projectId, investmentAmount, rootHash, nonceForSignature, signature, inviter);
+
+      await fundraise.connect(investor).investUpdate(projectId, investmentAmount, nonceForSignature, signature, inviter);
       
       const currentProject = await fundraise.projects(projectId);
       log("🔍 Project stage:", currentProject.innerStruct.stage.toString());
@@ -969,15 +949,6 @@ describe("🚀 8lends Protocol - General Flow Tests", function () {
         .to.be.revertedWith("Wrong percents");
     });
 
-    it.skip("🔐 Set whitelist for project", async () => {
-      const projectId = await fundraise.projectCount();
-      const newWhitelistRoot = ethers.keccak256(ethers.toUtf8Bytes("new-whitelist"));
-      
-      await fundraise.connect(manager).setWhitelist(newWhitelistRoot, projectId);
-      const storedRoot = await fundraise.whitelistRoots(projectId);
-      
-      expect(storedRoot).to.equal(newWhitelistRoot);
-    });
 
     // ========================================
     // 🔥 TOKEN BURNING TESTS
@@ -1004,26 +975,23 @@ describe("🚀 8lends Protocol - General Flow Tests", function () {
       };
 
       const burnTestProjectId = await fundraise.projectCount();
-      const burnTestMerkleTree = await createMerkleTree([await investor.getAddress()]);
-      await fundraise.connect(manager).createProject(burnTestProjectData, burnTestMerkleTree.getHexRoot(), 1);
-      
+      await fundraise.connect(manager).createProject(burnTestProjectData, 1);
+
       // Invest in project
       const burnTestInvestmentAmount = ethers.parseUnits("20000", 6);
       await usdcToken.mint(investor.address, burnTestInvestmentAmount);
       await usdcToken.connect(investor).approve(await fundraise.getAddress(), burnTestInvestmentAmount);
-      const burnTestProof = burnTestMerkleTree.getHexProof(hashAddress(await investor.getAddress()));
-      
+
       // Create signature for investment
-      const burnTestRootHash = ethers.keccak256(ethers.toUtf8Bytes("test-root-burn"));
-      const burnTestCurrentNonce = await fundraise.nonce();
+      const burnTestCurrentNonce = await fundraise.userNonces(await investor.getAddress());
       const burnTestNonceForSignature = burnTestCurrentNonce + 1n;
       const burnTestMessageHash = ethers.solidityPackedKeccak256(
-        ["address", "uint256", "uint256", "bytes32", "uint256", "address"],
-        [await investor.getAddress(), burnTestProjectId, burnTestInvestmentAmount, burnTestRootHash, burnTestNonceForSignature, inviter]
+        ["address", "uint256", "uint256", "uint256", "address"],
+        [await investor.getAddress(), burnTestProjectId, burnTestInvestmentAmount, burnTestNonceForSignature, inviter]
       );
       const burnTestSignature = await backend.signMessage(ethers.getBytes(burnTestMessageHash));
-      
-      await fundraise.connect(investor).investUpdate(burnTestProjectId, burnTestInvestmentAmount, burnTestRootHash, burnTestNonceForSignature, burnTestSignature, inviter);
+
+      await fundraise.connect(investor).investUpdate(burnTestProjectId, burnTestInvestmentAmount, burnTestNonceForSignature, burnTestSignature, inviter);
       
       // Get token balance before burning
       const totalSupplyBeforeBurn = await token.totalSupply();
@@ -1064,16 +1032,15 @@ describe("🚀 8lends Protocol - General Flow Tests", function () {
       await usdcToken.connect(investor).approve(await fundraise.getAddress(), investmentAmount);
 
       
-      const rootHash = ethers.keccak256(ethers.toUtf8Bytes("test-root-investor-rate"));
-      const currentNonce = await fundraise.nonce();
+      const currentNonce = await fundraise.userNonces(await investor.getAddress());
       const nonceForSignature = currentNonce + 1n;
       const messageHash = ethers.solidityPackedKeccak256(
-        ["address", "uint256", "uint256", "bytes32", "uint256", "address"],
-        [await investor.getAddress(), projectId, investmentAmount, rootHash, nonceForSignature, await inviter.getAddress()]
+        ["address", "uint256", "uint256", "uint256", "address"],
+        [await investor.getAddress(), projectId, investmentAmount, nonceForSignature, await inviter.getAddress()]
       );
       const signature = await backend.signMessage(ethers.getBytes(messageHash));
 
-      await fundraise.connect(investor).investUpdate(projectId, investmentAmount, rootHash, nonceForSignature, signature, await inviter.getAddress());
+      await fundraise.connect(investor).investUpdate(projectId, investmentAmount, nonceForSignature, signature, await inviter.getAddress());
       await fundraise.connect(manager).transferFundsToBorrower(projectId);
 
       await trackBalances("Added project 1 and invested 1000");
@@ -1329,26 +1296,23 @@ describe("🚀 8lends Protocol - General Flow Tests", function () {
       };
 
       const largeBurnTestProjectId = await fundraise.projectCount();
-      const largeBurnTestMerkleTree = await createMerkleTree([await investor.getAddress()]);
-      await fundraise.connect(manager).createProject(largeBurnTestProjectData, largeBurnTestMerkleTree.getHexRoot(), 1);
-      
+      await fundraise.connect(manager).createProject(largeBurnTestProjectData, 1);
+
       // Invest large amount
       const largeInvestmentAmount = ethers.parseUnits("100000", 6);
       await usdcToken.mint(investor.address, largeInvestmentAmount);
       await usdcToken.connect(investor).approve(await fundraise.getAddress(), largeInvestmentAmount);
-      const largeBurnTestProof = largeBurnTestMerkleTree.getHexProof(hashAddress(await investor.getAddress()));
-      
+
       // Create signature for investment
-      const largeBurnTestRootHash = ethers.keccak256(ethers.toUtf8Bytes("test-root-large-burn"));
-      const largeBurnTestCurrentNonce = await fundraise.nonce();
+      const largeBurnTestCurrentNonce = await fundraise.userNonces(await investor.getAddress());
       const largeBurnTestNonceForSignature = largeBurnTestCurrentNonce + 1n;
       const largeBurnTestMessageHash = ethers.solidityPackedKeccak256(
-        ["address", "uint256", "uint256", "bytes32", "uint256", "address"],
-        [await investor.getAddress(), largeBurnTestProjectId, largeInvestmentAmount, largeBurnTestRootHash, largeBurnTestNonceForSignature, inviter]
+        ["address", "uint256", "uint256", "uint256", "address"],
+        [await investor.getAddress(), largeBurnTestProjectId, largeInvestmentAmount, largeBurnTestNonceForSignature, inviter]
       );
       const largeBurnTestSignature = await backend.signMessage(ethers.getBytes(largeBurnTestMessageHash));
-      
-      await fundraise.connect(investor).investUpdate(largeBurnTestProjectId, largeInvestmentAmount, largeBurnTestRootHash, largeBurnTestNonceForSignature, largeBurnTestSignature, inviter);
+
+      await fundraise.connect(investor).investUpdate(largeBurnTestProjectId, largeInvestmentAmount, largeBurnTestNonceForSignature, largeBurnTestSignature, inviter);
       
       const totalSupplyBeforeLargeBurn = await token.totalSupply();
 

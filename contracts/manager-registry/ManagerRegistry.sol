@@ -24,6 +24,7 @@ contract ManagerRegistry is Initializable, OwnableUpgradeable, UUPSUpgradeable {
     event Rewards2AddressSet(address indexed rewards2Address);
     event MarketAddressSet(address indexed market);
     event LimitedSellerAddressSet(address indexed limitedSeller);
+    event ContractAddressesUpdated(address rewardSystem, address fundraise, address treasury);
     /// @custom:oz-upgrades-unsafe-allow constructor
     constructor() {
         _disableInitializers();
@@ -40,7 +41,7 @@ contract ManagerRegistry is Initializable, OwnableUpgradeable, UUPSUpgradeable {
     /// @param _managers Manager addr
     /// @param _statuses Manager status
     function setManagerStatusBatch(address[] memory _managers, bool[] memory _statuses) external {
-        require(managers[msg.sender] || msg.sender == owner(), "ManagerRegistry: Not a manager");
+        require(managers[msg.sender] || msg.sender == owner(), "ManagerRegistry: Not authorized");
         require(_managers.length == _statuses.length, "ManagerRegistry: length mismatch");
         for (uint256 i = 0; i < _managers.length; i++) {
             managers[_managers[i]] = _statuses[i];
@@ -52,7 +53,7 @@ contract ManagerRegistry is Initializable, OwnableUpgradeable, UUPSUpgradeable {
     /// @param _manager Manager addr
     /// @param _status Manager status
     function setManagerStatus(address _manager, bool _status) external {
-        require(managers[msg.sender] || msg.sender == owner(), "ManagerRegistry: Not a manager");
+        require(managers[msg.sender] || msg.sender == owner(), "ManagerRegistry: Not authorized");
         managers[_manager] = _status;
         emit ManagerUpdated(_manager, _status);
     }
@@ -82,9 +83,13 @@ contract ManagerRegistry is Initializable, OwnableUpgradeable, UUPSUpgradeable {
         external
         onlyOwner
     {
+        require(_rewardSystemAddress != address(0), "Zero address");
+        require(_fundraiseAddress != address(0), "Zero address");
+        require(_treasuryAddress != address(0), "Zero address");
         rewardSystemAddress = _rewardSystemAddress;
         fundraiseAddress = _fundraiseAddress;
         treasuryAddress = _treasuryAddress;
+        emit ContractAddressesUpdated(_rewardSystemAddress, _fundraiseAddress, _treasuryAddress);
     }
 
         /// @notice Set investor claim address for payouts

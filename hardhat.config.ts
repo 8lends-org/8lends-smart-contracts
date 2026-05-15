@@ -58,7 +58,6 @@ const config: HardhatUserConfig = {
                   },
         },
         sepolia: {
-            // gasPrice: Math.floor(4 * 10 ** 9),
             chainId: 11155111,
             url: process.env.ETHEREUM_SEPOLIA_RPC_URL,
             accounts: {

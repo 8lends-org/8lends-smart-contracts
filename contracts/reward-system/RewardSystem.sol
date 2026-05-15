@@ -3,6 +3,8 @@ pragma solidity ^0.8.23;
 
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
+import "@openzeppelin/contracts/token/ERC20/extensions/IERC20Metadata.sol";
+import "@openzeppelin/contracts/utils/math/Math.sol";
 import "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
 import "@openzeppelin/contracts-upgradeable/utils/ReentrancyGuardUpgradeable.sol";
 import "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
@@ -10,6 +12,7 @@ import "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
 import "./interfaces/IManagerRegistry.sol";
 import "./interfaces/IUniswapV2Router02.sol";
 import "./interfaces/IToken.sol";
+import "../oracle/interfaces/IOracle.sol";
 
 contract RewardSystem is Initializable, UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuardUpgradeable {
     using SafeERC20 for IERC20;
@@ -30,7 +33,8 @@ contract RewardSystem is Initializable, UUPSUpgradeable, OwnableUpgradeable, Ree
     uint256 public welcomeBonusAmount; // 30 USDC for investor (6 decimals)
     uint256 public minInvestmentForBonus; // Minimum 1000 USDC for bonus
     uint256 public tokenPercentage; // 6% tokens for investor
-    uint256 public burnPercentage; // 6% tokens for burning
+    /// @notice When > 0, enables buy-back-and-burn during reward activation. Value represents the burn percentage in BASIS_POINTS.
+    uint256 public burnPercentage;
 
     // Vesting parameters
     uint256 public vestingWeeks; // 40 weeks vesting
@@ -61,7 +65,11 @@ contract RewardSystem is Initializable, UUPSUpgradeable, OwnableUpgradeable, Ree
     uint256 public additionalUnlockPercentage; // Additional unlock percentage for sell operations (in BASIS_POINTS)
     mapping(address => mapping(uint256 => uint256)) public userMaxAdditionalUnlockUsed; // user -> projectId -> max additional unlock used
 
+    // Oracle for manipulation-resistant pricing
+    address public oracle;
+
     // Events
+    event OracleUpdated(address oracle);
     event UserRegistered(address indexed user, address indexed inviter);
     event InvestmentRecorded(address indexed user, uint256 amount, uint256 projectId);
     event ProjectRewardsActivated(uint256 indexed projectId, uint256 timestamp);
@@ -72,6 +80,10 @@ contract RewardSystem is Initializable, UUPSUpgradeable, OwnableUpgradeable, Ree
     event ProjectRewardsDeactivated(uint256 indexed projectId);
     event AdditionalUnlockSet(uint256 percentage);
     event TokensSold(address indexed sender, uint256 tokensSold, uint256 usdcReceived, address indexed recipient);
+    event ContractsUpdated(address managerRegistry, address token, address usdc);
+    event USDCAddressUpdated(address usdc);
+    event TokenAddressUpdated(address token);
+    event UniswapRouterUpdated(address router);
 
     modifier onlyManager() {
         require(IManagerRegistry(managerRegistry).isManager(msg.sender), "Not a manager");
@@ -111,10 +123,11 @@ contract RewardSystem is Initializable, UUPSUpgradeable, OwnableUpgradeable, Ree
 
         // Initialize reward system parameters
         referralPercentage = 6e4; // 6% USDC for inviter (6e4/1e6*100=6)
-        welcomeBonusAmount = 30e6; // 30 USDC for investor (6 decimals)
-        minInvestmentForBonus = 1000e6; // Minimum 1000 USDC for bonus
+        uint8 usdcDecimals = IERC20Metadata(_usdc).decimals();
+        welcomeBonusAmount = 30 * 10**usdcDecimals; // 30 USDC for investor
+        minInvestmentForBonus = 1000 * 10**usdcDecimals; // Minimum 1000 USDC for bonus
         tokenPercentage = 6e4; // 6% tokens for investor (6e4/1e6*100=6)
-        burnPercentage = 6e4; // 6% tokens for burning (6e4/1e6*100=6)
+        burnPercentage = 6e4; // 6% tokens for burning (6e4/1e6*100=6). When > 0, enables buy-back-and-burn.
         // Initialize vesting parameters
         vestingWeeks = 40; // 40 weeks vesting
         weeklyUnlock = 25e3; // 2.5% per week (25e3/1e6*100=2.5)
@@ -135,14 +148,30 @@ contract RewardSystem is Initializable, UUPSUpgradeable, OwnableUpgradeable, Ree
         emit UserRegistered(_user, _inviter);
     }
 
-    /// @notice Record investment and calculate rewards
-    /// @param _user Investor address
-    /// @param _amount Investment amount in USDC
-    /// @param _inviter Inviter address (if first investment)
-    /// @param _projectId Project ID
+    /// @notice Backward-compatible overload for old Fundraise contract (before upgrade).
+    /// @dev TODO: remove after Fundraise upgrade deploys. Assumes loanToken = USDC.
     function recordInvestment(address _user, uint256 _amount, address _inviter, uint256 _projectId)
         external
         onlyFundraise
+    {
+        _recordInvestment(_user, _amount, _inviter, _projectId, address(usdc));
+    }
+
+    /// @notice Record investment and calculate rewards (new version with loanToken)
+    /// @param _user Investor address
+    /// @param _amount Investment amount
+    /// @param _inviter Inviter address (if first investment)
+    /// @param _projectId Project ID
+    /// @param _loanToken Loan token address for price conversion
+    function recordInvestment(address _user, uint256 _amount, address _inviter, uint256 _projectId, address _loanToken)
+        external
+        onlyFundraise
+    {
+        _recordInvestment(_user, _amount, _inviter, _projectId, _loanToken);
+    }
+
+    function _recordInvestment(address _user, uint256 _amount, address _inviter, uint256 _projectId, address _loanToken)
+        internal
     {
         require(_amount > 0, "Invalid amount");
         // If user is not registered, register them
@@ -166,26 +195,41 @@ contract RewardSystem is Initializable, UUPSUpgradeable, OwnableUpgradeable, Ree
         // Calculate rewards for investor (tokens)
         uint256 usdcRewardAmount = (_amount * tokenPercentage) / BASIS_POINTS;
 
-        if (usdcRewardAmount <= 0) revert("Invalid USDC reward amount");
+        if (usdcRewardAmount == 0) revert("Invalid USDC reward amount");
 
         if (token == address(0)) revert("Token address is not set");
         if (address(usdc) == address(0)) revert("USDC address is not set");
-        if (address(uniswapRouter) == address(0)) revert("Uniswap router address is not set");
 
-        // Get current Token price in USDC
-        address[] memory path = new address[](2);
-        path[0] = address(usdc);
-        path[1] = token;
-        
-        uint256[] memory amounts;
-        try uniswapRouter.getAmountsOut(usdcRewardAmount, path) returns (uint256[] memory _amounts) {
-            amounts = _amounts;
-        } catch {
-            revert("Uniswap pool does not exist or has no liquidity");
+        uint256 tokensAmount;
+        if (oracle != address(0)) {
+            // New path: manipulation-resistant price from Oracle (Pyth + TWAP)
+            IOracle.PriceResult memory priceResult = IOracle(oracle).getPrice(token);
+            require(priceResult.price > 0, "Oracle: no valid price");
+            uint8 tokenDecimals = IERC20Metadata(token).decimals();
+            uint8 usdcDecimals = IERC20Metadata(address(usdc)).decimals();
+            uint8 priceDecimals = IOracle(oracle).priceDecimals();
+            // Convert usdcRewardAmount to token amount using oracle price
+            // tokensAmount = usdcRewardAmount * 10^priceDecimals * 10^tokenDecimals / (price * 10^usdcDecimals)
+            tokensAmount = Math.mulDiv(
+                Math.mulDiv(usdcRewardAmount, 10**priceDecimals, priceResult.price),
+                10**tokenDecimals,
+                10**usdcDecimals
+            );
+        } else {
+            // Legacy fallback: Uniswap V2 spot price (used before Oracle is deployed)
+            require(address(uniswapRouter) != address(0), "Uniswap router address is not set");
+            address[] memory path = new address[](2);
+            path[0] = address(usdc);
+            path[1] = token;
+            uint256[] memory amounts;
+            try uniswapRouter.getAmountsOut(usdcRewardAmount, path) returns (uint256[] memory _amounts) {
+                amounts = _amounts;
+            } catch {
+                revert("Uniswap pool does not exist or has no liquidity");
+            }
+            tokensAmount = amounts[1];
         }
-        
-        uint256 tokensAmount = amounts[1];
-        require(tokensAmount > 0, "Invalid token amount from Uniswap");
+        require(tokensAmount > 0, "Invalid token amount");
 
         refData.totalRewardsTokens += tokensAmount;
         rewardTokensAmount[_projectId] += tokensAmount;
@@ -203,6 +247,33 @@ contract RewardSystem is Initializable, UUPSUpgradeable, OwnableUpgradeable, Ree
     }
 
 
+
+    /// @notice Convert a token amount to its USD equivalent (in USDC decimals)
+    /// @dev Uses Oracle when available; falls back to 1:1 for USDC or reverts for non-USDC without oracle
+    /// @param _amount Raw amount in token units
+    /// @param _loanToken Token address to get the price for
+    /// @return USD value normalized to USDC decimals
+    function _convertToUSD(uint256 _amount, address _loanToken) internal view returns (uint256) {
+        if (oracle != address(0)) {
+            // Oracle path: full price conversion
+            IOracle.PriceResult memory loanPriceResult = IOracle(oracle).getPrice(_loanToken);
+            uint8 loanTokenDecimals = IERC20Metadata(_loanToken).decimals();
+            uint8 _usdcDecimals = IERC20Metadata(address(usdc)).decimals();
+            uint8 _priceDecimals = IOracle(oracle).priceDecimals();
+            if (loanTokenDecimals >= _usdcDecimals) {
+                return Math.mulDiv(_amount, loanPriceResult.price, 10**_priceDecimals * 10**(loanTokenDecimals - _usdcDecimals));
+            } else {
+                return Math.mulDiv(_amount * 10**(_usdcDecimals - loanTokenDecimals), loanPriceResult.price, 10**_priceDecimals);
+            }
+        } else {
+            // Legacy fallback: if loanToken is USDC, amount is already in USD
+            if (_loanToken == address(usdc)) {
+                return _amount;
+            }
+            // Non-USDC tokens require oracle for price conversion
+            revert("Oracle required for non-USDC loan tokens");
+        }
+    }
 
     /// @notice Activate project rewards (called when transitioning to Stage.Funded)
     /// @param _projectId Project ID
@@ -245,6 +316,7 @@ contract RewardSystem is Initializable, UUPSUpgradeable, OwnableUpgradeable, Ree
     }
 
     /// @notice Update contracts (owner only)
+    /// @dev Pass address(0) for any param to keep current value (unlike individual setters which revert on zero)
     function updateContracts(address _managerRegistry, address _token, address _usdc)
         external
         onlyOwner
@@ -252,14 +324,23 @@ contract RewardSystem is Initializable, UUPSUpgradeable, OwnableUpgradeable, Ree
         if (_managerRegistry != address(0)) managerRegistry = _managerRegistry;
         if (_token != address(0)) token = _token;
         if (_usdc != address(0)) usdc = IERC20(_usdc);
+        emit ContractsUpdated(_managerRegistry, _token, _usdc);
+    }
+
+    /// @notice Set oracle address for manipulation-resistant pricing
+    /// @param _oracle Oracle contract address
+    function setOracle(address _oracle) external onlyOwner {
+        require(_oracle != address(0), "Invalid address");
+        oracle = _oracle;
+        emit OracleUpdated(_oracle);
     }
 
     /// @notice set parameters
     /// @param _referralPercentage referral percentage 60000 is 6%
     /// @param _burnPercentage burn percentage 60000 is 6%
     /// @param _tokenPercentage token percentage 60000 is 6%
-    /// @param _welcomeBonusAmount welcome bonus amount 30_000_000 is 30 USDC
-    /// @param _minInvestmentForBonus min investment for bonus 1000000000 is 1000 USDC
+    /// @param _welcomeBonusAmount welcome bonus amount in USDC-decimal units (dynamic, not hardcoded to 6 decimals)
+    /// @param _minInvestmentForBonus min investment for bonus in USDC-decimal units (dynamic, not hardcoded to 6 decimals)
     /// @param _weeklyUnlock weekly unlock 2_500_000 is 2.5%
     /// @param _vestingWeeks vesting weeks 40 is 40 weeks
     /// @dev all percentage parameters must be less or equal to 1_000_000 (100e4 = 100%)
@@ -419,15 +500,21 @@ contract RewardSystem is Initializable, UUPSUpgradeable, OwnableUpgradeable, Ree
     function _authorizeUpgrade(address newImplementation) internal override onlyOwner {}
 
     function updateUSDCAddress(address _usdc) external onlyOwner {
+        require(_usdc != address(0), "Zero address");
         usdc = IERC20(_usdc);
+        emit USDCAddressUpdated(_usdc);
     }
 
     function updateTokenAddress(address _token) external onlyOwner {
+        require(_token != address(0), "Zero address");
         token = _token;
+        emit TokenAddressUpdated(_token);
     }
 
     function updateUniswapRouterAddress(address _uniswapRouter) external onlyOwner {
+        require(_uniswapRouter != address(0), "Zero address");
         uniswapRouter = IUniswapV2Router02(_uniswapRouter);
+        emit UniswapRouterUpdated(_uniswapRouter);
     }
 
     /// @notice Distribute vesting tokens to multiple users (owner only)

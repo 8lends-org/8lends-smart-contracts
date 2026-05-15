@@ -43,6 +43,12 @@ contract LimitedSeller is Initializable, UUPSUpgradeable, OwnableUpgradeable, Re
     mapping(address => uint256) public buyerNonce;
     IMarket public market;
 
+    /// @notice Accumulated token-buy limit in USDC per user (monotonically increasing).
+    /// Accrued via addEarnedLimit() when a user invests through Fundraise.
+    /// For pre-upgrade users whose earnedLimitUsdc is 0, estimateAvailableBuy
+    /// falls back to the legacy on-chain calculation.
+    mapping(address => uint256) public earnedLimitUsdc;
+
     event Bought(
         address indexed buyer,
         address receiver,
@@ -51,6 +57,7 @@ contract LimitedSeller is Initializable, UUPSUpgradeable, OwnableUpgradeable, Re
         uint256 timestamp
     );
     event PercentSet(uint256 newPercent);
+    event EarnedLimitIncreased(address indexed user, uint256 investedAmount, uint256 earnedDelta, uint256 newTotal);
 
     error ExceedsAvailableLimit();
     error EmptyProjectIds();
@@ -58,6 +65,7 @@ contract LimitedSeller is Initializable, UUPSUpgradeable, OwnableUpgradeable, Re
     error InvalidPercent();
     error InvalidReceiver();
     error ManagerRegistryNotSet();
+    error OnlyFundraise();
 
     /// @custom:oz-upgrades-unsafe-allow constructor
     constructor() {
@@ -114,6 +122,10 @@ contract LimitedSeller is Initializable, UUPSUpgradeable, OwnableUpgradeable, Re
 
     /**
      * @notice Returns the buy limit for a user based on Fundraise investments.
+     * @dev For users with earnedLimitUsdc > 0 (post-upgrade or migrated),
+     *      the limit is taken from the accumulated earnedLimitUsdc.
+     *      For pre-upgrade users (earnedLimitUsdc == 0), falls back to
+     *      legacy on-chain calculation from current investment state.
      * @param user User address.
      * @param projectIds Project IDs to consider (must be non-empty).
      */
@@ -126,6 +138,7 @@ contract LimitedSeller is Initializable, UUPSUpgradeable, OwnableUpgradeable, Re
         result.percent = percent;
         result.alreadyBoughtTokensInUSDC = boughtUsdcByUser[user];
 
+        // Always compute fundedProjectsInvestedTotal for UI/subgraph consumers
         uint256 count = fundraise.projectCount();
         for (uint256 j; j < projectIds.length; ) {
             uint256 i = projectIds[j];
@@ -149,7 +162,13 @@ contract LimitedSeller is Initializable, UUPSUpgradeable, OwnableUpgradeable, Re
             }
         }
 
-        uint256 limitUsdc = (result.fundedProjectsInvestedTotal * percent) / BASIS_POINTS;
+        uint256 limitUsdc = earnedLimitUsdc[user];
+
+        if (limitUsdc == 0) {
+            // Legacy fallback for pre-upgrade users not yet migrated
+            limitUsdc = (result.fundedProjectsInvestedTotal * percent) / BASIS_POINTS;
+        }
+
         if (limitUsdc > result.alreadyBoughtTokensInUSDC) {
             result.availableBuyTokensInUSDC = limitUsdc - result.alreadyBoughtTokensInUSDC;
         }
@@ -229,6 +248,32 @@ contract LimitedSeller is Initializable, UUPSUpgradeable, OwnableUpgradeable, Re
             v := byte(0, mload(add(sig, 96)))
         }
     }
+    /**
+     * @notice Called by Fundraise when a user invests. Accrues the token-buy limit.
+     * @param user Investor address.
+     * @param investedAmount USDC amount invested (6 decimals).
+     */
+    function addEarnedLimit(address user, uint256 investedAmount) external {
+        if (msg.sender != address(fundraise)) revert OnlyFundraise();
+        uint256 delta = (investedAmount * percent) / BASIS_POINTS;
+        earnedLimitUsdc[user] += delta;
+        emit EarnedLimitIncreased(user, investedAmount, delta, earnedLimitUsdc[user]);
+    }
+
+    /**
+     * @notice One-time migration for pre-upgrade users. Sets earnedLimitUsdc
+     *         from off-chain calculated historical data. Owner only.
+     * @param users Array of user addresses.
+     * @param limits Array of accumulated limit values in USDC (6 decimals).
+     */
+    function migrateEarnedLimits(address[] calldata users, uint256[] calldata limits) external onlyOwner {
+        require(users.length == limits.length, "Length mismatch");
+        for (uint256 i; i < users.length; ) {
+            earnedLimitUsdc[users[i]] = limits[i];
+            unchecked { ++i; }
+        }
+    }
+
     /**
      * @notice Set the limit in basis points (e.g. 600 for 6%). Owner only.
      */

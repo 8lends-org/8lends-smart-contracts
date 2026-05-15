@@ -8,9 +8,16 @@ import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import "./interfaces/IManagerRegistry.sol";
 import "./interfaces/IRewardSystem.sol";
-import "./lib/MerkleProof.sol";
-
-contract Fundraise is Initializable, UUPSUpgradeable, OwnableUpgradeable, MerkleProof {
+import "./interfaces/ILimitedSeller.sol";
+/// @title Fundraise - 8lends RWA lending platform
+/// @notice Only standard ERC20 tokens are supported as loanToken.
+/// Fee-on-transfer, rebasing, and deflationary tokens are NOT supported
+/// and will cause accounting errors.
+/// @notice 8lends uses a Real World Asset (RWA) lending model.
+/// Loans are unsecured on-chain by design. Borrower creditworthiness
+/// is assessed off-chain through underwriting. Legal recourse for
+/// non-repayment is handled through off-chain legal framework.
+contract Fundraise is Initializable, UUPSUpgradeable, OwnableUpgradeable {
     using SafeERC20 for IERC20;
 
     event ProjectCreated(uint256 indexed projectId, address borrower, uint256 projectHash);
@@ -25,6 +32,11 @@ contract Fundraise is Initializable, UUPSUpgradeable, OwnableUpgradeable, Merkle
     event ProjectUpdated(uint256 indexed projectId);
     event InvestorClaimAddressSet(address indexed investor, address indexed claimAddress);
     event InvestmentTransferred(uint256 indexed projectId, address indexed from, address indexed to, uint256 amount, uint256 id);
+    event ManagerRegistryUpdated(address managerRegistry);
+    event TreasuryUpdated(address treasury);
+    event RewardSystemUpdated(address rewardSystem);
+    event TrustedSignerUpdated(address signer);
+    event LimitedSellerUpdated(address limitedSeller);
 
     enum Stage {
         ComingSoon,
@@ -66,14 +78,16 @@ contract Fundraise is Initializable, UUPSUpgradeable, OwnableUpgradeable, Merkle
     /// @notice investor info map by project id
     mapping(address => mapping(uint256 => InvestorInfo)) public investorInfo; // msg.sender => projId => InvestorInfo
 
-    /// @notice whitelist info map
-    mapping(uint256 => bytes32) public whitelistRoots; // pid => root
+    /// @dev Deprecated: merkle whitelist roots are no longer used on-chain. Slot preserved for upgrade safety.
+    mapping(uint256 => bytes32) private __deprecated_whitelistRoots;
 
     uint256 public projectCount;
 
     address public treasury;
     address public managerRegistry;
 
+    /// @dev Deprecated: global nonce replaced by per-user userNonces. Slot preserved for upgrade safety.
+    /// TODO: remove after frontend migrates to investUpdateV2 (read userNonces instead of nonce).
     uint256 public nonce;
 
     address public trustedSigner;
@@ -82,7 +96,16 @@ contract Fundraise is Initializable, UUPSUpgradeable, OwnableUpgradeable, Merkle
 
     address public rewardSystem;
 
-    
+    /// @notice Per-user nonce for replay protection (used by investUpdateV2)
+    mapping(address => uint256) public userNonces;
+
+    /// @notice LimitedSeller contract for accruing token-buy limits on invest
+    address public limitedSeller;
+
+    /// @notice Individual investment positions per (investor, project).
+    /// Each invest() call pushes a new entry. Index serves as position ID.
+    mapping(address => mapping(uint256 => InvestorInfo[])) internal _investorPositions;
+
     /**
      * END of VARS *
      */
@@ -111,12 +134,14 @@ contract Fundraise is Initializable, UUPSUpgradeable, OwnableUpgradeable, Merkle
      * LOGIC FUNCTIONS
      */
 
-    /// @notice Invest function with updating merkle root
+    /// @notice LEGACY — old frontend/backend use global nonce + rootHash in signature.
+    /// @dev TODO: remove after frontend migrates to investUpdateV2.
     /// @param _pid Project Id
-    /// @param _amount Amount of usdt for invest
-    /// @param _rootHash new merkle root
-    /// @param _nonce Nonce for correcting signature validity
+    /// @param _amount Amount of loan token for invest
+    /// @param _rootHash Included in signature verification for backward compat
+    /// @param _nonce Global nonce for replay protection (legacy)
     /// @param _sig Signature of a trusted signer
+    /// @param _inviter Inviter address
     function investUpdate(
         uint256 _pid,
         uint256 _amount,
@@ -133,21 +158,54 @@ contract Fundraise is Initializable, UUPSUpgradeable, OwnableUpgradeable, Merkle
                 keccak256(abi.encodePacked(msg.sender, _pid, _amount, _rootHash, _nonce, _inviter))
             )
         );
-        (bytes32 r, bytes32 s, uint8 v) = splitSignature(_sig);
-
-        // Prevent signature malleability (as in OpenZeppelin ECDSA)
-        require(uint256(s) <= 0x7FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF5D576E7357A4501DDFE92F46681B20A0, "Invalid signature 's' value");
-
-        address signer = ecrecover(ethSignedMessageHash, v, r, s);
-
-        require(signer != address(0), "Invalid signature");
-        require(signer == trustedSigner, "Not a trusted signer");
-        whitelistRoots[_pid] = _rootHash;
-        _invest(_pid, _amount, _inviter);
-        nonce++;
+        _verifySignature(ethSignedMessageHash, _sig);
+        bool success = _invest(_pid, _amount, _inviter);
+        if (success) {
+            nonce++;
+        }
     }
 
-    function _invest(uint256 _pid, uint256 _amount, address _inviter) internal {
+    /// @notice New invest with per-user nonce and no rootHash in signature.
+    /// @dev Migrate frontend/backend to use this function after upgrade.
+    /// @param _pid Project Id
+    /// @param _amount Amount of loan token for invest
+    /// @param _nonce Per-user nonce for replay protection
+    /// @param _sig Signature of a trusted signer
+    /// @param _inviter Inviter address
+    function investUpdateV2(
+        uint256 _pid,
+        uint256 _amount,
+        uint256 _nonce,
+        bytes memory _sig,
+        address _inviter
+    ) external {
+        require(_nonce == userNonces[msg.sender] + 1, "Incorrect nonce");
+
+        // New signature format without rootHash
+        bytes32 ethSignedMessageHash = keccak256(
+            abi.encodePacked(
+                "\x19Ethereum Signed Message:\n32",
+                keccak256(abi.encodePacked(msg.sender, _pid, _amount, _nonce, _inviter))
+            )
+        );
+        _verifySignature(ethSignedMessageHash, _sig);
+        bool success = _invest(_pid, _amount, _inviter);
+        if (success) {
+            userNonces[msg.sender]++;
+        }
+    }
+
+    /// @dev Verify ECDSA signature against trustedSigner with malleability protection
+    function _verifySignature(bytes32 ethSignedMessageHash, bytes memory _sig) internal view {
+        (bytes32 r, bytes32 s, uint8 v) = splitSignature(_sig);
+        // Prevent signature malleability (as in OpenZeppelin ECDSA)
+        require(uint256(s) <= 0x7FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF5D576E7357A4501DDFE92F46681B20A0, "Invalid signature 's' value");
+        address signer = ecrecover(ethSignedMessageHash, v, r, s);
+        require(signer != address(0), "Invalid signature");
+        require(signer == trustedSigner, "Not a trusted signer");
+    }
+
+    function _invest(uint256 _pid, uint256 _amount, address _inviter) internal returns (bool) {
         require(_inviter != msg.sender, "Inviter cannot be the same as the investor");
         Project storage project = projects[_pid];
         require(project.softCap > 0 || project.hardCap > 0, "Project not found");
@@ -158,7 +216,7 @@ contract Fundraise is Initializable, UUPSUpgradeable, OwnableUpgradeable, Merkle
                 project.innerStruct.stage = Stage.Open;
                 emit ProjectStatusChanged(_pid, uint8(Stage.Open));
             } else {
-                return;
+                return false;
             }
         }
         require(project.innerStruct.stage == Stage.Open, "Project is closed yet");
@@ -167,11 +225,11 @@ contract Fundraise is Initializable, UUPSUpgradeable, OwnableUpgradeable, Merkle
                 project.innerStruct.stage = Stage.PreFunded;
                 project.openStageEndAt = block.timestamp;
                 emit ProjectStatusChanged(_pid, uint8(Stage.PreFunded));
-                return;
+                return false;
             } else {
                 project.innerStruct.stage = Stage.Canceled;
                 emit ProjectStatusChanged(_pid, uint8(Stage.Canceled));
-                return;
+                return false;
             }
         }
 
@@ -180,17 +238,23 @@ contract Fundraise is Initializable, UUPSUpgradeable, OwnableUpgradeable, Merkle
         project.innerStruct.loanToken.safeTransferFrom(msg.sender, address(this), _amount);
 
         if (rewardSystem != address(0)) {
-            IRewardSystem(rewardSystem).recordInvestment(msg.sender, _amount, _inviter, _pid);
+            IRewardSystem(rewardSystem).recordInvestment(msg.sender, _amount, _inviter, _pid, address(project.innerStruct.loanToken));
+        }
+
+        if (limitedSeller != address(0)) {
+            ILimitedSeller(limitedSeller).addEarnedLimit(msg.sender, _amount);
         }
 
         project.totalInvested += _amount;
         investorInfo[msg.sender][_pid].investedAmount += _amount;
+        _investorPositions[msg.sender][_pid].push(InvestorInfo(_amount, 0));
         if (project.totalInvested >= project.hardCap) {
             project.openStageEndAt = block.timestamp;
             project.innerStruct.stage = Stage.PreFunded;
             emit ProjectStatusChanged(_pid, uint8(Stage.PreFunded));
         }
         emit Invest(_pid, msg.sender, _amount);
+        return true;
     }
 
     /// @notice In case if project got cancelled, user can withdraw his investment
@@ -208,10 +272,17 @@ contract Fundraise is Initializable, UUPSUpgradeable, OwnableUpgradeable, Merkle
 
         investorInfo[_investor][_projectId].investedAmount = 0;
         project.totalInvested -= amount;
-        
+
+        // Zero out all individual positions
+        InvestorInfo[] storage positions = _investorPositions[_investor][_projectId];
+        for (uint256 i = 0; i < positions.length; i++) {
+            positions[i].investedAmount = 0;
+            positions[i].totalClaimed = 0;
+        }
+
         // Use claim address if set, otherwise use original investor address
         address payoutAddress = IManagerRegistry(managerRegistry).getInvestorClaimAddress(_investor);
-        
+
         project.innerStruct.loanToken.safeTransfer(payoutAddress, amount);
         emit WithdrawInvestment(_projectId, _investor, amount);
     }
@@ -262,9 +333,39 @@ contract Fundraise is Initializable, UUPSUpgradeable, OwnableUpgradeable, Merkle
         emit InvestmentTransferred(_projectId, _from, _to, amountInvested, _id);
     }
 
+    /// @notice Transfer a single investment position by index (used by Market for per-position sales)
+    /// @param _projectId Project ID
+    /// @param _from Source address (seller or market cell)
+    /// @param _to Destination address (market cell or buyer)
+    /// @param _positionIndex Index of the position in _from's positions array
+    /// @param _id Sale ID for event tracking
+    function transferPosition(uint256 _projectId, address _from, address _to, uint256 _positionIndex, uint256 _id) external {
+        require(IManagerRegistry(managerRegistry).isMarket(msg.sender), "Not a market");
+        require(_projectId < projectCount, "Project does not exist");
+        require(_from != address(0), "From address is zero");
+        require(_to != address(0), "To address is zero");
+        require(_from != _to, "From and to are the same");
+        require(_positionIndex < _investorPositions[_from][_projectId].length, "Position index out of bounds");
 
+        InvestorInfo storage pos = _investorPositions[_from][_projectId][_positionIndex];
+        uint256 posAmount = pos.investedAmount;
+        uint256 posClaimed = pos.totalClaimed;
+        require(posAmount > 0, "Position has zero amount");
 
-    
+        // Update aggregate mappings
+        investorInfo[_from][_projectId].investedAmount -= posAmount;
+        investorInfo[_from][_projectId].totalClaimed -= posClaimed;
+        investorInfo[_to][_projectId].investedAmount += posAmount;
+        investorInfo[_to][_projectId].totalClaimed += posClaimed;
+
+        // Move position: push to _to, zero out in _from
+        _investorPositions[_to][_projectId].push(InvestorInfo(posAmount, posClaimed));
+        pos.investedAmount = 0;
+        pos.totalClaimed = 0;
+
+        emit InvestmentTransferred(_projectId, _from, _to, posAmount, _id);
+    }
+
     function transferFundsToBorrower(uint256 _projectId) external {
         _transferFundsToBorrower(_projectId, 0);
     }
@@ -285,7 +386,7 @@ contract Fundraise is Initializable, UUPSUpgradeable, OwnableUpgradeable, Merkle
             project.innerStruct.stage == Stage.Open || project.innerStruct.stage == Stage.PreFunded,
             "Invalid stage for transfer"
         );
-        
+
         if (project.innerStruct.stage == Stage.Open) {
             if (project.totalInvested < project.softCap) revert("Not funded enough");
         }
@@ -305,11 +406,16 @@ contract Fundraise is Initializable, UUPSUpgradeable, OwnableUpgradeable, Merkle
 
         emit ProjectFunded(_projectId, project.innerStruct.borrower, project.totalInvested, platformFee);
         emit ProjectStatusChanged(_projectId, uint8(Stage.Funded));
-        
+
     }
 
 
     /// @notice Borrower repays money for a user
+    /// @dev Repayment is enforced through off-chain legal agreements,
+    /// not on-chain collateral or liquidation mechanisms.
+    /// @notice Only borrower or manager can make repayments.
+    /// Third-party repayment is restricted due to legal/regulatory requirements.
+    /// This is an intentional design decision, not a missing feature.
     /// @param _projectId Project info
     /// @param _amount Amount of usdt for repayment
     function makeRepayment(uint256 _projectId, uint256 _amount) external {
@@ -358,10 +464,10 @@ contract Fundraise is Initializable, UUPSUpgradeable, OwnableUpgradeable, Merkle
         uint256 claimable = claimableShare > investor.totalClaimed ? claimableShare - investor.totalClaimed : 0; // Numeric
 
         investor.totalClaimed += claimable; // Numeric
-        
+
         // Use claim address if set, otherwise use original investor address
         address payoutAddress = IManagerRegistry(managerRegistry).getInvestorClaimAddress(_investor);
-        
+
         project.innerStruct.loanToken.safeTransfer(payoutAddress, claimable);
 
         emit Claimed(_projectId, _investor, claimable);
@@ -375,19 +481,36 @@ contract Fundraise is Initializable, UUPSUpgradeable, OwnableUpgradeable, Merkle
      * ADMIN FUNCTIONS
      */
 
-    /// @notice Create new project
-    /// @param _project Project info
-    /// @param _whitelistRoot Whitelist root
-    /// @param _projectHash project hash, for event
-    function createProject(Project memory _project, bytes32 _whitelistRoot, uint256 _projectHash)
+    /// @notice Backward-compatible: create project with whitelistRoot (ignored).
+    /// @dev TODO: remove after admin frontend stops passing whitelistRoot.
+    function createProject(Project memory _project, bytes32, uint256 _projectHash)
         external
         returns (uint256)
     {
+        return _createProjectInternal(_project, _projectHash);
+    }
+
+    /// @notice Create new project (clean version without whitelistRoot)
+    /// @dev Only standard ERC20 tokens are supported as loanToken.
+    /// Fee-on-transfer, rebasing, and deflationary tokens will cause accounting errors.
+    /// @param _project Project info
+    /// @param _projectHash project hash, for event
+    function createProject(Project memory _project, uint256 _projectHash)
+        external
+        returns (uint256)
+    {
+        return _createProjectInternal(_project, _projectHash);
+    }
+
+    function _createProjectInternal(Project memory _project, uint256 _projectHash)
+        internal
+        returns (uint256)
+    {
         require(IManagerRegistry(managerRegistry).isManager(msg.sender), "Not a manager");
+        _validateProject(_project);
 
         uint256 projectId = projectCount++;
         projects[projectId] = _project;
-        whitelistRoots[projectId] = _whitelistRoot;
         emit ProjectCreated(projectId, _project.innerStruct.borrower, _projectHash);
 
         return projectId;
@@ -414,6 +537,7 @@ contract Fundraise is Initializable, UUPSUpgradeable, OwnableUpgradeable, Merkle
     }
 
     /// @notice Update project info
+    /// @dev Only standard ERC20 tokens are supported as loanToken when replacing project in ComingSoon stage.
     /// @param _projectId Project id
     /// @param _project new project info
     function setProject(uint256 _projectId, Project memory _project) external {
@@ -426,6 +550,7 @@ contract Fundraise is Initializable, UUPSUpgradeable, OwnableUpgradeable, Merkle
         if (
             projects[_projectId].innerStruct.stage == Stage.ComingSoon && _project.innerStruct.stage == Stage.ComingSoon
         ) {
+            _validateProject(_project);
             projects[_projectId] = _project;
             emit ProjectUpdated(_projectId);
         } else if (projects[_projectId].innerStruct.stage == Stage.Open) {
@@ -448,37 +573,87 @@ contract Fundraise is Initializable, UUPSUpgradeable, OwnableUpgradeable, Merkle
         }
     }
 
-    /// @notice Update project whitelist
-    /// @param _whitelistRoot New merkle root
-    /// @param _projectId Project id
-    function setWhitelist(bytes32 _whitelistRoot, uint256 _projectId) external {
+    /// @notice Read-only backward-compatible getter for deprecated whitelist roots
+    /// @dev Preserved so that off-chain indexers / subgraphs that call whitelistRoots(pid) continue to work after upgrade
+    function whitelistRoots(uint256 _pid) external view returns (bytes32) {
+        return __deprecated_whitelistRoots[_pid];
+    }
+
+    /// @dev TODO: remove after admin frontend stops calling setWhitelist. Deprecated no-op.
+    function setWhitelist(bytes32, uint256) external {
         require(IManagerRegistry(managerRegistry).isManager(msg.sender), "Not a manager");
-        whitelistRoots[_projectId] = _whitelistRoot;
+        // no-op: whitelist roots are no longer stored on-chain
     }
 
     /// @notice Update address of trusted signer
     /// @param _signer New address
     function setTrustedSigner(address _signer) external {
         require(IManagerRegistry(managerRegistry).isManager(msg.sender), "Not a manager");
+        require(_signer != address(0), "Zero address");
         trustedSigner = _signer;
+        emit TrustedSignerUpdated(_signer);
     }
 
     /// @notice Update manager registry address
     /// @param _managerRegistry New manager registry address
     function setManagerRegistry(address _managerRegistry) external onlyOwner {
+        require(_managerRegistry != address(0), "Zero address");
         managerRegistry = _managerRegistry;
+        emit ManagerRegistryUpdated(_managerRegistry);
     }
 
     /// @notice Update treasury address
     /// @param _treasury New treasury address
     function setTreasury(address _treasury) external onlyOwner {
+        require(_treasury != address(0), "Zero address");
         treasury = _treasury;
+        emit TreasuryUpdated(_treasury);
     }
 
     /// @notice Update reward system address
     /// @param _rewardSystem New reward system address
+    /// @dev address(0) disables the reward system integration
     function setRewardSystem(address _rewardSystem) external onlyOwner {
         rewardSystem = _rewardSystem;
+        emit RewardSystemUpdated(_rewardSystem);
+    }
+
+    /// @notice Update LimitedSeller address for token-buy limit accrual
+    /// @param _limitedSeller New LimitedSeller address
+    /// @dev address(0) disables the limit accrual integration
+    function setLimitedSeller(address _limitedSeller) external onlyOwner {
+        limitedSeller = _limitedSeller;
+        emit LimitedSellerUpdated(_limitedSeller);
+    }
+
+    /// @notice Validate project struct invariants
+    function _validateProject(Project memory _project) internal pure {
+        require(_project.totalInvested == 0, "totalInvested must be 0");
+        require(_project.innerStruct.totalRepaid == 0, "totalRepaid must be 0");
+        require(_project.softCap > 0, "softCap must be positive");
+        require(_project.hardCap > 0, "hardCap must be positive");
+        require(_project.softCap <= _project.hardCap, "softCap > hardCap");
+        require(_project.preFundDuration > 0, "preFundDuration must be positive");
+        require(_project.innerStruct.borrower != address(0), "borrower must be set");
+        require(address(_project.innerStruct.loanToken) != address(0), "loanToken must be set");
+    }
+
+    /// @notice Backfill individual positions for an existing investor from event history.
+    /// @dev Called by owner/manager after upgrade. Each amount becomes a separate position.
+    /// @param _investor Investor address
+    /// @param _projectId Project ID
+    /// @param _amounts Array of individual investment amounts (from Invest event logs)
+    function backfillPositions(address _investor, uint256 _projectId, uint256[] calldata _amounts) external {
+        require(IManagerRegistry(managerRegistry).isManager(msg.sender), "Not a manager");
+        require(_investorPositions[_investor][_projectId].length == 0, "Positions already exist");
+        require(investorInfo[_investor][_projectId].totalClaimed == 0, "Investor has claimed");
+        uint256 total = 0;
+        for (uint256 i = 0; i < _amounts.length; i++) {
+            require(_amounts[i] > 0, "Amount must be positive");
+            _investorPositions[_investor][_projectId].push(InvestorInfo(_amounts[i], 0));
+            total += _amounts[i];
+        }
+        require(total == investorInfo[_investor][_projectId].investedAmount, "Sum mismatch with aggregate");
     }
 
     /**
@@ -529,6 +704,20 @@ contract Fundraise is Initializable, UUPSUpgradeable, OwnableUpgradeable, Merkle
             // final byte (first byte of the next 32 bytes)
             v := byte(0, mload(add(sig, 96)))
         }
+    }
+
+    /// @notice Get all individual investment positions for an investor in a project
+    /// @param _investor Investor address
+    /// @param _projectId Project ID
+    function getInvestorPositions(address _investor, uint256 _projectId) external view returns (InvestorInfo[] memory) {
+        return _investorPositions[_investor][_projectId];
+    }
+
+    /// @notice Get the number of individual positions for an investor in a project
+    /// @param _investor Investor address
+    /// @param _projectId Project ID
+    function getPositionCount(address _investor, uint256 _projectId) external view returns (uint256) {
+        return _investorPositions[_investor][_projectId].length;
     }
 
     /**
