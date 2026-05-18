@@ -49,6 +49,9 @@ contract LimitedSeller is Initializable, UUPSUpgradeable, OwnableUpgradeable, Re
     /// falls back to the legacy on-chain calculation.
     mapping(address => uint256) public earnedLimitUsdc;
 
+    /// @notice Backend address authorized to call migrateEarnedLimits
+    address public recalculator;
+
     event Bought(
         address indexed buyer,
         address receiver,
@@ -58,6 +61,7 @@ contract LimitedSeller is Initializable, UUPSUpgradeable, OwnableUpgradeable, Re
     );
     event PercentSet(uint256 newPercent);
     event EarnedLimitIncreased(address indexed user, uint256 investedAmount, uint256 earnedDelta, uint256 newTotal);
+    event RecalculatorSet(address recalculator);
 
     error ExceedsAvailableLimit();
     error EmptyProjectIds();
@@ -66,6 +70,7 @@ contract LimitedSeller is Initializable, UUPSUpgradeable, OwnableUpgradeable, Re
     error InvalidReceiver();
     error ManagerRegistryNotSet();
     error OnlyFundraise();
+    error NotAuthorized();
 
     /// @custom:oz-upgrades-unsafe-allow constructor
     constructor() {
@@ -115,6 +120,14 @@ contract LimitedSeller is Initializable, UUPSUpgradeable, OwnableUpgradeable, Re
      */
     function setMarket(address _market) external onlyOwner {
         market = IMarket(_market);
+    }
+
+    /**
+     * @notice Set recalculator address (backend wallet for automated limit updates). Owner only.
+     */
+    function setRecalculator(address _recalculator) external onlyOwner {
+        recalculator = _recalculator;
+        emit RecalculatorSet(_recalculator);
     }
 
     function _authorizeUpgrade(address newImplementation) internal override onlyOwner {}
@@ -261,12 +274,13 @@ contract LimitedSeller is Initializable, UUPSUpgradeable, OwnableUpgradeable, Re
     }
 
     /**
-     * @notice One-time migration for pre-upgrade users. Sets earnedLimitUsdc
-     *         from off-chain calculated historical data. Owner only.
+     * @notice Sets earnedLimitUsdc from off-chain calculated data.
+     *         Callable by owner or recalculator (backend).
      * @param users Array of user addresses.
      * @param limits Array of accumulated limit values in USDC (6 decimals).
      */
-    function migrateEarnedLimits(address[] calldata users, uint256[] calldata limits) external onlyOwner {
+    function migrateEarnedLimits(address[] calldata users, uint256[] calldata limits) external {
+        if (msg.sender != owner() && msg.sender != recalculator) revert NotAuthorized();
         require(users.length == limits.length, "Length mismatch");
         for (uint256 i; i < users.length; ) {
             earnedLimitUsdc[users[i]] = limits[i];
