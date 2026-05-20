@@ -12,6 +12,7 @@ import "./interfaces/ILimitedSeller.sol";
 
 interface IEscrowFactory {
     function usdc() external view returns (address);
+    function escrows(address user) external view returns (address);
 }
 
 /// @title Fundraise - 8lends RWA lending platform
@@ -277,9 +278,16 @@ contract Fundraise is Initializable, UUPSUpgradeable, OwnableUpgradeable {
         uint256 _amount,
         address _inviter
     ) external {
-        require(msg.sender == amlGateway, "Not AML gateway");
+        address gateway = amlGateway;
+        // amlGateway = address(0) disables escrow investing entirely.
+        // Otherwise msg.sender must be the escrow registered by the gateway for `_investor` —
+        // binds authority (gateway-registered) AND identity (this user's specific escrow).
         require(
-            address(projects[_pid].innerStruct.loanToken) == IEscrowFactory(amlGateway).usdc(),
+            gateway != address(0) && IEscrowFactory(gateway).escrows(_investor) == msg.sender,
+            "Not AML gateway"
+        );
+        require(
+            address(projects[_pid].innerStruct.loanToken) == IEscrowFactory(gateway).usdc(),
             "loanToken is not USDC"
         );
         bool success = _invest(_investor, _pid, _amount, _inviter);
