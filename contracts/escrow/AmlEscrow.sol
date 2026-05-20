@@ -6,9 +6,11 @@ import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
 import {IAmlEscrow} from "./interfaces/IAmlEscrow.sol";
+import {IEscrowFactory} from "./interfaces/IEscrowFactory.sol";
 
 // ---------------------------------------------------------------------------
-// Inline external interfaces (temporary — will be migrated in T-03)
+// Inline external interfaces
+// (IFundraise stays inline; IEscrowFactory now imported from ./interfaces/IEscrowFactory.sol)
 // ---------------------------------------------------------------------------
 
 interface IFundraise {
@@ -18,14 +20,6 @@ interface IFundraise {
         uint256 amount,
         address inviter
     ) external;
-}
-
-interface IEscrowFactory {
-    function usdc() external view returns (address);
-    function fundraise() external view returns (address);
-    function minInvestAmount() external view returns (uint256);
-    function maxInvestAmount() external view returns (uint256);
-    function refundTimeout() external view returns (uint256);
 }
 
 // ---------------------------------------------------------------------------
