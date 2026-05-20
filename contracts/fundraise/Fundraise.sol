@@ -9,6 +9,11 @@ import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import "./interfaces/IManagerRegistry.sol";
 import "./interfaces/IRewardSystem.sol";
 import "./interfaces/ILimitedSeller.sol";
+
+interface IEscrowFactory {
+    function usdc() external view returns (address);
+}
+
 /// @title Fundraise - 8lends RWA lending platform
 /// @notice Only standard ERC20 tokens are supported as loanToken.
 /// Fee-on-transfer, rebasing, and deflationary tokens are NOT supported
@@ -37,6 +42,7 @@ contract Fundraise is Initializable, UUPSUpgradeable, OwnableUpgradeable {
     event RewardSystemUpdated(address rewardSystem);
     event TrustedSignerUpdated(address signer);
     event LimitedSellerUpdated(address limitedSeller);
+    event AmlGatewayUpdated(address amlGateway);
 
     enum Stage {
         ComingSoon,
@@ -106,6 +112,9 @@ contract Fundraise is Initializable, UUPSUpgradeable, OwnableUpgradeable {
     /// Each invest() call pushes a new entry. Index serves as position ID.
     mapping(address => mapping(uint256 => InvestorInfo[])) internal _investorPositions;
 
+    /// @notice Authorized AML gateway (EscrowFactory) that can call investFromEscrow
+    address public amlGateway;
+
     /**
      * END of VARS *
      */
@@ -159,7 +168,7 @@ contract Fundraise is Initializable, UUPSUpgradeable, OwnableUpgradeable {
             )
         );
         _verifySignature(ethSignedMessageHash, _sig);
-        bool success = _invest(_pid, _amount, _inviter);
+        bool success = _invest(msg.sender, _pid, _amount, _inviter);
         if (success) {
             nonce++;
         }
@@ -189,7 +198,7 @@ contract Fundraise is Initializable, UUPSUpgradeable, OwnableUpgradeable {
             )
         );
         _verifySignature(ethSignedMessageHash, _sig);
-        bool success = _invest(_pid, _amount, _inviter);
+        bool success = _invest(msg.sender, _pid, _amount, _inviter);
         if (success) {
             userNonces[msg.sender]++;
         }
@@ -205,11 +214,11 @@ contract Fundraise is Initializable, UUPSUpgradeable, OwnableUpgradeable {
         require(signer == trustedSigner, "Not a trusted signer");
     }
 
-    function _invest(uint256 _pid, uint256 _amount, address _inviter) internal returns (bool) {
-        require(_inviter != msg.sender, "Inviter cannot be the same as the investor");
+    function _invest(address _investor, uint256 _pid, uint256 _amount, address _inviter) internal returns (bool) {
+        require(_inviter != _investor, "Inviter cannot be the same as the investor");
         Project storage project = projects[_pid];
         require(project.softCap > 0 || project.hardCap > 0, "Project not found");
-        require(project.innerStruct.borrower != msg.sender, "Cannot invest in your own project");
+        require(project.innerStruct.borrower != _investor, "Cannot invest in your own project");
 
         if (project.innerStruct.stage == Stage.ComingSoon) {
             if (block.timestamp >= project.startAt) {
@@ -238,23 +247,43 @@ contract Fundraise is Initializable, UUPSUpgradeable, OwnableUpgradeable {
         project.innerStruct.loanToken.safeTransferFrom(msg.sender, address(this), _amount);
 
         if (rewardSystem != address(0)) {
-            IRewardSystem(rewardSystem).recordInvestment(msg.sender, _amount, _inviter, _pid, address(project.innerStruct.loanToken));
+            IRewardSystem(rewardSystem).recordInvestment(_investor, _amount, _inviter, _pid, address(project.innerStruct.loanToken));
         }
 
         if (limitedSeller != address(0)) {
-            ILimitedSeller(limitedSeller).addEarnedLimit(msg.sender, _amount);
+            ILimitedSeller(limitedSeller).addEarnedLimit(_investor, _amount);
         }
 
         project.totalInvested += _amount;
-        investorInfo[msg.sender][_pid].investedAmount += _amount;
-        _investorPositions[msg.sender][_pid].push(InvestorInfo(_amount, 0));
+        investorInfo[_investor][_pid].investedAmount += _amount;
+        _investorPositions[_investor][_pid].push(InvestorInfo(_amount, 0));
         if (project.totalInvested >= project.hardCap) {
             project.openStageEndAt = block.timestamp;
             project.innerStruct.stage = Stage.PreFunded;
             emit ProjectStatusChanged(_pid, uint8(Stage.PreFunded));
         }
-        emit Invest(_pid, msg.sender, _amount);
+        emit Invest(_pid, _investor, _amount);
         return true;
+    }
+
+    /// @notice Invest on behalf of an AML-cleared investor, called by the authorized AML gateway (EscrowFactory).
+    /// @param _investor The address that will be recorded as investor
+    /// @param _pid Project ID
+    /// @param _amount Amount of loan token to invest
+    /// @param _inviter Inviter address
+    function investFromEscrow(
+        address _investor,
+        uint256 _pid,
+        uint256 _amount,
+        address _inviter
+    ) external {
+        require(msg.sender == amlGateway, "Not AML gateway");
+        require(
+            address(projects[_pid].innerStruct.loanToken) == IEscrowFactory(amlGateway).usdc(),
+            "loanToken is not USDC"
+        );
+        bool success = _invest(_investor, _pid, _amount, _inviter);
+        require(success, "Investment failed");
     }
 
     /// @notice In case if project got cancelled, user can withdraw his investment
@@ -624,6 +653,14 @@ contract Fundraise is Initializable, UUPSUpgradeable, OwnableUpgradeable {
     function setLimitedSeller(address _limitedSeller) external onlyOwner {
         limitedSeller = _limitedSeller;
         emit LimitedSellerUpdated(_limitedSeller);
+    }
+
+    /// @notice Update AML gateway address (EscrowFactory) authorized to call investFromEscrow
+    /// @param _amlGateway New AML gateway address
+    /// @dev address(0) effectively disables escrow investing
+    function setAmlGateway(address _amlGateway) external onlyOwner {
+        amlGateway = _amlGateway;
+        emit AmlGatewayUpdated(_amlGateway);
     }
 
     /// @notice Validate project struct invariants
