@@ -229,7 +229,7 @@ contract AmlEscrowTest is Test {
         uint256 escrowBalBefore = usdc.balanceOf(address(escrow));
 
         vm.expectEmit(true, true, false, true);
-        emit IAmlEscrow.InvestRequested(user, 0, PID, AMOUNT, inviter);
+        emit IAmlEscrow.InvestRequested(user, 0, PID, AMOUNT, inviter, block.timestamp, block.timestamp + factory.refundTimeout());
 
         vm.prank(user);
         escrow.invest(PID, AMOUNT, inviter);
@@ -307,7 +307,7 @@ contract AmlEscrowTest is Test {
         escrow.invest(PID, AMOUNT, inviter);
 
         vm.expectEmit(true, true, false, true);
-        emit IAmlEscrow.InvestApproved(user, 0, PID, AMOUNT);
+        emit IAmlEscrow.InvestApproved(user, 0, PID, AMOUNT, inviter);
 
         factory.callApprove(address(escrow), 0);
 
@@ -374,7 +374,7 @@ contract AmlEscrowTest is Test {
         assertEq(usdc.balanceOf(user), userBalBefore - AMOUNT);
 
         vm.expectEmit(true, true, false, true);
-        emit IAmlEscrow.InvestRejected(user, 0, PID, AMOUNT);
+        emit IAmlEscrow.InvestRejected(user, 0, PID, AMOUNT, inviter);
 
         factory.callReject(address(escrow), 0);
 
@@ -422,7 +422,7 @@ contract AmlEscrowTest is Test {
         vm.warp(block.timestamp + factory.refundTimeout());
 
         vm.expectEmit(true, true, false, true);
-        emit IAmlEscrow.RequestCancelled(user, 0, PID, AMOUNT);
+        emit IAmlEscrow.RequestCancelled(user, 0, PID, AMOUNT, inviter);
 
         vm.prank(user);
         escrow.cancelRequest(0);

@@ -33,14 +33,14 @@ contract EscrowFactory is Initializable, UUPSUpgradeable, OwnableUpgradeable, IE
     // Events
     // -------------------------------------------------------------------------
 
-    event EscrowCreated(address indexed user, address escrow);
-    event SignerUpdated(address signer);
-    event MaxInvestAmountUpdated(uint256 amount);
-    event MinInvestAmountUpdated(uint256 amount);
-    event RefundTimeoutUpdated(uint256 timeout);
-    event ImplementationUpdated(address implementation);
-    event FundraiseUpdated(address fundraise);
-    event UsdcUpdated(address usdc);
+    event EscrowCreated(address indexed user, address indexed escrow);
+    event SignerUpdated(address indexed oldSigner, address indexed newSigner);
+    event MaxInvestAmountUpdated(uint256 oldAmount, uint256 newAmount);
+    event MinInvestAmountUpdated(uint256 oldAmount, uint256 newAmount);
+    event RefundTimeoutUpdated(uint256 oldTimeout, uint256 newTimeout);
+    event ImplementationUpdated(address indexed oldImpl, address indexed newImpl);
+    event FundraiseUpdated(address indexed oldFundraise, address indexed newFundraise);
+    event UsdcUpdated(address indexed oldUsdc, address indexed newUsdc);
 
     // -------------------------------------------------------------------------
     // Constructor
@@ -124,8 +124,8 @@ contract EscrowFactory is Initializable, UUPSUpgradeable, OwnableUpgradeable, IE
         }
 
         escrow = Clones.cloneDeterministic(implementation, _salt(_user));
-        IAmlEscrow(escrow).initialize(_user, address(this));
         escrows[_user] = escrow;
+        IAmlEscrow(escrow).initialize(_user, address(this));
 
         emit EscrowCreated(_user, escrow);
     }
@@ -158,44 +158,51 @@ contract EscrowFactory is Initializable, UUPSUpgradeable, OwnableUpgradeable, IE
 
     function setSigner(address _signer) external onlyOwner {
         require(_signer != address(0), "Zero address");
+        address oldSigner = signer;
         signer = _signer;
-        emit SignerUpdated(_signer);
+        emit SignerUpdated(oldSigner, _signer);
     }
 
     function setMaxInvestAmount(uint256 _amount) external onlyOwner {
         require(_amount > 0 && _amount >= minInvestAmount, "Invalid amount");
+        uint256 oldAmount = maxInvestAmount;
         maxInvestAmount = _amount;
-        emit MaxInvestAmountUpdated(_amount);
+        emit MaxInvestAmountUpdated(oldAmount, _amount);
     }
 
     function setMinInvestAmount(uint256 _amount) external onlyOwner {
         require(_amount > 0 && _amount <= maxInvestAmount, "Invalid amount");
+        uint256 oldAmount = minInvestAmount;
         minInvestAmount = _amount;
-        emit MinInvestAmountUpdated(_amount);
+        emit MinInvestAmountUpdated(oldAmount, _amount);
     }
 
     function setRefundTimeout(uint256 _timeout) external onlyOwner {
         require(_timeout > 0 && _timeout <= 365 days, "Invalid timeout");
+        uint256 oldTimeout = refundTimeout;
         refundTimeout = _timeout;
-        emit RefundTimeoutUpdated(_timeout);
+        emit RefundTimeoutUpdated(oldTimeout, _timeout);
     }
 
     function setImplementation(address _impl) external onlyOwner {
         require(_impl != address(0), "Zero address");
+        address oldImpl = implementation;
         implementation = _impl;
-        emit ImplementationUpdated(_impl);
+        emit ImplementationUpdated(oldImpl, _impl);
     }
 
     function setFundraise(address _fundraise) external onlyOwner {
         require(_fundraise != address(0), "Zero address");
+        address oldFundraise = fundraise;
         fundraise = _fundraise;
-        emit FundraiseUpdated(_fundraise);
+        emit FundraiseUpdated(oldFundraise, _fundraise);
     }
 
     function setUsdc(address _usdc) external onlyOwner {
         require(_usdc != address(0), "Zero address");
+        address oldUsdc = usdc;
         usdc = _usdc;
-        emit UsdcUpdated(_usdc);
+        emit UsdcUpdated(oldUsdc, _usdc);
     }
 
     // -------------------------------------------------------------------------

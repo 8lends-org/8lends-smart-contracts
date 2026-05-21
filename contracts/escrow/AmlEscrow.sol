@@ -79,17 +79,19 @@ contract AmlEscrow is IAmlEscrow, ReentrancyGuard {
         usdc.safeTransferFrom(msg.sender, address(this), amount);
 
         uint256 requestId = requests.length;
+        uint256 cancelAfter = block.timestamp + IEscrowFactory(factory).refundTimeout();
         requests.push(
             InvestRequest({
                 pid: pid,
                 amount: amount,
                 inviter: inviter,
                 createdAt: block.timestamp,
+                cancelAfter: cancelAfter,
                 status: RequestStatus.Pending
             })
         );
 
-        emit InvestRequested(user, requestId, pid, amount, inviter);
+        emit InvestRequested(user, requestId, pid, amount, inviter, block.timestamp, cancelAfter);
     }
 
     /// @inheritdoc IAmlEscrow
@@ -99,14 +101,13 @@ contract AmlEscrow is IAmlEscrow, ReentrancyGuard {
         InvestRequest storage req = requests[requestId];
         require(req.status == RequestStatus.Pending, "Not pending");
 
-        uint256 timeout = IEscrowFactory(factory).refundTimeout();
-        require(block.timestamp >= req.createdAt + timeout, "Too early");
+        require(block.timestamp >= req.cancelAfter, "Too early");
 
         req.status = RequestStatus.Cancelled;
 
         IERC20(IEscrowFactory(factory).usdc()).safeTransfer(user, req.amount);
 
-        emit RequestCancelled(user, requestId, req.pid, req.amount);
+        emit RequestCancelled(user, requestId, req.pid, req.amount, req.inviter);
     }
 
     // -------------------------------------------------------------------------
@@ -125,8 +126,8 @@ contract AmlEscrow is IAmlEscrow, ReentrancyGuard {
         IERC20 usdc = IERC20(f.usdc());
 
         // CEI: status update happens AFTER the external call succeeds.
-        // safeIncreaseAllowance instead of raw approve to avoid front-running.
-        usdc.safeIncreaseAllowance(fundraise, req.amount);
+        // forceApprove sets exact value; safe to call repeatedly (fixes Slither S-1).
+        usdc.forceApprove(fundraise, req.amount);
 
         // External call — if this reverts, the whole tx reverts and the request
         // remains Pending (retryable). Status is therefore set only on success.
@@ -139,7 +140,7 @@ contract AmlEscrow is IAmlEscrow, ReentrancyGuard {
 
         req.status = RequestStatus.Approved;
 
-        emit InvestApproved(user, requestId, req.pid, req.amount);
+        emit InvestApproved(user, requestId, req.pid, req.amount, req.inviter);
     }
 
     /// @inheritdoc IAmlEscrow
@@ -154,7 +155,7 @@ contract AmlEscrow is IAmlEscrow, ReentrancyGuard {
 
         IERC20(IEscrowFactory(factory).usdc()).safeTransfer(user, req.amount);
 
-        emit InvestRejected(user, requestId, req.pid, req.amount);
+        emit InvestRejected(user, requestId, req.pid, req.amount, req.inviter);
     }
 
     // -------------------------------------------------------------------------

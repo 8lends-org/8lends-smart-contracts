@@ -43,7 +43,7 @@ contract Fundraise is Initializable, UUPSUpgradeable, OwnableUpgradeable {
     event RewardSystemUpdated(address rewardSystem);
     event TrustedSignerUpdated(address signer);
     event LimitedSellerUpdated(address limitedSeller);
-    event AmlGatewayUpdated(address amlGateway);
+    event AmlGatewayUpdated(address indexed oldGateway, address indexed newGateway);
 
     enum Stage {
         ComingSoon,
@@ -667,8 +667,9 @@ contract Fundraise is Initializable, UUPSUpgradeable, OwnableUpgradeable {
     /// @param _amlGateway New AML gateway address
     /// @dev address(0) effectively disables escrow investing
     function setAmlGateway(address _amlGateway) external onlyOwner {
+        address oldGateway = amlGateway;
         amlGateway = _amlGateway;
-        emit AmlGatewayUpdated(_amlGateway);
+        emit AmlGatewayUpdated(oldGateway, _amlGateway);
     }
 
     /// @notice Validate project struct invariants

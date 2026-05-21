@@ -293,9 +293,10 @@ contract EscrowFactoryTest is Test {
     function test_SetSigner_EmitsEvent() public {
         address newSigner = makeAddr("newSigner");
 
+        address oldSigner = factory.signer();
         vm.prank(owner);
-        vm.expectEmit(false, false, false, true);
-        emit EscrowFactory.SignerUpdated(newSigner);
+        vm.expectEmit(true, true, false, false);
+        emit EscrowFactory.SignerUpdated(oldSigner, newSigner);
         factory.setSigner(newSigner);
 
         assertEq(factory.signer(), newSigner, "Signer should be updated");
@@ -317,9 +318,10 @@ contract EscrowFactoryTest is Test {
 
     function test_SetMaxInvestAmount_EmitsEvent_AndAffectsEscrow() public {
         // Raise max to 1000e6
+        uint256 oldMax = factory.maxInvestAmount();
         vm.prank(owner);
         vm.expectEmit(false, false, false, true);
-        emit EscrowFactory.MaxInvestAmountUpdated(1000e6);
+        emit EscrowFactory.MaxInvestAmountUpdated(oldMax, 1000e6);
         factory.setMaxInvestAmount(1000e6);
 
         assertEq(factory.maxInvestAmount(), 1000e6);
@@ -345,9 +347,10 @@ contract EscrowFactoryTest is Test {
 
     function test_SetMinInvestAmount_EmitsEvent_AndAffectsEscrow() public {
         // Raise min to 10e6
+        uint256 oldMin = factory.minInvestAmount();
         vm.prank(owner);
         vm.expectEmit(false, false, false, true);
-        emit EscrowFactory.MinInvestAmountUpdated(10e6);
+        emit EscrowFactory.MinInvestAmountUpdated(oldMin, 10e6);
         factory.setMinInvestAmount(10e6);
 
         assertEq(factory.minInvestAmount(), 10e6);
@@ -372,10 +375,11 @@ contract EscrowFactoryTest is Test {
 
     function test_SetRefundTimeout_EmitsEvent() public {
         uint256 newTimeout = 7 days;
+        uint256 oldTimeout = factory.refundTimeout();
 
         vm.prank(owner);
         vm.expectEmit(false, false, false, true);
-        emit EscrowFactory.RefundTimeoutUpdated(newTimeout);
+        emit EscrowFactory.RefundTimeoutUpdated(oldTimeout, newTimeout);
         factory.setRefundTimeout(newTimeout);
 
         assertEq(factory.refundTimeout(), newTimeout, "refundTimeout should be updated");
@@ -398,9 +402,10 @@ contract EscrowFactoryTest is Test {
 
         // Owner setting valid address emits event
         AmlEscrow newImpl = new AmlEscrow();
+        address oldImpl = factory.implementation();
         vm.prank(owner);
-        vm.expectEmit(false, false, false, true);
-        emit EscrowFactory.ImplementationUpdated(address(newImpl));
+        vm.expectEmit(true, true, false, false);
+        emit EscrowFactory.ImplementationUpdated(oldImpl, address(newImpl));
         factory.setImplementation(address(newImpl));
 
         assertEq(factory.implementation(), address(newImpl));
@@ -423,9 +428,10 @@ contract EscrowFactoryTest is Test {
 
         // Owner setting valid address emits event
         address newFundraise = makeAddr("newFundraise");
+        address oldFundraise = factory.fundraise();
         vm.prank(owner);
-        vm.expectEmit(false, false, false, true);
-        emit EscrowFactory.FundraiseUpdated(newFundraise);
+        vm.expectEmit(true, true, false, false);
+        emit EscrowFactory.FundraiseUpdated(oldFundraise, newFundraise);
         factory.setFundraise(newFundraise);
 
         assertEq(factory.fundraise(), newFundraise);
@@ -448,9 +454,10 @@ contract EscrowFactoryTest is Test {
 
         // Owner setting valid address emits event
         address newUsdc = makeAddr("newUsdc");
+        address oldUsdc = factory.usdc();
         vm.prank(owner);
-        vm.expectEmit(false, false, false, true);
-        emit EscrowFactory.UsdcUpdated(newUsdc);
+        vm.expectEmit(true, true, false, false);
+        emit EscrowFactory.UsdcUpdated(oldUsdc, newUsdc);
         factory.setUsdc(newUsdc);
 
         assertEq(factory.usdc(), newUsdc);

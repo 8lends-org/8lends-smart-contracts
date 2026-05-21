@@ -20,6 +20,7 @@ interface IAmlEscrow {
         uint256 amount;
         address inviter;
         uint256 createdAt;
+        uint256 cancelAfter;   // createdAt + factory.refundTimeout() at creation
         RequestStatus status;
     }
 
@@ -32,28 +33,33 @@ interface IAmlEscrow {
         uint256 indexed requestId,
         uint256 pid,
         uint256 amount,
-        address inviter
+        address inviter,
+        uint256 createdAt,
+        uint256 cancelAfter
     );
 
     event InvestApproved(
         address indexed user,
         uint256 indexed requestId,
         uint256 pid,
-        uint256 amount
+        uint256 amount,
+        address inviter
     );
 
     event InvestRejected(
         address indexed user,
         uint256 indexed requestId,
         uint256 pid,
-        uint256 amount
+        uint256 amount,
+        address inviter
     );
 
     event RequestCancelled(
         address indexed user,
         uint256 indexed requestId,
         uint256 pid,
-        uint256 amount
+        uint256 amount,
+        address inviter
     );
 
     // -------------------------------------------------------------------------
