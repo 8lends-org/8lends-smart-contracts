@@ -291,13 +291,13 @@ contract FundraiseTest is Setup {
         });
 
         vm.prank(attacker);
-        vm.expectRevert("Not a manager");
+        vm.expectRevert(Fundraise.NotAManager.selector);
         fundraise.createProject(proj, 1);
     }
 
     function test_cancelProject_nonManager_reverts() public {
         vm.prank(attacker);
-        vm.expectRevert("Not a manager");
+        vm.expectRevert(Fundraise.NotAManager.selector);
         fundraise.cancelProject(pid);
     }
 
@@ -335,7 +335,7 @@ contract FundraiseTest is Setup {
         _repayFull(pid);
 
         vm.prank(attacker);
-        vm.expectRevert("Not a manager");
+        vm.expectRevert(Fundraise.NotAManager.selector);
         fundraise.claim(pid, investor);
     }
 
@@ -382,7 +382,7 @@ contract FundraiseTest is Setup {
         _investAs(investor, pid, 10_000e6, inviter);
 
         vm.prank(investor);
-        vm.expectRevert("Project not canceled");
+        vm.expectRevert(Fundraise.ProjectNotCanceled.selector);
         fundraise.withdrawInvestment(pid, investor);
     }
 
@@ -427,7 +427,7 @@ contract FundraiseTest is Setup {
         bytes memory badSig = abi.encodePacked(r, s, v);
 
         vm.prank(investor);
-        vm.expectRevert("Not a trusted signer");
+        vm.expectRevert(Fundraise.NotTrustedSigner.selector);
         fundraise.investUpdateV2(pid, 5_000e6, currentNonce + 1, badSig, inviter);
     }
 
@@ -441,7 +441,7 @@ contract FundraiseTest is Setup {
         bytes memory sig = _signInvest(borrower, pid, 5_000e6, currentNonce + 1, inviter);
 
         vm.prank(borrower);
-        vm.expectRevert("Cannot invest in your own project");
+        vm.expectRevert(Fundraise.CannotInvestInOwnProject.selector);
         fundraise.investUpdateV2(pid, 5_000e6, currentNonce + 1, sig, inviter);
     }
 
@@ -474,7 +474,7 @@ contract FundraiseTest is Setup {
         proj.softCap = 0;
 
         vm.prank(manager);
-        vm.expectRevert("softCap must be positive");
+        vm.expectRevert(Fundraise.SoftCapMustBePositive.selector);
         fundraise.createProject(proj, 1);
     }
 
@@ -484,7 +484,7 @@ contract FundraiseTest is Setup {
         proj.hardCap = 40_000e6;
 
         vm.prank(manager);
-        vm.expectRevert("softCap > hardCap");
+        vm.expectRevert(Fundraise.SoftCapExceedsHardCap.selector);
         fundraise.createProject(proj, 1);
     }
 
@@ -493,7 +493,7 @@ contract FundraiseTest is Setup {
         proj.totalInvested = 1_000e6;
 
         vm.prank(manager);
-        vm.expectRevert("totalInvested must be 0");
+        vm.expectRevert(Fundraise.TotalInvestedMustBeZero.selector);
         fundraise.createProject(proj, 1);
     }
 
@@ -502,7 +502,7 @@ contract FundraiseTest is Setup {
         proj.innerStruct.borrower = address(0);
 
         vm.prank(manager);
-        vm.expectRevert("borrower must be set");
+        vm.expectRevert(Fundraise.BorrowerMustBeSet.selector);
         fundraise.createProject(proj, 1);
     }
 
@@ -511,7 +511,7 @@ contract FundraiseTest is Setup {
         proj.innerStruct.loanToken = IERC20(address(0));
 
         vm.prank(manager);
-        vm.expectRevert("loanToken must be set");
+        vm.expectRevert(Fundraise.LoanTokenMustBeSet.selector);
         fundraise.createProject(proj, 1);
     }
 
@@ -537,7 +537,7 @@ contract FundraiseTest is Setup {
         bytes memory sig = _signInvest(investor, pid, 5_000e6, currentNonce + 1, investor);
 
         vm.prank(investor);
-        vm.expectRevert("Inviter cannot be the same as the investor");
+        vm.expectRevert(Fundraise.InviterCannotBeInvestor.selector);
         fundraise.investUpdateV2(pid, 5_000e6, currentNonce + 1, sig, investor);
     }
 }

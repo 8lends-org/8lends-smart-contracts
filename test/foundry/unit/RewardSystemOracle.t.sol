@@ -94,8 +94,9 @@ contract RewardSystemOracleTest is Setup {
         bytes memory sig = _signInvest(investor, pid, 25_000e6, currentNonce + 1, inviter);
 
         vm.prank(investor);
-        vm.expectRevert("Oracle not set");
         fundraise.investUpdateV2(pid, 25_000e6, currentNonce + 1, sig, inviter);
+        (, uint256 totalTokens,,,) = freshRS.getProjectRewards(investor, pid);
+        assertGt(totalTokens, 0, "RewardSystem should fall back to Uniswap when oracle is not set");
 
         // Restore original reward system
         vm.startPrank(owner);
@@ -202,6 +203,8 @@ contract RewardSystemOracleTest is Setup {
         // Set oracle price: nearly 0 (1 = 0.00000001 USD in 8 decimals)
         vm.prank(owner);
         mockOracle.setPrice(address(worthlessToken), 1);
+        vm.prank(owner);
+        fundraise.setOracle(address(mockOracle));
 
         // Create a project using worthless token as loanToken
         uint256 worthlessPid = _createProjectWithLoanToken(500e18, 5_000e18, address(worthlessToken));
@@ -237,6 +240,8 @@ contract RewardSystemOracleTest is Setup {
         // Set oracle price: $3 = 3e8 (8 decimals)
         vm.prank(owner);
         mockOracle.setPrice(address(valuableToken), 3e8);
+        vm.prank(owner);
+        fundraise.setOracle(address(mockOracle));
 
         // Create a project using valuable token as loanToken
         uint256 valPid = _createProjectWithLoanToken(100e18, 5_000e18, address(valuableToken));

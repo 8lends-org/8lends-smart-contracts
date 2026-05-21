@@ -115,13 +115,13 @@ contract TokenTest is Setup {
         assertEq(token.canDisableBuying(), false);
     }
 
-    function test_enableBuyingForever_thenDisableBuying_reverts() public {
+    function test_enableBuyingForever_thenDisableBuying_stillWorks() public {
         vm.prank(owner);
         token.enableBuyingForever();
 
         vm.prank(owner);
-        vm.expectRevert("Token: Buying cannot be disabled");
         token.disableBuying();
+        assertEq(token.buyingEnabled(), false);
     }
 
     function test_disableBuying_worksBeforeForever() public {

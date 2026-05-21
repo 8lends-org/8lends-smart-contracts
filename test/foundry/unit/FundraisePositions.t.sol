@@ -128,7 +128,7 @@ contract FundraisePositionsTest is Setup {
         _investAs(investor, pid, 5_000e6, inviter);
 
         vm.prank(marketCaller);
-        vm.expectRevert("Position index out of bounds");
+        vm.expectRevert(Fundraise.PositionIndexOutOfBounds.selector);
         fundraise.transferPosition(pid, investor, makeAddr("r"), 5, 1);
     }
 
@@ -144,7 +144,7 @@ contract FundraisePositionsTest is Setup {
 
         // Try to transfer same position again — already zeroed
         vm.prank(marketCaller);
-        vm.expectRevert("Position has zero amount");
+        vm.expectRevert(Fundraise.PositionHasZeroAmount.selector);
         fundraise.transferPosition(pid, investor, recipient, 0, 2);
     }
 
@@ -152,7 +152,7 @@ contract FundraisePositionsTest is Setup {
         _investAs(investor, pid, 5_000e6, inviter);
 
         vm.prank(attacker);
-        vm.expectRevert("Not a market");
+        vm.expectRevert(Fundraise.NotAMarket.selector);
         fundraise.transferPosition(pid, investor, makeAddr("r"), 0, 1);
     }
 
@@ -253,7 +253,7 @@ contract FundraisePositionsTest is Setup {
         uint256[] memory amounts = new uint256[](1);
         amounts[0] = 15_000e6; // wrong amount
         vm.prank(manager);
-        vm.expectRevert("Sum mismatch with aggregate");
+        vm.expectRevert(Fundraise.SumMismatchWithAggregate.selector);
         fundraise.backfillPositions(investor2, pid2, amounts);
     }
 
@@ -264,7 +264,7 @@ contract FundraisePositionsTest is Setup {
         uint256[] memory amounts = new uint256[](1);
         amounts[0] = 5_000e6;
         vm.prank(manager);
-        vm.expectRevert("Positions already exist");
+        vm.expectRevert(Fundraise.PositionsAlreadyExist.selector);
         fundraise.backfillPositions(investor, pid, amounts);
     }
 
@@ -272,7 +272,7 @@ contract FundraisePositionsTest is Setup {
         uint256[] memory amounts = new uint256[](1);
         amounts[0] = 1_000e6;
         vm.prank(attacker);
-        vm.expectRevert("Not a manager");
+        vm.expectRevert(Fundraise.NotAManager.selector);
         fundraise.backfillPositions(investor, pid, amounts);
     }
 
@@ -298,7 +298,7 @@ contract FundraisePositionsTest is Setup {
         uint256[] memory amounts = new uint256[](1);
         amounts[0] = 20_000e6;
         vm.prank(manager);
-        vm.expectRevert("Investor has claimed");
+        vm.expectRevert(Fundraise.InvestorHasClaimed.selector);
         fundraise.backfillPositions(investor2, pid, amounts);
     }
 }
