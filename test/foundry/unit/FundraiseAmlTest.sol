@@ -90,9 +90,10 @@ contract FundraiseAmlTest is Setup {
 
     function test_SetAmlGateway_EmitsEvent() public {
         address newGateway = makeAddr("newGateway2");
+        address oldGateway = fundraise.amlGateway();
 
-        vm.expectEmit(true, false, false, false, address(fundraise));
-        emit Fundraise.AmlGatewayUpdated(newGateway);
+        vm.expectEmit(true, true, false, false, address(fundraise));
+        emit Fundraise.AmlGatewayUpdated(oldGateway, newGateway);
 
         vm.prank(owner);
         fundraise.setAmlGateway(newGateway);
