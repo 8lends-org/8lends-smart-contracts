@@ -138,6 +138,9 @@ contract AmlEscrow is IAmlEscrow, ReentrancyGuard {
             req.inviter
         );
 
+        // Clear residual allowance in case Fundraise consumed less than approved
+        usdc.forceApprove(fundraise, 0);
+
         req.status = RequestStatus.Approved;
 
         emit InvestApproved(user, requestId, req.pid, req.amount, req.inviter);

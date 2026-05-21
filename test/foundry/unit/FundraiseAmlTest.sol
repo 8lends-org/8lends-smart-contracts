@@ -119,7 +119,7 @@ contract FundraiseAmlTest is Setup {
         // With amlGateway == address(0), investFromEscrow must revert "Not AML gateway"
         // approveInvest on the escrow will call investFromEscrow, which reverts
         vm.prank(backend);
-        vm.expectRevert(bytes("Not AML gateway"));
+        vm.expectRevert(Fundraise.NotAmlGateway.selector);
         escrowFactory.approveInvest(investor, reqId);
     }
 
@@ -131,7 +131,7 @@ contract FundraiseAmlTest is Setup {
         uint256 pid = _createProject(100e6, 1000e6);
 
         vm.prank(attacker);
-        vm.expectRevert(bytes("Not AML gateway"));
+        vm.expectRevert(Fundraise.NotAmlGateway.selector);
         fundraise.investFromEscrow(investor, pid, 100e6, inviter);
     }
 
@@ -151,7 +151,7 @@ contract FundraiseAmlTest is Setup {
 
         // The first check in investFromEscrow is "Not AML gateway" —
         // factory.escrows(victim) == victim's real escrow, not address(mal)
-        vm.expectRevert(bytes("Not AML gateway"));
+        vm.expectRevert(Fundraise.NotAmlGateway.selector);
         mal.attack(address(fundraise), victim, pid, 100e6, inviter);
     }
 
@@ -170,7 +170,7 @@ contract FundraiseAmlTest is Setup {
 
         // approveInvest routes to escrow.approveInvest → investFromEscrow → reverts
         vm.prank(backend);
-        vm.expectRevert(bytes("Not AML gateway"));
+        vm.expectRevert(Fundraise.NotAmlGateway.selector);
         escrowFactory.approveInvest(investor, reqId);
     }
 
@@ -206,7 +206,7 @@ contract FundraiseAmlTest is Setup {
         uint256 reqId = _escrowInvest(escrow, investor, pid, 100e6, inviter);
 
         vm.prank(backend);
-        vm.expectRevert(bytes("loanToken is not USDC"));
+        vm.expectRevert(Fundraise.LoanTokenNotUsdc.selector);
         escrowFactory.approveInvest(investor, reqId);
     }
 
@@ -241,7 +241,7 @@ contract FundraiseAmlTest is Setup {
 
         // _invest returns false for ComingSoon before startAt; investFromEscrow requires(success)
         vm.prank(backend);
-        vm.expectRevert(bytes("Investment failed"));
+        vm.expectRevert(Fundraise.InvestmentFailed.selector);
         escrowFactory.approveInvest(investor, reqId);
     }
 
@@ -261,7 +261,7 @@ contract FundraiseAmlTest is Setup {
         uint256 reqId = _escrowInvest(escrow, investor, pid, 200e6, inviter);
 
         vm.prank(backend);
-        vm.expectRevert(bytes("Investment exceeds hardcap"));
+        vm.expectRevert(Fundraise.InvestmentExceedsHardCap.selector);
         escrowFactory.approveInvest(investor, reqId);
     }
 

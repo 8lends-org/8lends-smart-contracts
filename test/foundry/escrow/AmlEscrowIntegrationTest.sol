@@ -287,7 +287,7 @@ contract AmlEscrowIntegrationTest is Setup {
 
         // approveInvest should revert because _invest returns false for ComingSoon
         vm.prank(backend);
-        vm.expectRevert(bytes("Investment failed"));
+        vm.expectRevert(Fundraise.InvestmentFailed.selector);
         escrowFactory.approveInvest(investor, requestId);
 
         // Request still Pending
@@ -325,7 +325,7 @@ contract AmlEscrowIntegrationTest is Setup {
 
         // Approve investor2 — should revert (400+400 > 500 hardcap)
         vm.prank(backend);
-        vm.expectRevert(bytes("Investment exceeds hardcap"));
+        vm.expectRevert(Fundraise.InvestmentExceedsHardCap.selector);
         escrowFactory.approveInvest(investor2, req2);
 
         // investor2 request still Pending
@@ -355,7 +355,7 @@ contract AmlEscrowIntegrationTest is Setup {
         uint256 requestId = _escrowInvest(escrow, investor, pid, 200e6, inviter);
 
         vm.prank(backend);
-        vm.expectRevert(bytes("loanToken is not USDC"));
+        vm.expectRevert(Fundraise.LoanTokenNotUsdc.selector);
         escrowFactory.approveInvest(investor, requestId);
 
         // Request still Pending
@@ -466,7 +466,7 @@ contract AmlEscrowIntegrationTest is Setup {
 
         // First approve fails (ComingSoon, before startAt)
         vm.prank(backend);
-        vm.expectRevert(bytes("Investment failed"));
+        vm.expectRevert(Fundraise.InvestmentFailed.selector);
         escrowFactory.approveInvest(investor, requestId);
 
         // Request must still be Pending
