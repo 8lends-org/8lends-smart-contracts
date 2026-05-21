@@ -507,4 +507,54 @@ contract EscrowFactoryTest is Test {
         // with the gap present guarantees its allocation.
         assertTrue(true, "__gap[50] verified via forge inspect EscrowFactory storageLayout");
     }
+
+    // =========================================================================
+    // Setter validation hardening (W6)
+    // =========================================================================
+
+    function test_SetMinInvestAmount_ZeroReverts() public {
+        vm.prank(owner);
+        vm.expectRevert(bytes("Invalid amount"));
+        factory.setMinInvestAmount(0);
+    }
+
+    function test_SetMinInvestAmount_GreaterThanMaxReverts() public {
+        uint256 aboveMax = factory.maxInvestAmount() + 1;
+        vm.prank(owner);
+        vm.expectRevert(bytes("Invalid amount"));
+        factory.setMinInvestAmount(aboveMax);
+    }
+
+    function test_SetMaxInvestAmount_ZeroReverts() public {
+        vm.prank(owner);
+        vm.expectRevert(bytes("Invalid amount"));
+        factory.setMaxInvestAmount(0);
+    }
+
+    function test_SetMaxInvestAmount_LessThanMinReverts() public {
+        // first lower min to something tiny
+        vm.prank(owner);
+        factory.setMinInvestAmount(2e6);
+        vm.prank(owner);
+        vm.expectRevert(bytes("Invalid amount"));
+        factory.setMaxInvestAmount(1e6);  // less than min
+    }
+
+    function test_SetRefundTimeout_ZeroReverts() public {
+        vm.prank(owner);
+        vm.expectRevert(bytes("Invalid timeout"));
+        factory.setRefundTimeout(0);
+    }
+
+    function test_SetRefundTimeout_TooLongReverts() public {
+        vm.prank(owner);
+        vm.expectRevert(bytes("Invalid timeout"));
+        factory.setRefundTimeout(366 days);
+    }
+
+    function test_SetRefundTimeout_MaxAcceptable() public {
+        vm.prank(owner);
+        factory.setRefundTimeout(365 days);  // boundary should succeed
+        assertEq(factory.refundTimeout(), 365 days);
+    }
 }

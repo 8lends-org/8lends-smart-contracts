@@ -163,16 +163,19 @@ contract EscrowFactory is Initializable, UUPSUpgradeable, OwnableUpgradeable, IE
     }
 
     function setMaxInvestAmount(uint256 _amount) external onlyOwner {
+        require(_amount > 0 && _amount >= minInvestAmount, "Invalid amount");
         maxInvestAmount = _amount;
         emit MaxInvestAmountUpdated(_amount);
     }
 
     function setMinInvestAmount(uint256 _amount) external onlyOwner {
+        require(_amount > 0 && _amount <= maxInvestAmount, "Invalid amount");
         minInvestAmount = _amount;
         emit MinInvestAmountUpdated(_amount);
     }
 
     function setRefundTimeout(uint256 _timeout) external onlyOwner {
+        require(_timeout > 0 && _timeout <= 365 days, "Invalid timeout");
         refundTimeout = _timeout;
         emit RefundTimeoutUpdated(_timeout);
     }
