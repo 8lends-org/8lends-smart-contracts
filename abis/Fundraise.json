@@ -133,6 +133,11 @@
   },
   {
     "inputs": [],
+    "name": "InvestmentFailed",
+    "type": "error"
+  },
+  {
+    "inputs": [],
     "name": "InvestorHasClaimed",
     "type": "error"
   },
@@ -143,7 +148,17 @@
   },
   {
     "inputs": [],
+    "name": "KycLessLimitExceeded",
+    "type": "error"
+  },
+  {
+    "inputs": [],
     "name": "LoanTokenMustBeSet",
+    "type": "error"
+  },
+  {
+    "inputs": [],
+    "name": "LoanTokenNotUsdc",
     "type": "error"
   },
   {
@@ -169,6 +184,11 @@
   {
     "inputs": [],
     "name": "NotAMarket",
+    "type": "error"
+  },
+  {
+    "inputs": [],
+    "name": "NotAmlGateway",
     "type": "error"
   },
   {
@@ -291,6 +311,11 @@
   },
   {
     "inputs": [],
+    "name": "StalePriceData",
+    "type": "error"
+  },
+  {
+    "inputs": [],
     "name": "SumMismatchWithAggregate",
     "type": "error"
   },
@@ -329,6 +354,38 @@
     "inputs": [],
     "name": "ZeroAddress",
     "type": "error"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": false,
+        "internalType": "uint256",
+        "name": "count",
+        "type": "uint256"
+      }
+    ],
+    "name": "AllTimeInvestedUSDMigrated",
+    "type": "event"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": true,
+        "internalType": "address",
+        "name": "oldGateway",
+        "type": "address"
+      },
+      {
+        "indexed": true,
+        "internalType": "address",
+        "name": "newGateway",
+        "type": "address"
+      }
+    ],
+    "name": "AmlGatewayUpdated",
+    "type": "event"
   },
   {
     "anonymous": false,
@@ -769,6 +826,19 @@
     "type": "function"
   },
   {
+    "inputs": [],
+    "name": "amlGateway",
+    "outputs": [
+      {
+        "internalType": "address",
+        "name": "",
+        "type": "address"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
     "inputs": [
       {
         "internalType": "uint256",
@@ -1138,6 +1208,34 @@
   {
     "inputs": [
       {
+        "internalType": "address",
+        "name": "_investor",
+        "type": "address"
+      },
+      {
+        "internalType": "uint256",
+        "name": "_pid",
+        "type": "uint256"
+      },
+      {
+        "internalType": "uint256",
+        "name": "_amount",
+        "type": "uint256"
+      },
+      {
+        "internalType": "address",
+        "name": "_inviter",
+        "type": "address"
+      }
+    ],
+    "name": "investFromEscrow",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
         "internalType": "uint256",
         "name": "_pid",
         "type": "uint256"
@@ -1309,6 +1407,19 @@
     "type": "function"
   },
   {
+    "inputs": [],
+    "name": "maxPriceAge",
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
     "inputs": [
       {
         "internalType": "address[]",
@@ -1317,7 +1428,7 @@
       },
       {
         "internalType": "uint256[]",
-        "name": "_investAmountsUSD",
+        "name": "_allTimeInvestedUSD",
         "type": "uint256[]"
       }
     ],
@@ -1514,6 +1625,19 @@
     "inputs": [
       {
         "internalType": "address",
+        "name": "_amlGateway",
+        "type": "address"
+      }
+    ],
+    "name": "setAmlGateway",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "address",
         "name": "_limitedSeller",
         "type": "address"
       }
@@ -1532,6 +1656,19 @@
       }
     ],
     "name": "setManagerRegistry",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "_maxPriceAge",
+        "type": "uint256"
+      }
+    ],
+    "name": "setMaxPriceAge",
     "outputs": [],
     "stateMutability": "nonpayable",
     "type": "function"

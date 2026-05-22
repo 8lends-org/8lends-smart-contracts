@@ -206,6 +206,25 @@ const DEPLOY_DESCRIPTORS: Record<string, DeployDescriptor> = {
     configKey: "BTC8L",
     configKeyImpl: "BTC8L_impl",
   },
+  AmlEscrow: {
+    useProxy: false,
+    getConstructorArgs: () => [],
+    configKey: "AmlEscrow",
+  },
+  EscrowFactory: {
+    useProxy: true,
+    initializer: "initialize",
+    getProxyArgs: (config) => {
+      if (!config.AmlEscrow) throw new Error("AmlEscrow required in config (deploy AmlEscrow first)");
+      if (!config.Fundraise) throw new Error("Fundraise required in config");
+      if (!config.USDC) throw new Error("USDC required in config");
+      const signerAddr = (config as Record<string, string>).escrowSigner || (config as Record<string, string>).trustedSigner;
+      if (!signerAddr) throw new Error("escrowSigner or trustedSigner required in config");
+      return [config.AmlEscrow, config.Fundraise, config.USDC, signerAddr];
+    },
+    configKey: "EscrowFactory",
+    configKeyImpl: "EscrowFactory_impl",
+  },
 };
 
 async function main(): Promise<void> {

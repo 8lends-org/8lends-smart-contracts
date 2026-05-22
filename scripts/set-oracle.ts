@@ -5,9 +5,9 @@ import { join } from "path";
 
 dotenv.config();
 
-// Swap parameters (can be changed)
-// The exact amount of tokens to buy is obtained from the environment variable
-const CONTRACT : "RewardSystem" | "Rewards2" | "Lending8" = process.env.CONTRACT as "RewardSystem" | "Rewards2" | "Lending8";
+// Target contract for setOracle(address) is selected via CONTRACT env var.
+type OracleTarget = "RewardSystem" | "Rewards2" | "Lending8" | "Fundraise";
+const CONTRACT: OracleTarget = process.env.CONTRACT as OracleTarget;
 
 /**
  * Script for setting the oracle in the contract.
@@ -21,6 +21,7 @@ async function main(): Promise<void> {
         Rewards2: string;
         Oracle: string;
         Lending8: string;
+        Fundraise: string;
     } = JSON.parse(readFileSync(join(__dirname, `./config/${net.chainId}-config.json`), "utf8"));
 
     if(!CONTRACT) {
@@ -32,8 +33,6 @@ async function main(): Promise<void> {
     }
 
     const [signer] = await ethers.getSigners();
-
-
 
     const CONTRACT_ABI = readFileSync(join(__dirname, `../abis/${CONTRACT}.json`), "utf8");
     const contract = new ethers.Contract(config[CONTRACT], CONTRACT_ABI, signer);

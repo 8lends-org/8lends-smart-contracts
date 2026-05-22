@@ -1,6 +1,5 @@
 import dotenv from "dotenv";
 import hre, { ethers } from "hardhat";
-import { upgrades } from "hardhat";
 import { readJsonFile, writeJsonFile } from "./helpers";
 dotenv.config();
 
@@ -28,6 +27,50 @@ async function main() {
   console.log(`\nUpdating ${contractName} contract...`);
 
   const [signer] = await ethers.getSigners();
+  const me = (await signer.getAddress()).toLowerCase();
+
+  // Special case: AmlEscrow is NOT a proxy. It's the implementation for EIP-1167
+  // clones created by EscrowFactory. "Updating" means deploying a new impl and
+  // pointing EscrowFactory.implementation() to it via setImplementation().
+  // IMPORTANT: existing per-user clones remain pinned to the OLD impl forever
+  // (EIP-1167 hardcodes the impl address into bytecode). Only NEW escrows use
+  // the new impl.
+  if (contractName === "AmlEscrow") {
+    if (!config.EscrowFactory) {
+      throw new Error("EscrowFactory not found in config — deploy EscrowFactory first");
+    }
+
+    const factory = await ethers.getContractAt("EscrowFactory", config.EscrowFactory as string);
+    const factoryOwner = (await factory.owner()).toLowerCase();
+    if (factoryOwner !== me) {
+      console.log(`EscrowFactory: ${config.EscrowFactory}`);
+      console.log(`Owner: ${factoryOwner}`);
+      console.log(`Signer: ${me}`);
+      throw new Error("Not the owner of EscrowFactory");
+    }
+
+    await hre.run("clean");
+    await hre.run("compile");
+
+    const AmlEscrowFactory = await hre.ethers.getContractFactory("AmlEscrow");
+    const newImpl = await AmlEscrowFactory.deploy();
+    await newImpl.waitForDeployment();
+    const newImplAddress = await newImpl.getAddress();
+
+    await new Promise((resolve) => setTimeout(resolve, 2000));
+
+    const tx = await factory.setImplementation(newImplAddress);
+    await tx.wait();
+
+    config.AmlEscrow = newImplAddress;
+    await writeJsonFile(filePath, config);
+
+    console.log(`✅ AmlEscrow implementation updated to ${newImplAddress}`);
+    console.log("   ⚠️  Existing escrow clones still point to the OLD implementation (EIP-1167 immutability).");
+    console.log("       Only escrows created AFTER this tx use the new implementation.");
+    return;
+  }
+
   const contractKey = contractName!;
   const implKey = `${contractName}_impl`;
 
@@ -37,16 +80,16 @@ async function main() {
 
   // Check owner rights
   const contract = await ethers.getContractAt(contractName!, config[contractKey] as string);
-  
+
 
     const owner = await contract.owner();
-    if (owner.toLowerCase() !== (await signer.getAddress()).toLowerCase()) {
+    if (owner.toLowerCase() !== me) {
       console.log(`Contract: ${config[contractKey]}`);
       console.log(`Owner: ${owner}`);
-      console.log(`Signer: ${await signer.getAddress()}`);
+      console.log(`Signer: ${me}`);
       throw new Error("Not the owner");
     }
-  
+
 
   // Force update
   await hre.run("clean");

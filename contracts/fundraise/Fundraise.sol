@@ -926,14 +926,13 @@ contract Fundraise is Initializable, UUPSUpgradeable, OwnableUpgradeable {
 
     /// @notice Adds off-chain USD history into `allTimeInvestedUSD` (BASIS_POINTS scale; repeatable — each call adds).
     /// @param _investors Investor addresses
-    /// @param _investAmountsUSD Amounts in USD: 1_000_000 = 1 USD
-    function migrateAllTimeInvestedUSD(address[] memory _investors, uint256[] memory _investAmountsUSD) external {
+    /// @param _allTimeInvestedUSD All-time invested USD amounts in BASIS_POINTS scale: 1_000_000 = 1 USD
+    function migrateAllTimeInvestedUSD(address[] memory _investors, uint256[] memory _allTimeInvestedUSD) external {
         if (!IManagerRegistry(managerRegistry).isManager(msg.sender)) revert NotAManager();
-        if (_investors.length != _investAmountsUSD.length) revert ArrayLengthMismatch();
+        if (_investors.length != _allTimeInvestedUSD.length) revert ArrayLengthMismatch();
         for (uint256 i = 0; i < _investors.length; i++) {
             address investor = _investors[i];
-            uint256 investAmountUsd = _investAmountsUSD[i];
-            allTimeInvestedUSD[investor] += investAmountUsd;
+            allTimeInvestedUSD[investor] = _allTimeInvestedUSD[i];
         }
         emit AllTimeInvestedUSDMigrated(_investors.length);
     }
