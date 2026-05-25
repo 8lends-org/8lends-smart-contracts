@@ -125,7 +125,8 @@ contract AmlEscrow is IAmlEscrow, ReentrancyGuard {
         address fundraise = f.fundraise();
         IERC20 usdc = IERC20(f.usdc());
 
-        // CEI: status update happens AFTER the external call succeeds.
+        // Status is set AFTER the external call so a revert keeps the request
+        // Pending (retryable). Reentrancy guard prevents re-entrance.
         // forceApprove sets exact value; safe to call repeatedly (fixes Slither S-1).
         usdc.forceApprove(fundraise, req.amount);
 

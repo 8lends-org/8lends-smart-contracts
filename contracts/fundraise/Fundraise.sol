@@ -13,10 +13,7 @@ import "./interfaces/IRewardSystem.sol";
 import "./interfaces/ILimitedSeller.sol";
 import "./interfaces/IOracle.sol";
 
-interface IEscrowFactory {
-    function usdc() external view returns (address);
-    function escrows(address user) external view returns (address);
-}
+import {IEscrowFactory} from "../escrow/interfaces/IEscrowFactory.sol";
 
 /// @title Fundraise - 8lends RWA lending platform
 /// @notice Only standard ERC20 tokens are supported as loanToken.
@@ -181,7 +178,8 @@ contract Fundraise is Initializable, UUPSUpgradeable, OwnableUpgradeable {
     /// @notice Authorized AML gateway (EscrowFactory) that can call investFromEscrow
     address public amlGateway;
 
-    /// @notice All time invested USD by investor
+    /// @notice Net invested USD by investor (incremented on invest, decremented on withdrawal).
+    /// @dev Used to enforce MAX_KYC_LESS_INVEST_USD cap for escrow (KYC-less) investments.
     mapping(address => uint256) public allTimeInvestedUSD;
 
     address public oracle;
@@ -875,6 +873,7 @@ contract Fundraise is Initializable, UUPSUpgradeable, OwnableUpgradeable {
 
     /// @notice Best-effort USD conversion: returns 0 if token cannot be priced (no oracle, not USDC).
     /// @dev Used in _invest to track allTimeInvestedUSD without blocking non-USDC investments.
+    ///      Safe because investFromEscrow enforces loanToken == USDC (always priceable).
     function _tryToUSD(uint256 _amount, address _loanToken) internal view returns (uint256) {
         if (oracle != address(0)) {
             return _toUSD(_amount, _loanToken);

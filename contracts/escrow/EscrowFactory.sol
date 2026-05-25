@@ -42,6 +42,10 @@ contract EscrowFactory is Initializable, UUPSUpgradeable, OwnableUpgradeable, IE
     event FundraiseUpdated(address indexed oldFundraise, address indexed newFundraise);
     event UsdcUpdated(address indexed oldUsdc, address indexed newUsdc);
 
+    /// @dev Mirrored from AmlEscrow for single-address indexing
+    event InvestApprovedForUser(address indexed user, uint256 indexed requestId);
+    event InvestRejectedForUser(address indexed user, uint256 indexed requestId);
+
     // -------------------------------------------------------------------------
     // Constructor
     // -------------------------------------------------------------------------
@@ -141,6 +145,7 @@ contract EscrowFactory is Initializable, UUPSUpgradeable, OwnableUpgradeable, IE
         address escrow = escrows[_user];
         require(escrow != address(0), "No escrow");
         IAmlEscrow(escrow).approveInvest(_requestId);
+        emit InvestApprovedForUser(_user, _requestId);
     }
 
     /// @notice Reject a pending invest request for a user
@@ -150,6 +155,7 @@ contract EscrowFactory is Initializable, UUPSUpgradeable, OwnableUpgradeable, IE
         address escrow = escrows[_user];
         require(escrow != address(0), "No escrow");
         IAmlEscrow(escrow).rejectInvest(_requestId);
+        emit InvestRejectedForUser(_user, _requestId);
     }
 
     // -------------------------------------------------------------------------
