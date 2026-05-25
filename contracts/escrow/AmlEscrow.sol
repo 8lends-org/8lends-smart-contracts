@@ -92,7 +92,7 @@ contract AmlEscrow is IAmlEscrow, ReentrancyGuard {
         );
 
         emit InvestRequested(user, requestId, pid, amount, inviter, block.timestamp, cancelAfter);
-        IEscrowFactory(factory).onInvestRequested(user, requestId, pid, amount, inviter);
+        IEscrowFactory(factory).onInvestRequested(user, requestId, pid, amount, inviter, block.timestamp, cancelAfter);
     }
 
     /// @inheritdoc IAmlEscrow

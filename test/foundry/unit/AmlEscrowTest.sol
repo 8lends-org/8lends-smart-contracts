@@ -48,7 +48,7 @@ contract MockEscrowFactory {
     }
 
     // Callbacks from AmlEscrow for indexer-friendly events (no-op in mock)
-    function onInvestRequested(address, uint256, uint256, uint256, address) external {}
+    function onInvestRequested(address, uint256, uint256, uint256, address, uint256, uint256) external {}
     function onRequestCancelled(address, uint256, uint256, uint256, address) external {}
 }
 
