@@ -12,4 +12,10 @@ interface IEscrowFactory {
     /// @dev Used by Fundraise.investFromEscrow to verify that msg.sender is
     ///      the legitimate escrow registered for `_investor`
     function escrows(address user) external view returns (address);
+
+    /// @notice Callback from AmlEscrow.invest() — emits indexer-friendly event on Factory address
+    function onInvestRequested(address user, uint256 requestId, uint256 pid, uint256 amount, address inviter) external;
+
+    /// @notice Callback from AmlEscrow.cancelRequest() — emits indexer-friendly event on Factory address
+    function onRequestCancelled(address user, uint256 requestId, uint256 pid, uint256 amount, address inviter) external;
 }

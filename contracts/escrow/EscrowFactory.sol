@@ -43,8 +43,10 @@ contract EscrowFactory is Initializable, UUPSUpgradeable, OwnableUpgradeable, IE
     event UsdcUpdated(address indexed oldUsdc, address indexed newUsdc);
 
     /// @dev Mirrored from AmlEscrow for single-address indexing
-    event InvestApprovedForUser(address indexed user, uint256 indexed requestId);
-    event InvestRejectedForUser(address indexed user, uint256 indexed requestId);
+    event InvestRequestedForUser(address indexed user, uint256 indexed requestId, uint256 pid, uint256 amount, address inviter);
+    event InvestApprovedForUser(address indexed user, uint256 indexed requestId, uint256 pid, uint256 amount, address inviter);
+    event InvestRejectedForUser(address indexed user, uint256 indexed requestId, uint256 pid, uint256 amount, address inviter);
+    event RequestCancelledForUser(address indexed user, uint256 indexed requestId, uint256 pid, uint256 amount, address inviter);
 
     // -------------------------------------------------------------------------
     // Constructor
@@ -144,8 +146,9 @@ contract EscrowFactory is Initializable, UUPSUpgradeable, OwnableUpgradeable, IE
     function approveInvest(address _user, uint256 _requestId) external onlySigner {
         address escrow = escrows[_user];
         require(escrow != address(0), "No escrow");
+        IAmlEscrow.InvestRequest memory req = IAmlEscrow(escrow).getRequest(_requestId);
         IAmlEscrow(escrow).approveInvest(_requestId);
-        emit InvestApprovedForUser(_user, _requestId);
+        emit InvestApprovedForUser(_user, _requestId, req.pid, req.amount, req.inviter);
     }
 
     /// @notice Reject a pending invest request for a user
@@ -154,8 +157,29 @@ contract EscrowFactory is Initializable, UUPSUpgradeable, OwnableUpgradeable, IE
     function rejectInvest(address _user, uint256 _requestId) external onlySigner {
         address escrow = escrows[_user];
         require(escrow != address(0), "No escrow");
+        IAmlEscrow.InvestRequest memory req = IAmlEscrow(escrow).getRequest(_requestId);
         IAmlEscrow(escrow).rejectInvest(_requestId);
-        emit InvestRejectedForUser(_user, _requestId);
+        emit InvestRejectedForUser(_user, _requestId, req.pid, req.amount, req.inviter);
+    }
+
+    // -------------------------------------------------------------------------
+    // Escrow callbacks (called by AmlEscrow for indexer-friendly events)
+    // -------------------------------------------------------------------------
+
+    /// @inheritdoc IEscrowFactory
+    function onInvestRequested(
+        address _user, uint256 _requestId, uint256 _pid, uint256 _amount, address _inviter
+    ) external {
+        require(escrows[_user] == msg.sender, "Not escrow");
+        emit InvestRequestedForUser(_user, _requestId, _pid, _amount, _inviter);
+    }
+
+    /// @inheritdoc IEscrowFactory
+    function onRequestCancelled(
+        address _user, uint256 _requestId, uint256 _pid, uint256 _amount, address _inviter
+    ) external {
+        require(escrows[_user] == msg.sender, "Not escrow");
+        emit RequestCancelledForUser(_user, _requestId, _pid, _amount, _inviter);
     }
 
     // -------------------------------------------------------------------------

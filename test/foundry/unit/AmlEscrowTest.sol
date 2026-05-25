@@ -46,6 +46,10 @@ contract MockEscrowFactory {
     function escrows(address /*user*/) external pure returns (address) {
         return address(0);
     }
+
+    // Callbacks from AmlEscrow for indexer-friendly events (no-op in mock)
+    function onInvestRequested(address, uint256, uint256, uint256, address) external {}
+    function onRequestCancelled(address, uint256, uint256, uint256, address) external {}
 }
 
 contract MockFundraise {

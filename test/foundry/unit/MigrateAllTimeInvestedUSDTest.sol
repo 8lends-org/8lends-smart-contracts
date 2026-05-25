@@ -69,11 +69,11 @@ contract MigrateAllTimeInvestedUSDTest is Setup {
     }
 
     // ─────────────────────────────────────────────────────────────────────────
-    // GAP-034: repeated call — additive (doubling)
+    // GAP-034: repeated call — idempotent set (overwrites, not additive)
     // ─────────────────────────────────────────────────────────────────────────
 
-    function test_GAP034_migrateRepeated_additive() public {
-        // GAP-034: repeated call: additive (doubling)
+    function test_GAP034_migrateRepeated_idempotent() public {
+        // GAP-034: repeated call with same value → idempotent (contract uses = not +=)
         address[] memory investors_ = new address[](1);
         investors_[0] = investor;
         uint256[] memory amounts = new uint256[](1);
@@ -85,7 +85,7 @@ contract MigrateAllTimeInvestedUSDTest is Setup {
 
         vm.prank(manager);
         fundraise.migrateAllTimeInvestedUSD(investors_, amounts);
-        assertEq(fundraise.allTimeInvestedUSD(investor), 200_000_000, "should double on repeated call");
+        assertEq(fundraise.allTimeInvestedUSD(investor), 100_000_000, "should overwrite (idempotent) on repeated call");
     }
 
     // ─────────────────────────────────────────────────────────────────────────
