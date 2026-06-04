@@ -40,11 +40,21 @@ async function main() {
   const onlyOne = process.env.CONTRACT;
 
   const results = [];
+
+  // Collect implementations, preferring *_impl_pending over *_impl for the same contract
+  const implByName = new Map<string, string>();
+  for (const [k, v] of Object.entries(config)) {
+    if (!v) continue;
+    if (k.endsWith("_impl_pending")) {
+      implByName.set(k.replace("_impl_pending", ""), v as string);
+    } else if (k.endsWith("_impl") && !implByName.has(k.replace("_impl", ""))) {
+      implByName.set(k.replace("_impl", ""), v as string);
+    }
+  }
+
   const contractsToVerify = [
     { name: "Token", address: config.token, args: [] },
-    ...Object.entries(config)
-      .filter(([k, v]) => k.endsWith("_impl") && v)
-      .map(([k, v]) => ({ name: k.replace("_impl", ""), address: v as string, args: [] })),
+    ...[...implByName].map(([name, address]) => ({ name, address, args: [] })),
   ].filter(c => onlyOne ? c.name === onlyOne : true);
 
   for (const contract of contractsToVerify) {
