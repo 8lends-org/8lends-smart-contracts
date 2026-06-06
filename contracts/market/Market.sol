@@ -7,6 +7,7 @@ import "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
 import "@openzeppelin/contracts-upgradeable/utils/ReentrancyGuardUpgradeable.sol";
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
+import "@openzeppelin/contracts/utils/math/Math.sol";
 import "./interfaces/IManagerRegistry.sol";
 import "./interfaces/IFundraise.sol";
 
@@ -106,6 +107,20 @@ contract Market is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentranc
         return IManagerRegistry(managerRegistry).fundraiseAddress();
     }
 
+    /// @notice Claimed watermark attributable to a single position, derived from the holder's
+    ///         aggregate (rounded up). Mirrors Fundraise.transferPosition so the price gate and
+    ///         the actual position transfer agree on how much the position has already claimed.
+    function _derivedPositionClaimed(
+        address fundraiseAddress,
+        address holder,
+        uint256 projectId,
+        uint256 posInvested
+    ) internal view returns (uint256) {
+        IFundraise.InvestorInfo memory agg = IFundraise(fundraiseAddress).investorInfo(holder, projectId);
+        if (agg.investedAmount == 0) return 0;
+        return Math.mulDiv(agg.totalClaimed, posInvested, agg.investedAmount, Math.Rounding.Ceil);
+    }
+
     /// @notice Sell first investment position (backward-compatible overload)
     /// @dev TODO: remove after frontend migrates to sell(uint256,uint256,uint256)
     /// @param _projectId Project ID
@@ -135,13 +150,19 @@ contract Market is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentranc
         require(positions[_positionIndex].investedAmount > 0, "No investment in position");
 
         uint256 maxReturn;
+        uint256 posClaimed;
         {
             IFundraise.Project memory project = IFundraise(fundraiseAddress).projects(_projectId);
             require(project.innerStruct.stage == IFundraise.Stage.Funded, "Only funded projects can be sold");
-            maxReturn = positions[_positionIndex].investedAmount
-                + (positions[_positionIndex].investedAmount * project.investorInterestRate / BASIS_POINTS);
-            require(maxReturn >= positions[_positionIndex].totalClaimed, "Total claimed exceeds max return");
-            require(_price <= maxReturn - positions[_positionIndex].totalClaimed, "Price exceeds buyer return");
+            uint256 posInvested = positions[_positionIndex].investedAmount;
+            maxReturn = posInvested + (posInvested * project.investorInterestRate / BASIS_POINTS);
+            // Derive how much this position has effectively claimed from the seller's aggregate
+            // watermark — claim() never updates the per-position field, so the stored value is
+            // stale and an already-claimed position would otherwise list at full maxReturn.
+            // Round up so a drained position can never be priced as if untouched. See finding #2.
+            posClaimed = _derivedPositionClaimed(fundraiseAddress, msg.sender, _projectId, posInvested);
+            require(maxReturn >= posClaimed, "Total claimed exceeds max return");
+            require(_price <= maxReturn - posClaimed, "Price exceeds buyer return");
         }
 
         saleId = ++saleCount;
@@ -164,7 +185,7 @@ contract Market is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentranc
         sale.price = _price;
         sale.fee = platformFee;
         sale.maxReturn = maxReturn;
-        sale.totalClaimed = positions[_positionIndex].totalClaimed;
+        sale.totalClaimed = posClaimed;
         sale.createdAt = block.timestamp;
         sale.positionIndex = _positionIndex;
 
