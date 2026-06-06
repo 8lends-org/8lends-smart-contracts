@@ -78,6 +78,7 @@ contract Fundraise is Initializable, UUPSUpgradeable, OwnableUpgradeable {
     error LoanTokenNotUsdc();
     error InvestmentFailed();
     error StalePriceData();
+    error ProjectPayoutExceedsRepaid();
 
     event ProjectCreated(uint256 indexed projectId, address borrower, uint256 projectHash);
     event Invest(uint256 indexed projectId, address investor, uint256 amount);
@@ -186,6 +187,12 @@ contract Fundraise is Initializable, UUPSUpgradeable, OwnableUpgradeable {
 
     /// @notice Maximum acceptable oracle price age in seconds (0 = staleness check disabled)
     uint256 public maxPriceAge;
+
+    /// @notice Cumulative amount claimed by all investors per project.
+    /// @dev Defense-in-depth solvency backstop: claim() enforces this never exceeds totalRepaid.
+    ///      Appended at end of storage for upgrade safety; 0 for pre-upgrade projects (which is
+    ///      sound because total-ever-claimed is already bounded by totalRepaid via per-investor watermarks).
+    mapping(uint256 => uint256) public projectTotalClaimed;
 
     /// @custom:oz-upgrades-unsafe-allow constructor
     constructor() {
@@ -489,16 +496,24 @@ contract Fundraise is Initializable, UUPSUpgradeable, OwnableUpgradeable {
 
         InvestorInfo storage pos = _investorPositions[_from][_projectId][_positionIndex];
         uint256 posAmount = pos.investedAmount;
-        uint256 posClaimed = pos.totalClaimed;
         if (posAmount == 0) revert PositionHasZeroAmount();
 
+        // Derive the claimed watermark this position carries from the aggregate.
+        // claim() is aggregate-based and never writes per-position totalClaimed, so the
+        // stored per-position value can be stale (=0 even after a full claim). Apportion the
+        // aggregate watermark pro-rata to the position size (rounded up, in the pool's favor)
+        // so the watermark survives the transfer and the buyer cannot re-claim an
+        // already-claimed share. See finding #1.
+        InvestorInfo storage fromAgg = investorInfo[_from][_projectId];
+        uint256 posClaimed = Math.mulDiv(fromAgg.totalClaimed, posAmount, fromAgg.investedAmount, Math.Rounding.Ceil);
+
         // Update aggregate mappings
-        investorInfo[_from][_projectId].investedAmount -= posAmount;
-        investorInfo[_from][_projectId].totalClaimed -= posClaimed;
+        fromAgg.investedAmount -= posAmount;
+        fromAgg.totalClaimed -= posClaimed;
         investorInfo[_to][_projectId].investedAmount += posAmount;
         investorInfo[_to][_projectId].totalClaimed += posClaimed;
 
-        // Move position: push to _to, zero out in _from
+        // Move position: push derived watermark to _to, zero out in _from
         _investorPositions[_to][_projectId].push(InvestorInfo(posAmount, posClaimed));
         pos.investedAmount = 0;
         pos.totalClaimed = 0;
@@ -602,6 +617,13 @@ contract Fundraise is Initializable, UUPSUpgradeable, OwnableUpgradeable {
         uint256 claimable = claimableShare > investor.totalClaimed ? claimableShare - investor.totalClaimed : 0; // Numeric
 
         investor.totalClaimed += claimable; // Numeric
+
+        // Defense-in-depth: cumulative payouts on a project can never exceed what was repaid.
+        // Correct per-investor watermarks already guarantee this; the guard is a backstop that
+        // trips if watermark accounting ever regresses (e.g. the finding #1 double-claim).
+        uint256 newProjectClaimed = projectTotalClaimed[_projectId] + claimable;
+        if (newProjectClaimed > project.innerStruct.totalRepaid) revert ProjectPayoutExceedsRepaid();
+        projectTotalClaimed[_projectId] = newProjectClaimed;
 
         // Use claim address if set, otherwise use original investor address
         address payoutAddress = IManagerRegistry(managerRegistry).getInvestorClaimAddress(_investor);
