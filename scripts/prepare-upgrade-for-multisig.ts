@@ -23,6 +23,7 @@ async function main() {
     console.error("\nExamples:");
     console.error("  CONTRACT=Fundraise npx hardhat run scripts/prepare-upgrade-for-multisig.ts --network base");
     console.error("  CONTRACT=Treasury npx hardhat run scripts/prepare-upgrade-for-multisig.ts --network base_sepolia");
+    console.error("  CONTRACT=MaclearBonus npx hardhat run scripts/prepare-upgrade-for-multisig.ts --network base");
     process.exit(1);
   }
 

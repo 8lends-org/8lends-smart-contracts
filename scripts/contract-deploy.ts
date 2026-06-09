@@ -225,6 +225,19 @@ const DEPLOY_DESCRIPTORS: Record<string, DeployDescriptor> = {
     configKey: "EscrowFactory",
     configKeyImpl: "EscrowFactory_impl",
   },
+  MaclearBonus: {
+    useProxy: true,
+    initializer: "initialize",
+    getProxyArgs: (config) => {
+      if (!config.ManagerRegistry || !config.USDC) {
+        throw new Error("ManagerRegistry, USDC required in config");
+      }
+      const bonusAmount = process.env.MACLEAR_BONUS_AMOUNT ?? "20000000"; // 20 USDC (6 decimals)
+      return [config.ManagerRegistry, config.USDC, bonusAmount];
+    },
+    configKey: "MaclearBonus",
+    configKeyImpl: "MaclearBonus_impl",
+  },
 };
 
 async function main(): Promise<void> {
