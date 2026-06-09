@@ -16,6 +16,9 @@ if (!contractName) {
   console.error(
     "Example: CONTRACT=LimitedSeller npx hardhat run scripts/contract-update.ts --network base"
   );
+  console.error(
+    "Example: CONTRACT=MaclearBonus npx hardhat run scripts/contract-update.ts --network base"
+  );
   process.exit(1);
 }
 
