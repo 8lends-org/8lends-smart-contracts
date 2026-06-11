@@ -17,6 +17,8 @@ import "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
 import "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
 import { IUniswapV2Router02 } from "./interfaces/IUniswapV2Router02.sol";
 import { IUniswapV2Factory } from "../interfaces/IUniswapV2Factory.sol";
+import { IOraclePrice } from "./interfaces/IOraclePrice.sol";
+import { IERC20Metadata } from "../interfaces/IERC20Metadata.sol";
 
 /// @title FlashLiquidator
 /// @notice Liquidate unhealthy Lending8 positions. If a Uniswap V2 pair exists for collateral/loan: flash-loan loan token from Lending8, liquidate, swap collateral to loan, repay flash. If no pair: liquidate using loan token already held by this contract (no flash).
@@ -35,6 +37,15 @@ contract FlashLiquidator is
     ILending8 public LENDING8;
     address public uniswapV2Router;
 
+    /// @dev Fixed-point scale for slippage (1e18 == 100%).
+    uint256 private constant WAD = 1e18;
+    /// @dev Hard cap on configurable slippage to prevent disabling the protection (10%).
+    uint256 private constant MAX_SLIPPAGE = 0.1e18;
+
+    /// @notice Max allowed slippage for collateral->loan swaps, in WAD (e.g. 0.02e18 == 2%).
+    /// @dev Must be set via setMaxSlippage after deploy/upgrade; while zero, swap-based liquidations revert by design.
+    uint256 public maxSlippage;
+
     event Liquidate(
         Id indexed marketId,
         address indexed borrower,
@@ -42,6 +53,7 @@ contract FlashLiquidator is
         uint256 repaidShares,
         uint256 seizedAssets
     );
+    event MaxSlippageUpdated(uint256 oldSlippage, uint256 newSlippage);
 
     /// @custom:oz-upgrades-unsafe-allow constructor
     constructor() {
@@ -55,6 +67,7 @@ contract FlashLiquidator is
         __Ownable_init(initialOwner);
         LENDING8 = lending8;
         uniswapV2Router = _uniswapV2Router;
+        maxSlippage = 0.03e18;
     }
 
     /// @notice Authorize contract upgrade (owner only).
@@ -62,6 +75,15 @@ contract FlashLiquidator is
 
     function setUniswapV2Router(address _uniswapV2Router) external onlyOwner {
         uniswapV2Router = _uniswapV2Router;
+    }
+
+    /// @notice Set the max allowed slippage (in WAD) for collateral->loan swaps.
+    /// @param _maxSlippage New slippage tolerance, capped at MAX_SLIPPAGE.
+    function setMaxSlippage(uint256 _maxSlippage) external onlyOwner {
+        require(_maxSlippage <= MAX_SLIPPAGE, "FlashLiq: slippage too high");
+        uint256 oldSlippage = maxSlippage;
+        maxSlippage = _maxSlippage;
+        emit MaxSlippageUpdated(oldSlippage, _maxSlippage);
     }
 
     /// @notice Withdraw tokens from the contract (owner only).
@@ -79,8 +101,30 @@ contract FlashLiquidator is
         address[] memory path = new address[](2);
         path[0] = tokenIn;
         path[1] = tokenOut;
-        IERC20(tokenIn).approve(uniswapV2Router, amountIn);
-        IUniswapV2Router02(uniswapV2Router).swapExactTokensForTokens(amountIn, 0, path, address(this), block.timestamp);
+        uint256 minOut = _minAmountOut(tokenIn, tokenOut, amountIn);
+        IERC20(tokenIn).forceApprove(uniswapV2Router, amountIn);
+        IUniswapV2Router02(uniswapV2Router).swapExactTokensForTokens(
+            amountIn,
+            minOut,
+            path,
+            address(this),
+            block.timestamp
+        );
+    }
+
+    /// @dev Oracle-derived minimum acceptable output for swapping `amountIn` of `tokenIn` into `tokenOut`,
+    ///      discounted by `maxSlippage`. Reverts if slippage is not configured or a price is zero.
+    function _minAmountOut(address tokenIn, address tokenOut, uint256 amountIn) internal view returns (uint256) {
+        uint256 slippage = maxSlippage;
+        require(slippage != 0, "FlashLiq: slippage not set");
+        IOraclePrice oracle = IOraclePrice(LENDING8.oracle());
+        uint256 inUsd = oracle.getPrice(tokenIn).price;
+        uint256 outUsd = oracle.getPrice(tokenOut).price;
+        require(inUsd != 0 && outUsd != 0, "FlashLiq: zero oracle price");
+        uint256 inDecimals = IERC20Metadata(tokenIn).decimals();
+        uint256 outDecimals = IERC20Metadata(tokenOut).decimals();
+        uint256 expectedOut = (amountIn * inUsd * (10 ** outDecimals)) / (outUsd * (10 ** inDecimals));
+        return (expectedOut * (WAD - slippage)) / WAD;
     }
 
     /// @return True if Uniswap V2 router is set and factory reports a non-zero pair for the two tokens.

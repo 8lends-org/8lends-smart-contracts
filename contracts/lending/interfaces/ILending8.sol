@@ -63,6 +63,9 @@ interface ILending8Base {
     /// @dev The recipient receives the fees of a given market through a supply position on that market.
     function feeRecipient() external view returns (address);
 
+    /// @notice The global oracle used to price collateral and loan tokens (getPrice(token).price in USD).
+    function oracle() external view returns (address);
+
     /// @notice Whether the `irm` is enabled.
     function isIrmEnabled(address irm) external view returns (bool);
 
