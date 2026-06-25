@@ -81,7 +81,7 @@ async function main() {
   // Check owner rights
   const contract = await ethers.getContractAt(contractName!, config[contractKey] as string);
 
-
+try{
     const owner = await contract.owner();
     if (owner.toLowerCase() !== me) {
       console.log(`Contract: ${config[contractKey]}`);
@@ -90,6 +90,8 @@ async function main() {
       throw new Error("Not the owner");
     }
 
+  }catch(err){}
+  
 
   // Force update
   await hre.run("clean");

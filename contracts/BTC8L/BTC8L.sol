@@ -62,18 +62,6 @@ contract BTC8L is
         }
     }
 
-    // Deprecated
-    function withdraw(address[] calldata accounts, uint256[] calldata amounts, bytes32[] calldata btcTxs) external {
-        require(accounts.length == amounts.length && accounts.length == btcTxs.length, "BTC8L: Invalid input length");
-        for (uint256 i = 0; i < accounts.length; i++) {
-            if (!intentHashes[btcTxs[i]]) {
-                intentHashes[btcTxs[i]] = true;
-                _burn(accounts[i], amounts[i]);
-                emit Withdrawn(accounts[i], btcTxs[i], amounts[i]);
-            }
-        }
-    }
-
     function withdraw(bytes32 intentHash, uint256 amount) external {
         if(intentHashes[intentHash]) revert("BTC8L: Intent hash already used");
         intentHashes[intentHash] = true;
