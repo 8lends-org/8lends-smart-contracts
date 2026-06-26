@@ -225,6 +225,32 @@ const DEPLOY_DESCRIPTORS: Record<string, DeployDescriptor> = {
     configKey: "EscrowFactory",
     configKeyImpl: "EscrowFactory_impl",
   },
+  WelcomeBonus: {
+    useProxy: true,
+    initializer: "initialize",
+    getProxyArgs: (config) => {
+      if (!config.ManagerRegistry || !config.Fundraise || !config.USDC) {
+        throw new Error("ManagerRegistry, Fundraise, USDC required in config");
+      }
+      const bonusAmount = process.env.WELCOME_BONUS_AMOUNT ?? "30000000"; // 30 USDC (6 decimals)
+      return [config.ManagerRegistry, config.Fundraise, config.USDC, bonusAmount];
+    },
+    configKey: "WelcomeBonus",
+    configKeyImpl: "WelcomeBonus_impl",
+  },
+  MaclearBonus: {
+    useProxy: true,
+    initializer: "initialize",
+    getProxyArgs: (config) => {
+      if (!config.ManagerRegistry || !config.USDC) {
+        throw new Error("ManagerRegistry, USDC required in config");
+      }
+      const bonusAmount = process.env.MACLEAR_BONUS_AMOUNT ?? "20000000"; // 20 USDC (6 decimals)
+      return [config.ManagerRegistry, config.USDC, bonusAmount];
+    },
+    configKey: "MaclearBonus",
+    configKeyImpl: "MaclearBonus_impl",
+  },
 };
 
 async function main(): Promise<void> {
