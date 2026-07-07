@@ -71,6 +71,11 @@ contract MockLending8 {
         accrueInterestCalled = true;
     }
 
+    /// @dev Any borrower is reported as owing the whole market debt (no cap effects in these tests).
+    function position(Id, address) external view returns (Position memory p) {
+        p.borrowShares = totalBorrowShares;
+    }
+
     function market(Id marketId) external view returns (Market memory) {
         if (Id.unwrap(marketId) != Id.unwrap(MarketParamsLib.id(storedMarketParams))) {
             return Market(0, 0, 0, 0, 0, 0);
@@ -207,9 +212,19 @@ contract FlashLiquidatorTest is Test {
         assertTrue(mockLending8.liquidateCalled());
     }
 
-    function test_liquidate_revert_insufficientLoanBalance() public {
-        vm.expectRevert("FlashLiq: insufficient loan balance");
+    function test_liquidate_revert_noFundsAvailable() public {
+        // No Uniswap pair (router unset) and no own balance -> nothing to liquidate with.
+        vm.expectRevert("FlashLiq: no funds available");
         flashLiquidator.liquidate(_marketId(), borrowerAddr, 1_000e6);
+    }
+
+    function test_liquidate_ownBalancePartial_capsToBalance() public {
+        // Only part of the requested amount is available on the contract's balance.
+        _seedLiquidator(400e6);
+        flashLiquidator.liquidate(_marketId(), borrowerAddr, 1_000e6);
+        assertTrue(mockLending8.liquidateCalled());
+        uint256 expectedRepaidShares = SharesMathLib.toSharesDown(400e6, 100_000e6, 100_000e6);
+        assertEq(mockLending8.lastRepaidShares(), expectedRepaidShares);
     }
 
     // ═══════════════════════════════════════════════════════════════
