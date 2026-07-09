@@ -251,6 +251,19 @@ const DEPLOY_DESCRIPTORS: Record<string, DeployDescriptor> = {
     configKey: "MaclearBonus",
     configKeyImpl: "MaclearBonus_impl",
   },
+  CryptoCourceBonus: {
+    useProxy: true,
+    initializer: "initialize",
+    getProxyArgs: (config) => {
+      if (!config.USDC || !config.CryptoCourceTrustedSigner) {
+        throw new Error("USDC, CryptoCourceTrustedSigner required in config");
+      }
+      const bonusAmount = process.env.CRYPTO_COURCE_BONUS_AMOUNT ?? "30000000"; // 30 USDC (6 decimals)
+      return [config.USDC, config.CryptoCourceTrustedSigner, bonusAmount];
+    },
+    configKey: "CryptoCourceBonus",
+    configKeyImpl: "CryptoCourceBonus_impl",
+  },
 };
 
 async function main(): Promise<void> {
