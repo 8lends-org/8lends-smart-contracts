@@ -185,20 +185,18 @@ contract RewardSystem is Initializable, UUPSUpgradeable, OwnableUpgradeable, Ree
         ReferralData storage refData = projectReferrals[_user][_projectId];
 
         // Calculate rewards for inviter
-        address inviter = userInfo.inviter;
-        if (inviter != address(0)) {
+        if (_inviter != address(0) && userInfo.inviter == _inviter) {
             uint256 inviterUSDC = (_amount * referralPercentage) / BASIS_POINTS;
-            projectReferrals[inviter][_projectId].totalRewardsUSDC += inviterUSDC;
-            emit ReferralBonusRecorded(inviter, inviterUSDC, _user, _projectId);
+            projectReferrals[_inviter][_projectId].totalRewardsUSDC += inviterUSDC;
+            emit ReferralBonusRecorded(_inviter, inviterUSDC, _user, _projectId);
         }
 
         // Calculate rewards for investor (tokens)
         uint256 usdcRewardAmount = (_amount * tokenPercentage) / BASIS_POINTS;
 
-        if (usdcRewardAmount == 0) revert("Invalid USDC reward amount");
-
-        if (token == address(0)) revert("Token address is not set");
-        if (address(usdc) == address(0)) revert("USDC address is not set");
+        if (usdcRewardAmount == 0) revert("Invalid reward amount");
+        if (token == address(0)) revert("Token not set");
+        if (address(usdc) == address(0)) revert("USDC not set");
 
         uint256 tokensAmount;
         if (oracle != address(0)) {
