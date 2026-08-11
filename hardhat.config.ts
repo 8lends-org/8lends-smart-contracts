@@ -24,7 +24,7 @@ const config: HardhatUserConfig = {
                         enabled: true,
                         runs: 50,
                         details: {
-                            yul: false
+                            yul: true
                         }
                     },
                 },
@@ -41,20 +41,20 @@ const config: HardhatUserConfig = {
         },
         hardhat: {
             gasPrice: 100000000000,
-            chainId: process.env.FORK_SEPOLIA === "1" ? 11155111 : 31337,
+            chainId: process.env.FORK_SEPOLIA === "1" ? 11155111 : 8453,
             hardfork: "cancun",
             // allowUnlimitedContractSize: true,
             forking: process.env.FORK_SEPOLIA === "1"
                 ? {
                     enabled: true,
                     url: process.env.ETHEREUM_SEPOLIA_RPC_URL || "https://rpc.sepolia.org",
-                    blockNumber: 	10446607,
+                    // blockNumber: 	10446607,
                     // Не задаём blockNumber — используем latest, иначе RPC может вернуть "historical state is not available" (нужен archive-узел).
                   }
                 : {
-                    enabled: false,
+                    enabled: true,
                     url: process.env.BASE_RPC_URL || '',
-                    blockNumber: 42103098,
+                    // blockNumber: 42103098,
                   },
         },
         sepolia: {

@@ -1,20 +1,19 @@
 import { expect } from "chai";
-import { ethers, upgrades } from "hardhat";
+import { ethers } from "hardhat";
 import { deployContracts } from "./helpers";
-import { 
+import {
   ManagerRegistry,
   Treasury,
   Fundraise,
-  MockERC20,
+  TestERC20,
   Token,
   RewardSystem,
   IUniswapV2Router02,
-  IUniswapV2Pair,
 } from "../typechain-types";
 import { HardhatEthersSigner } from "@nomicfoundation/hardhat-ethers/signers";
 import { time } from "@nomicfoundation/hardhat-network-helpers";
 import { Stage } from "../scripts/helpers";
-import { formatEther, formatUnits, parseEther, parseUnits, Wallet } from "ethers";
+import { formatEther, formatUnits, parseEther, parseUnits } from "ethers";
 
 import { BalanceTable, BalanceEntry } from "./balance-table";
 
@@ -31,7 +30,6 @@ describe("🚀 8lends Protocol - General Flow Tests", function () {
   const balanceTable = new BalanceTable();
   // 👥 Actors
   let owner: HardhatEthersSigner;
-  let superManager: HardhatEthersSigner;
   let manager: HardhatEthersSigner;
   let borrower: HardhatEthersSigner;
   let investor: HardhatEthersSigner;
@@ -40,7 +38,7 @@ describe("🚀 8lends Protocol - General Flow Tests", function () {
 
   // 📋 Contracts
   let rewardSystem: RewardSystem;
-  let usdcToken: MockERC20;
+  let usdcToken: TestERC20;
   let token: Token;
   let managerRegistry: ManagerRegistry;
   let treasury: Treasury;
@@ -94,7 +92,7 @@ describe("🚀 8lends Protocol - General Flow Tests", function () {
     const signature1 = await backend.signMessage(ethers.getBytes(messageHash1));
     await usdcToken.connect(investor).approve(await fundraise.getAddress(), amount);
 
-    await fundraise.connect(investor).investUpdate(projectId, amount, nonceForSignature1, signature1, inviter);
+    await fundraise.connect(investor).investUpdateV2(projectId, amount, nonceForSignature1, signature1, inviter);
   }
 
   /**
@@ -273,7 +271,7 @@ describe("🚀 8lends Protocol - General Flow Tests", function () {
         );
         const signature1 = await backend.signMessage(ethers.getBytes(messageHash1));
 
-        await fundraise.connect(investor).investUpdate(0, softCap/2n, nonceForSignature1, signature1, inviter);
+        await fundraise.connect(investor).investUpdateV2(0, softCap/2n, nonceForSignature1, signature1, inviter);
 
         // Create signature for second investment
         const currentNonce2 = await fundraise.userNonces(await investor.getAddress());
@@ -284,7 +282,7 @@ describe("🚀 8lends Protocol - General Flow Tests", function () {
         );
         const signature2 = await backend.signMessage(ethers.getBytes(messageHash2));
 
-        await fundraise.connect(investor).investUpdate(0, softCap/2n, nonceForSignature2, signature2, inviter);
+        await fundraise.connect(investor).investUpdateV2(0, softCap/2n, nonceForSignature2, signature2, inviter);
         project = await fundraise.projects(0);
         expect(project.totalInvested).to.equal(softCap);
         expect(project.innerStruct.stage).to.equal(Stage.Open); // Open
@@ -569,7 +567,7 @@ describe("🚀 8lends Protocol - General Flow Tests", function () {
       );
       const signature2 = await backend.signMessage(ethers.getBytes(messageHash2));
 
-      await fundraise.connect(investor).investUpdate(projectId2, ethers.parseUnits("5000", 6), nonceForSignature2, signature2, inviter);
+      await fundraise.connect(investor).investUpdateV2(projectId2, ethers.parseUnits("5000", 6), nonceForSignature2, signature2, inviter);
       
       // Cancel project
       await fundraise.connect(manager).cancelProject(projectId2);
@@ -689,9 +687,28 @@ describe("🚀 8lends Protocol - General Flow Tests", function () {
     });
 
     it("📊 Update project parameters", async () => {
-      const projectId = await fundraise.projectCount();
+      const newProjectData = {
+        softCap: ethers.parseUnits("1000", 6),
+        hardCap: ethers.parseUnits("2000", 6),
+        totalInvested: 0,
+        startAt: await time.latest() - 10,
+        preFundDuration: 7 * 24 * 3600,
+        investorInterestRate: INVESTOR_INTEREST_RATE,
+        openStageEndAt: await time.latest() + 7 * 24 * 3600,
+        innerStruct: {
+          borrower: await borrower.getAddress(),
+          loanToken: await usdcToken.getAddress(),
+          platformInterestRate: PLATFORM_PERCENT,
+          totalRepaid: 0,
+          fundedTime: 0,
+          stage: 0 // ComingSoon
+        }
+      };
+      await fundraise.connect(manager).createProject(newProjectData, 2);
+
+      const projectId = await fundraise.projectCount() - 1n;
       let currentProject = await fundraise.projects(projectId);
-      
+
       // Create new project object with updated parameters
       const updatedProject = {
         hardCap: ethers.parseUnits("2500", 6),
@@ -710,11 +727,11 @@ describe("🚀 8lends Protocol - General Flow Tests", function () {
           stage: currentProject.innerStruct.stage
         }
       };
-      
+
       // Update project
       await fundraise.connect(manager).setProject(projectId, updatedProject);
       const updatedProjectData = await fundraise.projects(projectId);
-      
+
       // Check that parameters were updated
       expect(updatedProjectData.hardCap).to.equal(ethers.parseUnits("2500", 6));
       expect(updatedProjectData.softCap).to.equal(ethers.parseUnits("1500", 6));
@@ -767,7 +784,7 @@ describe("🚀 8lends Protocol - General Flow Tests", function () {
       log("🔍 Updated project data:", updatedProject);
       
       await expect(fundraise.connect(investor).setProject(projectId, updatedProject))
-        .to.be.revertedWith("Not a manager");
+        .to.be.revertedWithCustomError(fundraise, "NotAManager");
     });
 
     it.skip("🚫 Cannot update funded project", async () => {
@@ -817,7 +834,7 @@ describe("🚀 8lends Protocol - General Flow Tests", function () {
       );
       const signature = await backend.signMessage(ethers.getBytes(messageHash));
 
-      await fundraise.connect(investor).investUpdate(projectId, investmentAmount, nonceForSignature, signature, inviter);
+      await fundraise.connect(investor).investUpdateV2(projectId, investmentAmount, nonceForSignature, signature, inviter);
       
       const currentProject = await fundraise.projects(projectId);
       log("🔍 Project stage:", currentProject.innerStruct.stage.toString());
@@ -870,7 +887,7 @@ describe("🚀 8lends Protocol - General Flow Tests", function () {
       );
       const signature = await backend.signMessage(ethers.getBytes(messageHash));
 
-      await fundraise.connect(investor).investUpdate(projectId, investmentAmount, nonceForSignature, signature, inviter);
+      await fundraise.connect(investor).investUpdateV2(projectId, investmentAmount, nonceForSignature, signature, inviter);
       
       const currentProject = await fundraise.projects(projectId);
       log("🔍 Project stage:", currentProject.innerStruct.stage.toString());
@@ -919,7 +936,7 @@ describe("🚀 8lends Protocol - General Flow Tests", function () {
       );
       const signature = await backend.signMessage(ethers.getBytes(messageHash));
 
-      await fundraise.connect(investor).investUpdate(projectId, investmentAmount, nonceForSignature, signature, inviter);
+      await fundraise.connect(investor).investUpdateV2(projectId, investmentAmount, nonceForSignature, signature, inviter);
       
       const currentProject = await fundraise.projects(projectId);
       log("🔍 Project stage:", currentProject.innerStruct.stage.toString());
@@ -991,7 +1008,7 @@ describe("🚀 8lends Protocol - General Flow Tests", function () {
       );
       const burnTestSignature = await backend.signMessage(ethers.getBytes(burnTestMessageHash));
 
-      await fundraise.connect(investor).investUpdate(burnTestProjectId, burnTestInvestmentAmount, burnTestNonceForSignature, burnTestSignature, inviter);
+      await fundraise.connect(investor).investUpdateV2(burnTestProjectId, burnTestInvestmentAmount, burnTestNonceForSignature, burnTestSignature, inviter);
       
       // Get token balance before burning
       const totalSupplyBeforeBurn = await token.totalSupply();
@@ -1040,7 +1057,7 @@ describe("🚀 8lends Protocol - General Flow Tests", function () {
       );
       const signature = await backend.signMessage(ethers.getBytes(messageHash));
 
-      await fundraise.connect(investor).investUpdate(projectId, investmentAmount, nonceForSignature, signature, await inviter.getAddress());
+      await fundraise.connect(investor).investUpdateV2(projectId, investmentAmount, nonceForSignature, signature, await inviter.getAddress());
       await fundraise.connect(manager).transferFundsToBorrower(projectId);
 
       await trackBalances("Added project 1 and invested 1000");
@@ -1312,7 +1329,7 @@ describe("🚀 8lends Protocol - General Flow Tests", function () {
       );
       const largeBurnTestSignature = await backend.signMessage(ethers.getBytes(largeBurnTestMessageHash));
 
-      await fundraise.connect(investor).investUpdate(largeBurnTestProjectId, largeInvestmentAmount, largeBurnTestNonceForSignature, largeBurnTestSignature, inviter);
+      await fundraise.connect(investor).investUpdateV2(largeBurnTestProjectId, largeInvestmentAmount, largeBurnTestNonceForSignature, largeBurnTestSignature, inviter);
       
       const totalSupplyBeforeLargeBurn = await token.totalSupply();
 
