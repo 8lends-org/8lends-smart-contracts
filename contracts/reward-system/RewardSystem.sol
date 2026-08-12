@@ -572,6 +572,9 @@ contract RewardSystem is Initializable, UUPSUpgradeable, OwnableUpgradeable, Ree
         require(len <= 500, "Batch too large");
 
         for (uint256 i = 0; i < len; i++) {
+            // Bigger-than-snapshot delta signals stale off-chain data
+            require(_reductions[i] <= _expectedCurrentAmount[i], "Reduction exceeds expected current amount");
+
             ReferralData storage refData = projectReferrals[_inviters[i]][_projectIds[i]];
             uint256 currentAmount = refData.totalRewardsUSDC;
             uint256 reduction = _reductions[i];
@@ -579,8 +582,6 @@ contract RewardSystem is Initializable, UUPSUpgradeable, OwnableUpgradeable, Ree
             // Bucket shrunk (claim happened or previous batch reduced it) — skip.
             if (currentAmount < _expectedCurrentAmount[i]) continue;
 
-            // Cap prevents underflow if operator passes an unrealistically large reduction.
-            if (reduction > currentAmount) reduction = currentAmount;
             if (reduction == 0) continue;
 
             uint256 newAmount = currentAmount - reduction;

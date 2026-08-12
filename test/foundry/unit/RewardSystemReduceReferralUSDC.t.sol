@@ -210,22 +210,42 @@ contract RewardSystemReduceReferralUSDCTest is Setup {
     }
 
     // ═══════════════════════════════════════════════════════════════
-    //   SAFETY: reduction > current → cap at current, no underflow
+    //   SAFETY: reduction > snapshot → fail-closed, whole batch reverts
     // ═══════════════════════════════════════════════════════════════
 
-    function test_safety_reductionExceedsCurrent_cappedAtCurrent() public {
+    function test_revertsIfReductionExceedsSnapshot() public {
         _investAs(investor, pid, INVEST_AMOUNT, inviter);
 
-        // Reduction way bigger than the bucket
+        // Reduction one wei bigger than the recorded snapshot
         (address[] memory inv, uint256[] memory ps, uint256[] memory red, uint256[] memory exp) =
-            _oneEntryBatch(inviter, pid, type(uint256).max, REFERRAL_BONUS);
+            _oneEntryBatch(inviter, pid, REFERRAL_BONUS + 1, REFERRAL_BONUS);
 
         vm.prank(owner);
-        vm.expectEmit(true, true, false, true);
-        emit RewardSystem.ReferralUSDCReduced(inviter, pid, REFERRAL_BONUS, 0);
+        vm.expectRevert("Reduction exceeds expected current amount");
         rewardSystem.reduceReferralUSDC(inv, ps, red, exp);
 
-        assertEq(_refUSDC(inviter, pid), 0, "capped: bucket zeroed, no underflow");
+        // Bucket untouched — the whole batch is atomic on revert
+        assertEq(_refUSDC(inviter, pid), REFERRAL_BONUS, "bucket unchanged after revert");
+    }
+
+    function test_revertsIfReductionExceedsSnapshot_evenWhenBucketGrew() public {
+        _investAs(investor, pid, INVEST_AMOUNT, inviter);
+
+        // Bucket grows between snapshot and execution (Case B setup)
+        address newReferee = makeAddr("newRefereeGrown");
+        _investAs(newReferee, pid, 500e6, inviter); // +30 USDC to bucket
+        assertEq(_refUSDC(inviter, pid), REFERRAL_BONUS + 30e6, "bucket grew by 30");
+
+        // Even though current > expected, reduction > expected still reverts —
+        // the invariant is snapshot-based, independent of the actual on-chain state.
+        (address[] memory inv, uint256[] memory ps, uint256[] memory red, uint256[] memory exp) =
+            _oneEntryBatch(inviter, pid, REFERRAL_BONUS + 1, REFERRAL_BONUS);
+
+        vm.prank(owner);
+        vm.expectRevert("Reduction exceeds expected current amount");
+        rewardSystem.reduceReferralUSDC(inv, ps, red, exp);
+
+        assertEq(_refUSDC(inviter, pid), REFERRAL_BONUS + 30e6, "bucket unchanged after revert");
     }
 
     // ═══════════════════════════════════════════════════════════════
@@ -360,7 +380,7 @@ contract RewardSystemReduceReferralUSDCTest is Setup {
     // reduction hits the reduction==0 skip). This test locks in that behaviour.
     function test_zeroInviterIsSilentNoOp() public {
         (address[] memory inv, uint256[] memory ps, uint256[] memory red, uint256[] memory exp) =
-            _oneEntryBatch(address(0), pid, 100e6, 0);
+            _oneEntryBatch(address(0), pid, 0, 0);
 
         vm.prank(owner);
         rewardSystem.reduceReferralUSDC(inv, ps, red, exp);
@@ -463,6 +483,11 @@ contract RewardSystemReduceReferralUSDCTest is Setup {
         uint256 before = _refUSDC(inviter, pid);
         assertGt(before, 0);
 
+        // Contract reverts if reduction > expected (invalid snapshot), independent
+        // of the A/B/C logic — bound reduction to respect that invariant.
+        expected = bound(expected, 0, type(uint256).max);
+        reduction = bound(reduction, 0, expected);
+
         (address[] memory inv, uint256[] memory ps, uint256[] memory red, uint256[] memory exp) =
             _oneEntryBatch(inviter, pid, reduction, expected);
         vm.prank(owner);
@@ -481,6 +506,9 @@ contract RewardSystemReduceReferralUSDCTest is Setup {
         // Force case C: expected > current
         uint256 expected = currentBefore + 1;
 
+        // Contract reverts if reduction > expected, so bound reduction to respect that.
+        reduction = bound(reduction, 0, expected);
+
         (address[] memory inv, uint256[] memory ps, uint256[] memory red, uint256[] memory exp) =
             _oneEntryBatch(inviter, pid, reduction, expected);
         vm.prank(owner);
@@ -494,6 +522,10 @@ contract RewardSystemReduceReferralUSDCTest is Setup {
         investAmount = bound(investAmount, 100e6, 30_000e6);
         _investAs(investor, pid, investAmount, inviter);
         uint256 currentBefore = _refUSDC(inviter, pid);
+
+        // Contract reverts if reduction > expected, so bound reduction to <= currentBefore
+        // (expected == currentBefore here).
+        reduction = bound(reduction, 0, currentBefore);
 
         (address[] memory inv, uint256[] memory ps, uint256[] memory red, uint256[] memory exp) =
             _oneEntryBatch(inviter, pid, reduction, currentBefore); // expected == current
@@ -524,6 +556,10 @@ contract RewardSystemReduceReferralUSDCTest is Setup {
         _investAs(newInvestor, pid, growthAmount, inviter);
         uint256 currentAfterGrowth = _refUSDC(inviter, pid);
         assertGt(currentAfterGrowth, snapshotValue, "growth applied");
+
+        // Contract reverts if reduction > expected, so bound reduction to <= snapshotValue
+        // (expected == snapshotValue here).
+        reduction = bound(reduction, 0, snapshotValue);
 
         // Operator's batch uses OLD snapshot value
         (address[] memory inv, uint256[] memory ps, uint256[] memory red, uint256[] memory exp) =
@@ -563,6 +599,10 @@ contract RewardSystemReduceReferralUSDCTest is Setup {
         uint256 beforeA = _refUSDC(inviterA, pidBig);
         uint256 beforeB = _refUSDC(inviterB, pidBig);
 
+        // Contract reverts if reduction > expected, so bound reductionA to respect that.
+        expectedA = bound(expectedA, 0, type(uint256).max);
+        reductionA = bound(reductionA, 0, expectedA);
+
         (address[] memory inv, uint256[] memory ps, uint256[] memory red, uint256[] memory exp) =
             _oneEntryBatch(inviterA, pidBig, reductionA, expectedA);
         vm.prank(owner);
@@ -587,6 +627,10 @@ contract RewardSystemReduceReferralUSDCTest is Setup {
 
         uint256 before2 = _refUSDC(inviter, pid2);
 
+        // Contract reverts if reduction > expected, so bound reduction1 to respect that.
+        expected1 = bound(expected1, 0, type(uint256).max);
+        reduction1 = bound(reduction1, 0, expected1);
+
         (address[] memory inv, uint256[] memory ps, uint256[] memory red, uint256[] memory exp) =
             _oneEntryBatch(inviter, pid, reduction1, expected1);
         vm.prank(owner);
@@ -604,6 +648,10 @@ contract RewardSystemReduceReferralUSDCTest is Setup {
         investAmount = bound(investAmount, 100e6, 30_000e6);
         _investAs(investor, pid, investAmount, inviter);
         uint256 currentBefore = _refUSDC(inviter, pid);
+
+        // Contract reverts if reduction > expected, so bound reduction to respect that.
+        expected = bound(expected, 0, type(uint256).max);
+        reduction = bound(reduction, 0, expected);
 
         (address[] memory inv, uint256[] memory ps, uint256[] memory red, uint256[] memory exp) =
             _oneEntryBatch(inviter, pid, reduction, expected);
@@ -647,6 +695,10 @@ contract RewardSystemReduceReferralUSDCTest is Setup {
 
         uint256 investorTokensBefore = _refTokens(investor, pid);
         uint256 inviterTokensBefore = _refTokens(inviter, pid);
+
+        // Contract reverts if reduction > expected, so bound reduction to respect that.
+        expected = bound(expected, 0, type(uint256).max);
+        reduction = bound(reduction, 0, expected);
 
         (address[] memory inv, uint256[] memory ps, uint256[] memory red, uint256[] memory exp) =
             _oneEntryBatch(inviter, pid, reduction, expected);

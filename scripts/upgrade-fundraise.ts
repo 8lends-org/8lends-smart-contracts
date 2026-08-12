@@ -18,6 +18,10 @@ dotenv.config();
 type Config = Record<string, string>;
 
 async function main(): Promise<void> {
+  if (hre.network.name === "hardhat" && process.env.ALLOW_FORK !== "1") {
+    throw new Error("Refusing to run against the in-process fork. Pass --network base or set ALLOW_FORK=1.");
+  }
+
   // ── network + config ────────────────────────────────────────────────────────
   const net = await ethers.provider.getNetwork();
   console.log("\n" + "=".repeat(80));
