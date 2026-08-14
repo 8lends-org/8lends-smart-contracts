@@ -37,7 +37,8 @@ const config: HardhatUserConfig = {
             url: process.env.BASE_RPC_URL,
             accounts: {
                 mnemonic: process.env.OWNER_MNEMONIC_PROD,
-            }
+                initialIndex: Number(process.env.INITIAL_INDEX) || 0
+            },
         },
         hardhat: {
             gasPrice: 100000000000,
@@ -61,8 +62,9 @@ const config: HardhatUserConfig = {
             chainId: 11155111,
             url: process.env.ETHEREUM_SEPOLIA_RPC_URL,
             accounts: {
-                mnemonic: process.env.OWNER_MNEMONIC_DEV
-            }
+                mnemonic: process.env.OWNER_MNEMONIC_DEV,
+                initialIndex: Number(process.env.INITIAL_INDEX) || 0
+            },
         }
     },
     gasReporter: {
@@ -73,7 +75,7 @@ const config: HardhatUserConfig = {
         runOnCompile: true,
         clear: true,
         flat: true,
-        only: [':Fundraise$', ':RewardSystem$', ':Treasury$', ':Token$', ':ManagerRegistry$', ':Rewards2$', ':Market$', ':Lending8$', ':Oracle$', ':AdaptiveCurveIrm$', ':LimitedSeller$', ':BTC8L$', ':EscrowFactory$', ':AmlEscrow$', ':WelcomeBonus$', ':MaclearBonus$'],
+        only: [':Fundraise$', ':RewardSystem$', ':Treasury$', ':Token$', ':ManagerRegistry$', ':Rewards2$', ':Market$', ':Lending8$', ':Oracle$', ':AdaptiveCurveIrm$', ':LimitedSeller$', ':BTC8L$', ':EscrowFactory$', ':AmlEscrow$', ':WelcomeBonus$', ':MaclearBonus$', ':CustomBonus$'],
         spacing: 2,
         format: 'json',
     },
