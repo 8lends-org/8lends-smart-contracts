@@ -67,7 +67,7 @@ contract CustomBonus is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reen
         uint8 _bonusType,
         uint256 _campaignId,
         uint256 _amount
-    ) external onlyManager nonReentrant {
+    ) external onlyOwner nonReentrant {
         _sendCustomBonus(_user, _bonusType, _campaignId, _amount);
     }
 
@@ -78,7 +78,7 @@ contract CustomBonus is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reen
         uint8[] calldata _bonusTypes,
         uint256[] calldata _campaignIds,
         uint256[] calldata _amounts
-    ) external onlyManager nonReentrant {
+    ) external onlyOwner nonReentrant {
         uint256 len = _users.length;
         require(len == _bonusTypes.length, "Length mismatch");
         require(len == _campaignIds.length, "Length mismatch");
