@@ -85,6 +85,13 @@ contract RewardSystem is Initializable, UUPSUpgradeable, OwnableUpgradeable, Ree
     event TokenAddressUpdated(address token);
     event UniswapRouterUpdated(address router);
 
+    event ReferralUSDCReduced(
+        address indexed inviter,
+        uint256 indexed projectId,
+        uint256 oldAmount,
+        uint256 newAmount
+    );
+
     modifier onlyManager() {
         require(IManagerRegistry(managerRegistry).isManager(msg.sender), "Not a manager");
         _;
@@ -544,6 +551,44 @@ contract RewardSystem is Initializable, UUPSUpgradeable, OwnableUpgradeable, Ree
     function deactivateProject(uint256 _projectId) external onlyOwner {
         projectVestingStartTime[_projectId] = 0;
         emit ProjectRewardsDeactivated(_projectId);
+    }
+
+    /// @notice Subtract mistakenly credited USDC referral bonuses (owner only)
+    /// @param _inviters               Inviter addresses (bucket key)
+    /// @param _projectIds             Project IDs (parallel with _inviters)
+    /// @param _reductions             Amounts of USDC to subtract from each bucket (delta)
+    /// @param _expectedCurrentAmount  On-chain totalRewardsUSDC value at the moment of
+    ///                                off-chain snapshot preparation. Used when the current on-chain state differs
+    function reduceReferralUSDC(
+        address[] calldata _inviters,
+        uint256[] calldata _projectIds,
+        uint256[] calldata _reductions,
+        uint256[] calldata _expectedCurrentAmount
+    ) external onlyOwner {
+        uint256 len = _inviters.length;
+        require(len == _projectIds.length, "Users and projectIds length mismatch");
+        require(len == _reductions.length, "Users and reductions length mismatch");
+        require(len == _expectedCurrentAmount.length, "Users and expected length mismatch");
+        require(len <= 500, "Batch too large");
+
+        for (uint256 i = 0; i < len; i++) {
+            // Bigger-than-snapshot delta signals stale off-chain data
+            require(_reductions[i] <= _expectedCurrentAmount[i], "Reduction exceeds expected current amount");
+
+            ReferralData storage refData = projectReferrals[_inviters[i]][_projectIds[i]];
+            uint256 currentAmount = refData.totalRewardsUSDC;
+            uint256 reduction = _reductions[i];
+
+            // Bucket shrunk (claim happened or previous batch reduced it) — skip.
+            if (currentAmount < _expectedCurrentAmount[i]) continue;
+
+            if (reduction == 0) continue;
+
+            uint256 newAmount = currentAmount - reduction;
+            refData.totalRewardsUSDC = newAmount;
+
+            emit ReferralUSDCReduced(_inviters[i], _projectIds[i], currentAmount, newAmount);
+        }
     }
 
     /// @notice Set additional unlock percentage for sell operations

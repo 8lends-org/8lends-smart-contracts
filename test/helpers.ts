@@ -2,20 +2,19 @@
 
 import { ethers, upgrades } from "hardhat";
 import { time } from "@nomicfoundation/hardhat-network-helpers";
-import { 
+import {
   ManagerRegistry,
   Treasury,
   Fundraise,
-  MockERC20,
+  TestERC20,
   Token,
   RewardSystem
 } from "../typechain-types";
-import { formatEther, formatUnits, parseEther } from "ethers";
-import { hashAddress } from "../scripts/helpers";
+import { formatEther } from "ethers";
 
-  // Uniswap V2 addresses on Ethereum mainnet
-  const UNISWAP_V2_FACTORY = "0x5C69bEe701ef814a2B6a3EDD4B1652CB9cc5aA6f";
-  const UNISWAP_V2_ROUTER = "0x7a250d5630B4cF539739dF2C5dAcb4c659F2488D";
+  // Uniswap V2 on Base (Uniswap Labs deployment, chain 8453)
+  const UNISWAP_V2_FACTORY = "0x8909Dc15e40173Ff4699343b6eB8132c65e18eC6";
+  const UNISWAP_V2_ROUTER = "0x4752ba5DBc23f44D87826276BF6Fd6b1C372aD24";
 
 // Interfaces for Uniswap V2
 interface IUniswapV2Factory {
@@ -40,9 +39,9 @@ interface IUniswapV2Router02 {
 export async function deployContracts() {
   const [owner, manager, notManager, borrower, investor, treasuryAdmin, backend, usr1, usr2, usr3, inviter] = await ethers.getSigners();
 
-  // Deploy MockERC20 for Eightlends and USDT
-  const MockERC20 = await ethers.getContractFactory("MockERC20",owner);
-  const usdcToken = await upgrades.deployProxy(MockERC20, [owner.address, "TEST USDC Token", "USDC"]) as unknown as MockERC20;
+  // Deploy TestERC20 (upgradeable USDC mock, 6 decimals)
+  const TestERC20Factory = await ethers.getContractFactory("TestERC20", owner);
+  const usdcToken = await upgrades.deployProxy(TestERC20Factory, [owner.address, "TEST USDC Token", "USDC", 6]) as unknown as TestERC20;
 
   // Deploy ManagerRegistry
   const ManagerRegistryFactory = await ethers.getContractFactory("ManagerRegistry",owner);
@@ -65,7 +64,7 @@ export async function deployContracts() {
     await managerRegistry.getAddress(),
     await token.getAddress(),
     await usdcToken.getAddress(),
-    "0x7a250d5630B4cF539739dF2C5dAcb4c659F2488D"  // Uniswap V2 Router on Mainnet
+    UNISWAP_V2_ROUTER
   ]) as unknown as RewardSystem;
 
 
@@ -125,7 +124,7 @@ export async function deployContracts() {
   };
 }
 
-async function setupUniswapLiquidity(owner: any, token: Token, usdcToken: MockERC20, managerRegistry: ManagerRegistry) {
+async function setupUniswapLiquidity(owner: any, token: Token, usdcToken: TestERC20, managerRegistry: ManagerRegistry) {
   console.log("");
   console.log("[🦄 UNISWAP LIQUIDITY ]");
   
@@ -133,7 +132,7 @@ async function setupUniswapLiquidity(owner: any, token: Token, usdcToken: MockER
   
   // Connect to Uniswap contracts
   const factory = await ethers.getContractAt("contracts/interfaces/IUniswapV2Factory.sol:IUniswapV2Factory", UNISWAP_V2_FACTORY) as any;
-  const router = await ethers.getContractAt("contracts/interfaces/IUniswapV2Router02.sol:IUniswapV2Router02", UNISWAP_V2_ROUTER) as any;
+  const router = await ethers.getContractAt("contracts/lending/interfaces/IUniswapV2Router02.sol:IUniswapV2Router02", UNISWAP_V2_ROUTER) as any;
   
   // Create TOKEN1111/USDC pair
   const tokenAddress = await token.getAddress();

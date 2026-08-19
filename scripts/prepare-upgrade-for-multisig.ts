@@ -15,6 +15,10 @@ dotenv.config();
  */
 
 async function main() {
+  if (hre.network.name === "hardhat" && process.env.ALLOW_FORK !== "1") {
+    throw new Error("Refusing to run against the in-process fork. Pass --network base or set ALLOW_FORK=1.");
+  }
+
   const contractName = process.env.CONTRACT;
 
   if (!contractName) {
