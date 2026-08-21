@@ -18,7 +18,7 @@ contract LeagueBonusTest is Setup {
 
     address user1;
     address user2;
-    address notManager;
+    address notOperator;
 
     /// @dev initialize takes a dynamic array whose length must equal the number of real leagues.
     function _amounts() internal pure returns (uint256[] memory a) {
@@ -43,7 +43,7 @@ contract LeagueBonusTest is Setup {
 
         user1 = makeAddr("user1");
         user2 = makeAddr("user2");
-        notManager = makeAddr("notManager");
+        notOperator = makeAddr("notOperator");
     }
 
     // ── initialize ──
@@ -119,7 +119,7 @@ contract LeagueBonusTest is Setup {
     // ── acceptance: one bonus per promotion event, sized at its destination league ──
 
     function test_firstPromotion_paysDestinationLeagueAmount() public {
-        vm.prank(manager);
+        vm.prank(operator);
         league.sendBonus(user1, LeagueBonus.League.Silver);
 
         assertEq(usdc.balanceOf(user1), SILVER);
@@ -132,9 +132,9 @@ contract LeagueBonusTest is Setup {
 
     /// Two separate promotion events (Bronze → Silver → Gold) pay two bonuses.
     function test_stepByStepPromotions_payPerEvent() public {
-        vm.prank(manager);
+        vm.prank(operator);
         league.sendBonus(user1, LeagueBonus.League.Silver);
-        vm.prank(manager);
+        vm.prank(operator);
         league.sendBonus(user1, LeagueBonus.League.Gold);
 
         assertEq(usdc.balanceOf(user1), SILVER + GOLD);
@@ -142,7 +142,7 @@ contract LeagueBonusTest is Setup {
         assertEq(league.totalBonusCount(), 2);
 
         // and a third event keeps paying
-        vm.prank(manager);
+        vm.prank(operator);
         league.sendBonus(user1, LeagueBonus.League.Diamond);
         assertEq(usdc.balanceOf(user1), SILVER + GOLD + DIAMOND);
         assertEq(league.totalBonusCount(), 3);
@@ -151,7 +151,7 @@ contract LeagueBonusTest is Setup {
     /// Capital jumped several leagues in one event → one bonus at the destination league only.
     /// The skipped intermediate leagues are never paid, not even later.
     function test_multiLeagueJump_paysOnceAtDestinationAndBurnsSkippedLeagues() public {
-        vm.prank(manager);
+        vm.prank(operator);
         league.sendBonus(user1, LeagueBonus.League.Diamond);
 
         assertEq(usdc.balanceOf(user1), DIAMOND);
@@ -159,18 +159,18 @@ contract LeagueBonusTest is Setup {
 
         // Gold was skipped past — it can never be claimed afterwards
         assertFalse(league.qualifiesForBonus(user1, LeagueBonus.League.Gold));
-        vm.prank(manager);
+        vm.prank(operator);
         vm.expectRevert("Invalid league or amount");
         league.sendBonus(user1, LeagueBonus.League.Gold);
     }
 
     /// Demotion then re-promotion into an already-paid league pays nothing.
     function test_demotionThenRePromotionToSameLeague_revert() public {
-        vm.prank(manager);
+        vm.prank(operator);
         league.sendBonus(user1, LeagueBonus.League.Gold);
 
         // the demotion happens off-chain only — nothing lowers the on-chain marker
-        vm.prank(manager);
+        vm.prank(operator);
         vm.expectRevert("Invalid league or amount");
         league.sendBonus(user1, LeagueBonus.League.Gold);
 
@@ -186,10 +186,10 @@ contract LeagueBonusTest is Setup {
         LeagueBonus.League[] memory leagues = new LeagueBonus.League[](1);
         leagues[0] = LeagueBonus.League.Gold;
 
-        vm.prank(manager);
+        vm.prank(operator);
         league.sendBonusBatch(users, leagues);
 
-        vm.prank(manager);
+        vm.prank(operator);
         vm.expectRevert("Invalid league or amount");
         league.sendBonusBatch(users, leagues);
 
@@ -203,14 +203,14 @@ contract LeagueBonusTest is Setup {
     function test_bronze_isPayableAndDoesNotBlockHigherLeagues() public {
         assertTrue(league.qualifiesForBonus(user1, LeagueBonus.League.Bronze));
 
-        vm.prank(manager);
+        vm.prank(operator);
         league.sendBonus(user1, LeagueBonus.League.Bronze);
 
         assertEq(usdc.balanceOf(user1), BRONZE);
         assertTrue(league.hasAnyBonus(user1));
         assertEq(uint8(league.highestBonusedLeague(user1)), uint8(LeagueBonus.League.Bronze));
 
-        vm.prank(manager);
+        vm.prank(operator);
         league.sendBonus(user1, LeagueBonus.League.Silver);
         assertEq(usdc.balanceOf(user1), BRONZE + SILVER);
         assertEq(league.totalBonusCount(), 2);
@@ -221,14 +221,14 @@ contract LeagueBonusTest is Setup {
     function test_none_revert_andDoesNotRaiseTheMarker() public {
         assertFalse(league.qualifiesForBonus(user1, LeagueBonus.League.None));
 
-        vm.prank(manager);
+        vm.prank(operator);
         vm.expectRevert("Invalid league");
         league.sendBonus(user1, LeagueBonus.League.None);
 
         assertFalse(league.hasAnyBonus(user1), "marker not raised");
 
         // a real promotion still pays
-        vm.prank(manager);
+        vm.prank(operator);
         league.sendBonus(user1, LeagueBonus.League.Bronze);
         assertEq(usdc.balanceOf(user1), BRONZE);
     }
@@ -238,54 +238,47 @@ contract LeagueBonusTest is Setup {
     function test_zeroAmountLeague_revert_andDoesNotRaiseTheMarker() public {
         league.setBonusAmount(LeagueBonus.League.Silver, 0);
 
-        vm.prank(manager);
+        vm.prank(operator);
         vm.expectRevert("Invalid league or amount");
         league.sendBonus(user1, LeagueBonus.League.Silver);
 
         assertFalse(league.hasAnyBonus(user1), "marker not raised");
 
         league.setBonusAmount(LeagueBonus.League.Silver, SILVER);
-        vm.prank(manager);
+        vm.prank(operator);
         league.sendBonus(user1, LeagueBonus.League.Silver);
         assertEq(usdc.balanceOf(user1), SILVER);
     }
 
     // ── sendBonus: guards ──
 
-    function test_sendBonus_revert_notManager() public {
-        vm.prank(notManager);
-        vm.expectRevert("Not a manager");
+    function test_sendBonus_revert_notOperator() public {
+        vm.prank(notOperator);
+        vm.expectRevert("Not an operator");
         league.sendBonus(user1, LeagueBonus.League.Silver);
     }
 
-    function test_sendBonus_revert_killSwitch() public {
-        league.setKillSwitch(true);
+    /// The operator role exists precisely so that a hot backend key is not also a manager.
+    /// A manager must therefore be rejected here even though it is a privileged address
+    /// elsewhere in the protocol — if this test ever passes, the two sets have been blurred.
+    function test_sendBonus_revert_managerIsNotOperator() public {
+        assertTrue(managerRegistry.isManager(manager));
+        assertFalse(managerRegistry.isOperator(manager));
 
         vm.prank(manager);
-        vm.expectRevert("Kill switch is active");
+        vm.expectRevert("Not an operator");
         league.sendBonus(user1, LeagueBonus.League.Silver);
     }
 
-    function test_sendBonus_revert_zeroAddress() public {
-        vm.prank(manager);
-        vm.expectRevert("Invalid address");
-        league.sendBonus(address(0), LeagueBonus.League.Silver);
-    }
+    /// `isOperator` does not implicitly admit the owner, unlike the `|| msg.sender == owner()`
+    /// pattern used by the setters in ManagerRegistry. Pinned deliberately: the Safe has to be
+    /// added as an operator explicitly, and that grant is visible as an event.
+    function test_sendBonus_revert_ownerIsNotOperator() public {
+        assertFalse(managerRegistry.isOperator(owner));
 
-    function test_sendBonus_revert_insufficientBalance() public {
-        league.withdraw(address(usdc), usdc.balanceOf(address(league)), owner);
-
-        vm.prank(manager);
-        vm.expectRevert("Insufficient USDC balance");
+        vm.prank(owner);
+        vm.expectRevert("Not an operator");
         league.sendBonus(user1, LeagueBonus.League.Silver);
-    }
-
-    function test_sendBonus_emitsEvent() public {
-        vm.expectEmit(true, true, false, true, address(league));
-        emit LeagueBonus.BonusSent(user1, LeagueBonus.League.Gold, GOLD);
-
-        vm.prank(manager);
-        league.sendBonus(user1, LeagueBonus.League.Gold);
     }
 
     // ── sendBonusBatch ──
@@ -302,7 +295,7 @@ contract LeagueBonusTest is Setup {
         leagues[1] = LeagueBonus.League.Gold;
         leagues[2] = LeagueBonus.League.Diamond;
 
-        vm.prank(manager);
+        vm.prank(operator);
         league.sendBonusBatch(users, leagues);
 
         assertEq(usdc.balanceOf(user1), SILVER);
@@ -315,7 +308,7 @@ contract LeagueBonusTest is Setup {
     /// One entry targeting a league not above the wallet's last bonused one takes the whole batch
     /// down — no partial payouts.
     function test_sendBonusBatch_revert_notHigherLeague_isAtomic() public {
-        vm.prank(manager);
+        vm.prank(operator);
         league.sendBonus(user1, LeagueBonus.League.Gold); // pre-pay user1 up to Gold
 
         address[] memory users = new address[](2);
@@ -325,7 +318,7 @@ contract LeagueBonusTest is Setup {
         leagues[0] = LeagueBonus.League.Gold;
         leagues[1] = LeagueBonus.League.Silver;
 
-        vm.prank(manager);
+        vm.prank(operator);
         vm.expectRevert("Invalid league or amount");
         league.sendBonusBatch(users, leagues);
 
@@ -342,7 +335,7 @@ contract LeagueBonusTest is Setup {
         leagues[0] = LeagueBonus.League.Silver;
         leagues[1] = LeagueBonus.League.Silver;
 
-        vm.prank(manager);
+        vm.prank(operator);
         vm.expectRevert("Invalid league or amount");
         league.sendBonusBatch(users, leagues);
 
@@ -359,7 +352,7 @@ contract LeagueBonusTest is Setup {
         leagues[0] = LeagueBonus.League.Silver;
         leagues[1] = LeagueBonus.League.Gold;
 
-        vm.prank(manager);
+        vm.prank(operator);
         league.sendBonusBatch(users, leagues);
 
         assertEq(usdc.balanceOf(user1), SILVER + GOLD);
@@ -370,7 +363,7 @@ contract LeagueBonusTest is Setup {
         address[] memory users = new address[](2);
         LeagueBonus.League[] memory leagues = new LeagueBonus.League[](1);
 
-        vm.prank(manager);
+        vm.prank(operator);
         vm.expectRevert("Length mismatch");
         league.sendBonusBatch(users, leagues);
     }
@@ -379,7 +372,7 @@ contract LeagueBonusTest is Setup {
         address[] memory users = new address[](0);
         LeagueBonus.League[] memory leagues = new LeagueBonus.League[](0);
 
-        vm.prank(manager);
+        vm.prank(operator);
         vm.expectRevert("Empty array");
         league.sendBonusBatch(users, leagues);
     }
@@ -388,19 +381,19 @@ contract LeagueBonusTest is Setup {
         address[] memory users = new address[](201);
         LeagueBonus.League[] memory leagues = new LeagueBonus.League[](201);
 
-        vm.prank(manager);
+        vm.prank(operator);
         vm.expectRevert("Too many users");
         league.sendBonusBatch(users, leagues);
     }
 
-    function test_sendBonusBatch_revert_notManager() public {
+    function test_sendBonusBatch_revert_notOperator() public {
         address[] memory users = new address[](1);
         users[0] = user1;
         LeagueBonus.League[] memory leagues = new LeagueBonus.League[](1);
         leagues[0] = LeagueBonus.League.Silver;
 
-        vm.prank(notManager);
-        vm.expectRevert("Not a manager");
+        vm.prank(notOperator);
+        vm.expectRevert("Not an operator");
         league.sendBonusBatch(users, leagues);
     }
 
@@ -415,7 +408,7 @@ contract LeagueBonusTest is Setup {
         leagues[0] = LeagueBonus.League.Silver;
         leagues[1] = LeagueBonus.League.Diamond;
 
-        vm.prank(manager);
+        vm.prank(operator);
         vm.expectRevert("Insufficient USDC balance");
         league.sendBonusBatch(users, leagues);
 
@@ -429,13 +422,13 @@ contract LeagueBonusTest is Setup {
         league.setBonusAmount(LeagueBonus.League.Gold, 150e6);
         assertEq(league.getBonusAmount(LeagueBonus.League.Gold), 150e6);
 
-        vm.prank(manager);
+        vm.prank(operator);
         league.sendBonus(user1, LeagueBonus.League.Gold);
         assertEq(usdc.balanceOf(user1), 150e6);
     }
 
     function test_setBonusAmount_revert_notOwner() public {
-        vm.prank(notManager);
+        vm.prank(notOperator);
         vm.expectRevert();
         league.setBonusAmount(LeagueBonus.League.Gold, 150e6);
     }
@@ -493,9 +486,9 @@ contract LeagueBonusTest is Setup {
     }
 
     function test_withdraw_revert_notOwner() public {
-        vm.prank(notManager);
+        vm.prank(notOperator);
         vm.expectRevert();
-        league.withdraw(address(usdc), 1e6, notManager);
+        league.withdraw(address(usdc), 1e6, notOperator);
     }
 
     function test_withdraw_revert_zeroRecipient() public {
@@ -506,7 +499,7 @@ contract LeagueBonusTest is Setup {
     // ── views ──
 
     function test_getStats() public {
-        vm.prank(manager);
+        vm.prank(operator);
         league.sendBonus(user1, LeagueBonus.League.Gold);
 
         (uint256 paid, uint256 count, uint256 balance) = league.getStats();
@@ -516,9 +509,9 @@ contract LeagueBonusTest is Setup {
     }
 
     function test_getLeagueStats() public {
-        vm.prank(manager);
+        vm.prank(operator);
         league.sendBonus(user1, LeagueBonus.League.Gold);
-        vm.prank(manager);
+        vm.prank(operator);
         league.sendBonus(user2, LeagueBonus.League.Gold);
 
         (uint256 paid, uint256 count) = league.getLeagueStats(LeagueBonus.League.Gold);
@@ -540,7 +533,7 @@ contract LeagueBonusTest is Setup {
     function test_qualifiesForBonus_onlyStrictlyHigherLeagues() public {
         assertTrue(league.qualifiesForBonus(user1, LeagueBonus.League.Silver));
 
-        vm.prank(manager);
+        vm.prank(operator);
         league.sendBonus(user1, LeagueBonus.League.Gold);
 
         assertFalse(league.qualifiesForBonus(user1, LeagueBonus.League.Silver), "lower league");

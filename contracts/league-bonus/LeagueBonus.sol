@@ -56,8 +56,8 @@ contract LeagueBonus is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reen
     event ContractsUpdated(address managerRegistry, address usdc);
     event Withdrawn(address token, uint256 amount, address recipient);
 
-    modifier onlyManager() {
-        require(managerRegistry.isManager(msg.sender), "Not a manager");
+    modifier onlyOperator() {
+        require(managerRegistry.isOperator(msg.sender), "Not an operator");
         _;
     }
 
@@ -99,7 +99,7 @@ contract LeagueBonus is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reen
     /// league. Reverts if this wallet was already paid for that league or a higher one.
     /// @param _user User wallet address
     /// @param _league Destination league of this specific promotion event
-    function sendBonus(address _user, League _league) external onlyManager nonReentrant {
+    function sendBonus(address _user, League _league) external onlyOperator nonReentrant {
         _sendBonus(_user, _league);
     }
 
@@ -112,7 +112,7 @@ contract LeagueBonus is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reen
     function sendBonusBatch(
         address[] calldata _users,
         League[] calldata _leagues
-    ) external onlyManager nonReentrant {
+    ) external onlyOperator nonReentrant {
         require(_users.length == _leagues.length, "Length mismatch");
         require(_users.length > 0, "Empty array");
         require(_users.length <= 200, "Too many users");
