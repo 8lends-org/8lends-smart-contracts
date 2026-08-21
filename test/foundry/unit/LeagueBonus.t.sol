@@ -20,13 +20,22 @@ contract LeagueBonusTest is Setup {
     address user2;
     address notManager;
 
+    /// @dev initialize takes a dynamic array whose length must equal the number of real leagues.
+    function _amounts() internal pure returns (uint256[] memory a) {
+        a = new uint256[](4);
+        a[0] = BRONZE;
+        a[1] = SILVER;
+        a[2] = GOLD;
+        a[3] = DIAMOND;
+    }
+
     function setUp() public override {
         super.setUp();
 
         LeagueBonus impl = new LeagueBonus();
         bytes memory data = abi.encodeCall(
             LeagueBonus.initialize,
-            (address(managerRegistry), address(usdc), [BRONZE, SILVER, GOLD, DIAMOND])
+            (address(managerRegistry), address(usdc), _amounts())
         );
         league = LeagueBonus(address(new ERC1967Proxy(address(impl), data)));
 
@@ -52,17 +61,56 @@ contract LeagueBonusTest is Setup {
         LeagueBonus impl = new LeagueBonus();
         bytes memory data = abi.encodeCall(
             LeagueBonus.initialize,
-            (address(0), address(usdc), [BRONZE, SILVER, GOLD, DIAMOND])
+            (address(0), address(usdc), _amounts())
         );
         vm.expectRevert("Invalid managerRegistry");
         new ERC1967Proxy(address(impl), data);
+    }
+
+    function test_initialize_revert_amountsTooShort() public {
+        LeagueBonus impl = new LeagueBonus();
+        uint256[] memory short = new uint256[](3);
+        bytes memory data = abi.encodeCall(
+            LeagueBonus.initialize,
+            (address(managerRegistry), address(usdc), short)
+        );
+        vm.expectRevert("Bad amounts length");
+        new ERC1967Proxy(address(impl), data);
+    }
+
+    /// @dev The dangerous direction: without the length check the extra entry is silently dropped.
+    function test_initialize_revert_amountsTooLong() public {
+        LeagueBonus impl = new LeagueBonus();
+        uint256[] memory long = new uint256[](5);
+        long[0] = BRONZE;
+        long[1] = SILVER;
+        long[2] = GOLD;
+        long[3] = DIAMOND;
+        long[4] = 999e6;
+        bytes memory data = abi.encodeCall(
+            LeagueBonus.initialize,
+            (address(managerRegistry), address(usdc), long)
+        );
+        vm.expectRevert("Bad amounts length");
+        new ERC1967Proxy(address(impl), data);
+    }
+
+    /// @dev Pins the enum ordinals. Fails if a league is inserted rather than appended — an
+    ///      insertion keeps the storage layout intact but silently reinterprets every stored
+    ///      `highestBonusedLeague` and every `bonusAmount` key one league lower.
+    function test_leagueOrdinalsArePinned() public pure {
+        assertEq(uint8(LeagueBonus.League.None), 0);
+        assertEq(uint8(LeagueBonus.League.Bronze), 1);
+        assertEq(uint8(LeagueBonus.League.Silver), 2);
+        assertEq(uint8(LeagueBonus.League.Gold), 3);
+        assertEq(uint8(LeagueBonus.League.Diamond), 4);
     }
 
     function test_initialize_revert_zeroUsdc() public {
         LeagueBonus impl = new LeagueBonus();
         bytes memory data = abi.encodeCall(
             LeagueBonus.initialize,
-            (address(managerRegistry), address(0), [BRONZE, SILVER, GOLD, DIAMOND])
+            (address(managerRegistry), address(0), _amounts())
         );
         vm.expectRevert("Invalid usdc");
         new ERC1967Proxy(address(impl), data);

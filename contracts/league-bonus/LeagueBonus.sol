@@ -29,11 +29,6 @@ contract LeagueBonus is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reen
         Diamond
     }
 
-    /// @notice Number of real leagues, i.e. enum members excluding `None`. Bump this together with
-    /// every new member added to `League` — it sizes the amounts array `initialize` seeds, and a
-    /// stale value would leave the new league unconfigured on a fresh deploy.
-    uint256 public constant LEAGUE_COUNT = 4;
-
     IERC20 public usdc;
     IManagerRegistry public managerRegistry;
 
@@ -59,6 +54,7 @@ contract LeagueBonus is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reen
     event KillSwitchSet(bool enabled);
     event BonusAmountSet(League indexed league, uint256 amount);
     event ContractsUpdated(address managerRegistry, address usdc);
+    event Withdrawn(address token, uint256 amount, address recipient);
 
     modifier onlyManager() {
         require(managerRegistry.isManager(msg.sender), "Not a manager");
@@ -73,10 +69,16 @@ contract LeagueBonus is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reen
     function initialize(
         address _managerRegistry,
         address _usdc,
-        uint256[LEAGUE_COUNT] calldata _bonusAmounts // [Bronze, Silver, Gold, Diamond], zero = not paid
+        uint256[] calldata _bonusAmounts // [Bronze, Silver, Gold, Diamond], zero = not paid
     ) public initializer {
         require(_managerRegistry != address(0), "Invalid managerRegistry");
         require(_usdc != address(0), "Invalid usdc");
+
+        // One amount per real league, derived from the enum itself: a member added to `League`
+        // makes a stale deploy argument fail loudly here instead of leaving the new league
+        // unconfigured (too few) or silently dropping an amount (too many).
+        uint256 leagueCount = uint256(type(League).max);
+        require(_bonusAmounts.length == leagueCount, "Bad amounts length");
 
         __Ownable_init(msg.sender);
         __ReentrancyGuard_init();
@@ -85,7 +87,7 @@ contract LeagueBonus is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reen
         managerRegistry = IManagerRegistry(_managerRegistry);
         usdc = IERC20(_usdc);
 
-        for (uint256 i = 0; i < LEAGUE_COUNT; i++) {
+        for (uint256 i = 0; i < leagueCount; i++) {
             // + 1 skips the reserved None member, so index 0 is Bronze
             League league = League(i + 1);
             bonusAmount[league] = _bonusAmounts[i];
@@ -172,6 +174,8 @@ contract LeagueBonus is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reen
     function withdraw(address _token, uint256 _amount, address _recipient) external onlyOwner {
         require(_recipient != address(0), "Invalid recipient");
         IERC20(_token).safeTransfer(_recipient, _amount);
+
+        emit Withdrawn(_token, _amount, _recipient);
     }
 
     // --- View functions ---
