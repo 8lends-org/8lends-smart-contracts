@@ -264,6 +264,18 @@ const DEPLOY_DESCRIPTORS: Record<string, DeployDescriptor> = {
     configKey: "CryptoCourceBonus",
     configKeyImpl: "CryptoCourceBonus_impl",
   },
+  CustomBonus: {
+    useProxy: true,
+    initializer: "initialize",
+    getProxyArgs: (config) => {
+      if (!config.ManagerRegistry || !config.USDC) {
+        throw new Error("ManagerRegistry, USDC required in config");
+      }
+      return [config.ManagerRegistry, config.USDC];
+    },
+    configKey: "CustomBonus",
+    configKeyImpl: "CustomBonus_impl",
+  },
 };
 
 async function main(): Promise<void> {
