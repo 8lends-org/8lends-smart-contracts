@@ -18,7 +18,7 @@ contract CustomBonusTest is Setup {
 
     address user1;
     address user2;
-    address notManager;
+    address notOperator;
 
     function setUp() public override {
         super.setUp();
@@ -33,13 +33,13 @@ contract CustomBonusTest is Setup {
 
         user1 = makeAddr("user1");
         user2 = makeAddr("user2");
-        notManager = makeAddr("notManager");
+        notOperator = makeAddr("notOperator");
     }
 
     // ── sendCustomBonus (single) ──
 
     function test_sendCustomBonus_success() public {
-        vm.prank(owner);
+        vm.prank(operator);
         cb.sendCustomBonus(user1, TYPE_MARKETING, CAMPAIGN_A, AMOUNT);
 
         assertEq(usdc.balanceOf(user1), AMOUNT);
@@ -49,19 +49,19 @@ contract CustomBonusTest is Setup {
     }
 
     function test_sendCustomBonus_revert_doublePay_sameTriple() public {
-        vm.prank(owner);
+        vm.prank(operator);
         cb.sendCustomBonus(user1, TYPE_MARKETING, CAMPAIGN_A, AMOUNT);
 
-        vm.prank(owner);
+        vm.prank(operator);
         vm.expectRevert("Already paid");
         cb.sendCustomBonus(user1, TYPE_MARKETING, CAMPAIGN_A, AMOUNT);
     }
 
     function test_sendCustomBonus_sameUser_differentCampaign_bothPaid() public {
-        vm.prank(owner);
+        vm.prank(operator);
         cb.sendCustomBonus(user1, TYPE_MARKETING, CAMPAIGN_A, AMOUNT);
 
-        vm.prank(owner);
+        vm.prank(operator);
         cb.sendCustomBonus(user1, TYPE_MARKETING, CAMPAIGN_B, 20e6);
 
         assertEq(usdc.balanceOf(user1), AMOUNT + 20e6);
@@ -70,13 +70,13 @@ contract CustomBonusTest is Setup {
 
     function test_campaignStats_trackedPerTypeAndCampaign() public {
         // (MARKETING, A): 2 payouts
-        vm.prank(owner);
+        vm.prank(operator);
         cb.sendCustomBonus(user1, TYPE_MARKETING, CAMPAIGN_A, AMOUNT);
-        vm.prank(owner);
+        vm.prank(operator);
         cb.sendCustomBonus(user2, TYPE_MARKETING, CAMPAIGN_A, 25e6);
 
         // (SUPPORT, A): 1 payout — same campaignId, different bonusType → separate bucket
-        vm.prank(owner);
+        vm.prank(operator);
         cb.sendCustomBonus(user1, TYPE_SUPPORT, CAMPAIGN_A, 5e6);
 
         (uint256 mktA_paid, uint256 mktA_count) = cb.getCampaignStats(TYPE_MARKETING, CAMPAIGN_A);
@@ -88,18 +88,30 @@ contract CustomBonusTest is Setup {
         assertEq(supA_count, 1);
     }
 
-    function test_sendCustomBonus_revert_notOwner() public {
-        vm.prank(notManager);
-        vm.expectRevert(abi.encodeWithSignature("OwnableUnauthorizedAccount(address)", notManager));
+    function test_sendCustomBonus_revert_notOperator() public {
+        vm.prank(notOperator);
+        vm.expectRevert("Not an operator");
         cb.sendCustomBonus(user1, TYPE_MARKETING, CAMPAIGN_A, AMOUNT);
     }
 
-    /// The amount is caller-supplied, so a manager must not be able to trigger a payout — only the owner.
-    function test_sendCustomBonus_revert_managerIsNotEnough() public {
+    /// A manager is a privileged address elsewhere in the protocol but must be rejected here —
+    /// fails if `|| isManager` is ever added back to the guard.
+    function test_sendCustomBonus_revert_managerIsNotOperator() public {
         assertTrue(managerRegistry.isManager(manager));
+        assertFalse(managerRegistry.isOperator(manager));
 
         vm.prank(manager);
-        vm.expectRevert(abi.encodeWithSignature("OwnableUnauthorizedAccount(address)", manager));
+        vm.expectRevert("Not an operator");
+        cb.sendCustomBonus(user1, TYPE_MARKETING, CAMPAIGN_A, AMOUNT);
+    }
+
+    /// The payout used to be `onlyOwner` and is now `onlyOperator`; the owner is not implicitly an
+    /// operator. Pinned deliberately — `_amount` here is caller-supplied.
+    function test_sendCustomBonus_revert_ownerIsNotOperator() public {
+        assertFalse(managerRegistry.isOperator(owner));
+
+        vm.prank(owner);
+        vm.expectRevert("Not an operator");
         cb.sendCustomBonus(user1, TYPE_MARKETING, CAMPAIGN_A, AMOUNT);
     }
 
@@ -107,7 +119,7 @@ contract CustomBonusTest is Setup {
         vm.prank(owner);
         cb.setKillSwitch(true);
 
-        vm.prank(owner);
+        vm.prank(operator);
         vm.expectRevert("Kill switch is active");
         cb.sendCustomBonus(user1, TYPE_MARKETING, CAMPAIGN_A, AMOUNT);
     }
@@ -118,7 +130,7 @@ contract CustomBonusTest is Setup {
         vm.expectEmit(true, true, true, true);
         emit CustomBonus.CustomBonusPaid(expectedPaymentId, user1, TYPE_MARKETING, CAMPAIGN_A, AMOUNT);
 
-        vm.prank(owner);
+        vm.prank(operator);
         cb.sendCustomBonus(user1, TYPE_MARKETING, CAMPAIGN_A, AMOUNT);
     }
 
@@ -136,7 +148,7 @@ contract CustomBonusTest is Setup {
             amounts[i] = 10e6 + i * 1e6;
         }
 
-        vm.prank(owner);
+        vm.prank(operator);
         cb.sendCustomBonusBatch(users, types, ids, amounts);
 
         for (uint256 i = 0; i < 3; i++) {
@@ -147,7 +159,7 @@ contract CustomBonusTest is Setup {
 
     function test_batch_revert_ifAnyAlreadyPaid() public {
         // pre-pay one triple
-        vm.prank(owner);
+        vm.prank(operator);
         cb.sendCustomBonus(user1, TYPE_MARKETING, CAMPAIGN_A, AMOUNT);
 
         // batch contains the already-paid triple → entire tx reverts, no partial payouts
@@ -159,7 +171,7 @@ contract CustomBonusTest is Setup {
         users[0] = user2; types[0] = TYPE_MARKETING; ids[0] = CAMPAIGN_A; amounts[0] = 25e6;
         users[1] = user1; types[1] = TYPE_MARKETING; ids[1] = CAMPAIGN_A; amounts[1] = AMOUNT;
 
-        vm.prank(owner);
+        vm.prank(operator);
         vm.expectRevert("Already paid");
         cb.sendCustomBonusBatch(users, types, ids, amounts);
 
@@ -182,8 +194,8 @@ contract CustomBonusTest is Setup {
     }
 
     function test_withdraw_revert_notOwner() public {
-        vm.prank(notManager);
+        vm.prank(notOperator);
         vm.expectRevert();
-        cb.withdraw(address(usdc), 1e6, notManager);
+        cb.withdraw(address(usdc), 1e6, notOperator);
     }
 }

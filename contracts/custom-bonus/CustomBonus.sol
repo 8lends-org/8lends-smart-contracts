@@ -37,9 +37,10 @@ contract CustomBonus is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reen
     );
     event KillSwitchSet(bool enabled);
     event ContractsUpdated(address managerRegistry, address usdc);
+    event Withdrawn(address token, uint256 amount, address recipient);
 
-    modifier onlyManager() {
-        require(managerRegistry.isManager(msg.sender), "Not a manager");
+    modifier onlyOperator() {
+        require(managerRegistry.isOperator(msg.sender), "Not an operator");
         _;
     }
 
@@ -67,7 +68,7 @@ contract CustomBonus is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reen
         uint8 _bonusType,
         uint256 _campaignId,
         uint256 _amount
-    ) external onlyOwner nonReentrant {
+    ) external onlyOperator nonReentrant {
         _sendCustomBonus(_user, _bonusType, _campaignId, _amount);
     }
 
@@ -78,7 +79,7 @@ contract CustomBonus is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reen
         uint8[] calldata _bonusTypes,
         uint256[] calldata _campaignIds,
         uint256[] calldata _amounts
-    ) external onlyOwner nonReentrant {
+    ) external onlyOperator nonReentrant {
         uint256 len = _users.length;
         require(len == _bonusTypes.length, "Length mismatch");
         require(len == _campaignIds.length, "Length mismatch");
@@ -135,6 +136,8 @@ contract CustomBonus is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reen
     function withdraw(address _token, uint256 _amount, address _recipient) external onlyOwner {
         require(_recipient != address(0), "Invalid recipient");
         IERC20(_token).safeTransfer(_recipient, _amount);
+
+        emit Withdrawn(_token, _amount, _recipient);
     }
 
     // ── Views ──
