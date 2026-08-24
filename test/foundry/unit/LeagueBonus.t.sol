@@ -97,7 +97,7 @@ contract LeagueBonusTest is Setup {
 
     /// @dev Pins the enum ordinals. Fails if a league is inserted rather than appended — an
     ///      insertion keeps the storage layout intact but silently reinterprets every stored
-    ///      `highestBonusedLeague` and every `bonusAmount` key one league lower.
+    ///      `paidLeaguesMask` bit and every `bonusAmount` key one league lower.
     function test_leagueOrdinalsArePinned() public pure {
         assertEq(uint8(LeagueBonus.League.None), 0);
         assertEq(uint8(LeagueBonus.League.Bronze), 1);
@@ -118,114 +118,88 @@ contract LeagueBonusTest is Setup {
 
     // ── acceptance: one bonus per promotion event, sized at its destination league ──
 
-    function test_firstPromotion_paysDestinationLeagueAmount() public {
+    function test_singleLeague_paysItsAmount() public {
         vm.prank(operator);
         league.sendBonus(user1, LeagueBonus.League.Silver);
 
         assertEq(usdc.balanceOf(user1), SILVER);
-        assertTrue(league.hasAnyBonus(user1));
         assertEq(league.totalPaid(), SILVER);
         assertEq(league.totalBonusCount(), 1);
 
-        assertEq(uint8(league.highestBonusedLeague(user1)), uint8(LeagueBonus.League.Silver));
+        assertTrue(league.isLeaguePaid(user1, LeagueBonus.League.Silver));
     }
 
-    /// Two separate promotion events (Bronze → Silver → Gold) pay two bonuses.
-    function test_stepByStepPromotions_payPerEvent() public {
-        vm.prank(operator);
-        league.sendBonus(user1, LeagueBonus.League.Silver);
-        vm.prank(operator);
-        league.sendBonus(user1, LeagueBonus.League.Gold);
-
-        assertEq(usdc.balanceOf(user1), SILVER + GOLD);
-        assertEq(league.totalPaid(), SILVER + GOLD);
-        assertEq(league.totalBonusCount(), 2);
-
-        // and a third event keeps paying
-        vm.prank(operator);
-        league.sendBonus(user1, LeagueBonus.League.Diamond);
-        assertEq(usdc.balanceOf(user1), SILVER + GOLD + DIAMOND);
-        assertEq(league.totalBonusCount(), 3);
-    }
-
-    /// Capital jumped several leagues in one event → one bonus at the destination league only.
-    /// The skipped intermediate leagues are never paid, not even later.
-    function test_multiLeagueJump_paysOnceAtDestinationAndBurnsSkippedLeagues() public {
+    /// Leagues are independent: a jump straight to Diamond does not burn the ones it skipped, and
+    /// they stay payable afterwards. This is the point of the per-league rule.
+    function test_multiLeagueJump_doesNotBurnSkippedLeagues() public {
         vm.prank(operator);
         league.sendBonus(user1, LeagueBonus.League.Diamond);
 
         assertEq(usdc.balanceOf(user1), DIAMOND);
         assertEq(league.totalBonusCount(), 1);
 
-        // Gold was skipped past — it can never be claimed afterwards
-        assertFalse(league.qualifiesForBonus(user1, LeagueBonus.League.Gold));
-        vm.prank(operator);
-        vm.expectRevert("Invalid league or amount");
-        league.sendBonus(user1, LeagueBonus.League.Gold);
-    }
-
-    /// Demotion then re-promotion into an already-paid league pays nothing.
-    function test_demotionThenRePromotionToSameLeague_revert() public {
-        vm.prank(operator);
-        league.sendBonus(user1, LeagueBonus.League.Gold);
-
-        // the demotion happens off-chain only — nothing lowers the on-chain marker
-        vm.prank(operator);
-        vm.expectRevert("Invalid league or amount");
-        league.sendBonus(user1, LeagueBonus.League.Gold);
-
-        assertEq(usdc.balanceOf(user1), GOLD);
-        assertEq(league.totalBonusCount(), 1);
-    }
-
-    /// The same recalculation running twice must not create a second payout. The replay reverts
-    /// rather than being skipped, so the backend has to filter before submitting.
-    function test_idempotency_repeatedBatchCallRevertsAndPaysOnce() public {
-        address[] memory users = new address[](1);
-        users[0] = user1;
-        LeagueBonus.League[] memory leagues = new LeagueBonus.League[](1);
-        leagues[0] = LeagueBonus.League.Gold;
-
-        vm.prank(operator);
-        league.sendBonusBatch(users, leagues);
-
-        vm.prank(operator);
-        vm.expectRevert("Invalid league or amount");
-        league.sendBonusBatch(users, leagues);
-
-        assertEq(usdc.balanceOf(user1), GOLD);
-        assertEq(league.totalBonusCount(), 1);
-        assertEq(league.totalPaid(), GOLD);
-    }
-
-    /// Bronze is a payable league like any other, and being paid for it does not block a later
-    /// promotion into a higher one.
-    function test_bronze_isPayableAndDoesNotBlockHigherLeagues() public {
+        assertTrue(league.qualifiesForBonus(user1, LeagueBonus.League.Gold));
         assertTrue(league.qualifiesForBonus(user1, LeagueBonus.League.Bronze));
 
         vm.prank(operator);
+        league.sendBonus(user1, LeagueBonus.League.Gold);
+        vm.prank(operator);
         league.sendBonus(user1, LeagueBonus.League.Bronze);
 
-        assertEq(usdc.balanceOf(user1), BRONZE);
-        assertTrue(league.hasAnyBonus(user1));
-        assertEq(uint8(league.highestBonusedLeague(user1)), uint8(LeagueBonus.League.Bronze));
+        assertEq(usdc.balanceOf(user1), DIAMOND + GOLD + BRONZE);
+        assertEq(league.totalBonusCount(), 3);
 
+        assertTrue(league.qualifiesForBonus(user1, LeagueBonus.League.Silver));
+        assertFalse(league.qualifiesForBonus(user1, LeagueBonus.League.Gold));
+    }
+
+    /// Order carries no meaning: paying strictly downwards works, and each league still pays once.
+    /// The contract cannot tell a promotion from a demotion and by design does not try.
+    function test_descendingOrder_eachLeaguePaidOnce() public {
+        LeagueBonus.League[4] memory order = [
+            LeagueBonus.League.Diamond,
+            LeagueBonus.League.Gold,
+            LeagueBonus.League.Silver,
+            LeagueBonus.League.Bronze
+        ];
+        for (uint256 i = 0; i < order.length; i++) {
+            vm.prank(operator);
+            league.sendBonus(user1, order[i]);
+        }
+
+        assertEq(usdc.balanceOf(user1), DIAMOND + GOLD + SILVER + BRONZE);
+        assertEq(league.totalBonusCount(), 4);
+        assertEq(league.paidLeaguesMask(user1), 0xF);
+
+        for (uint256 i = 0; i < order.length; i++) {
+            assertFalse(league.qualifiesForBonus(user1, order[i]));
+        }
+    }
+
+    /// Demotion then re-promotion into an already-paid league pays nothing.
+    function test_sameLeagueTwice_revert() public {
         vm.prank(operator);
-        league.sendBonus(user1, LeagueBonus.League.Silver);
-        assertEq(usdc.balanceOf(user1), BRONZE + SILVER);
-        assertEq(league.totalBonusCount(), 2);
+        league.sendBonus(user1, LeagueBonus.League.Gold);
+
+        // whatever happened off-chain in between, the bit for Gold stays set
+        vm.prank(operator);
+        vm.expectRevert("League already paid");
+        league.sendBonus(user1, LeagueBonus.League.Gold);
+
+        assertEq(usdc.balanceOf(user1), GOLD);
+        assertEq(league.totalBonusCount(), 1);
     }
 
     /// `None` is the reserved zero member, not a league — it can never be paid, and the attempt
-    /// must not raise the marker.
-    function test_none_revert_andDoesNotRaiseTheMarker() public {
+    /// must leave the mask untouched.
+    function test_none_revert_andDoesNotSetAnyBit() public {
         assertFalse(league.qualifiesForBonus(user1, LeagueBonus.League.None));
 
         vm.prank(operator);
         vm.expectRevert("Invalid league");
         league.sendBonus(user1, LeagueBonus.League.None);
 
-        assertFalse(league.hasAnyBonus(user1), "marker not raised");
+        assertEq(league.paidLeaguesMask(user1), 0, "bit not set");
 
         // a real promotion still pays
         vm.prank(operator);
@@ -235,14 +209,14 @@ contract LeagueBonusTest is Setup {
 
     /// A league whose amount is still pending business input reverts loudly instead of marking the
     /// wallet, so the payout can be retried once the amount is configured.
-    function test_zeroAmountLeague_revert_andDoesNotRaiseTheMarker() public {
+    function test_zeroAmountLeague_revert_andDoesNotSetTheBit() public {
         league.setBonusAmount(LeagueBonus.League.Silver, 0);
 
         vm.prank(operator);
-        vm.expectRevert("Invalid league or amount");
+        vm.expectRevert("League not configured");
         league.sendBonus(user1, LeagueBonus.League.Silver);
 
-        assertFalse(league.hasAnyBonus(user1), "marker not raised");
+        assertEq(league.paidLeaguesMask(user1), 0, "bit not set");
 
         league.setBonusAmount(LeagueBonus.League.Silver, SILVER);
         vm.prank(operator);
@@ -307,19 +281,19 @@ contract LeagueBonusTest is Setup {
 
     /// One entry targeting a league not above the wallet's last bonused one takes the whole batch
     /// down — no partial payouts.
-    function test_sendBonusBatch_revert_notHigherLeague_isAtomic() public {
+    function test_sendBonusBatch_revert_alreadyPaidLeague_isAtomic() public {
         vm.prank(operator);
-        league.sendBonus(user1, LeagueBonus.League.Gold); // pre-pay user1 up to Gold
+        league.sendBonus(user1, LeagueBonus.League.Gold); // user1 already has Gold
 
         address[] memory users = new address[](2);
         users[0] = user2;
-        users[1] = user1; // Silver ≤ Gold already paid → kills the batch
+        users[1] = user1; // Gold already paid to user1 → kills the batch
         LeagueBonus.League[] memory leagues = new LeagueBonus.League[](2);
         leagues[0] = LeagueBonus.League.Gold;
-        leagues[1] = LeagueBonus.League.Silver;
+        leagues[1] = LeagueBonus.League.Gold;
 
         vm.prank(operator);
-        vm.expectRevert("Invalid league or amount");
+        vm.expectRevert("League already paid");
         league.sendBonusBatch(users, leagues);
 
         assertEq(usdc.balanceOf(user2), 0, "batch rolled back");
@@ -336,7 +310,7 @@ contract LeagueBonusTest is Setup {
         leagues[1] = LeagueBonus.League.Silver;
 
         vm.prank(operator);
-        vm.expectRevert("Invalid league or amount");
+        vm.expectRevert("League already paid");
         league.sendBonusBatch(users, leagues);
 
         assertEq(usdc.balanceOf(user1), 0);
@@ -344,7 +318,7 @@ contract LeagueBonusTest is Setup {
     }
 
     /// Two promotion events for one wallet batched together are both paid, in ascending order.
-    function test_sendBonusBatch_sameUserTwoAscendingLeaguesBothPaid() public {
+    function test_sendBonusBatch_sameUserTwoLeaguesBothPaid() public {
         address[] memory users = new address[](2);
         users[0] = user1;
         users[1] = user1;
@@ -420,7 +394,7 @@ contract LeagueBonusTest is Setup {
 
     function test_setBonusAmount_success() public {
         league.setBonusAmount(LeagueBonus.League.Gold, 150e6);
-        assertEq(league.getBonusAmount(LeagueBonus.League.Gold), 150e6);
+        assertEq(league.bonusAmount(LeagueBonus.League.Gold), 150e6);
 
         vm.prank(operator);
         league.sendBonus(user1, LeagueBonus.League.Gold);
@@ -443,11 +417,11 @@ contract LeagueBonusTest is Setup {
     function test_setBonusAmount_touchesOnlyTheGivenLeague() public {
         league.setBonusAmount(LeagueBonus.League.Gold, 120e6);
 
-        assertEq(league.getBonusAmount(LeagueBonus.League.Gold), 120e6);
-        assertEq(league.getBonusAmount(LeagueBonus.League.Bronze), BRONZE);
-        assertEq(league.getBonusAmount(LeagueBonus.League.Silver), SILVER);
-        assertEq(league.getBonusAmount(LeagueBonus.League.Diamond), DIAMOND);
-        assertEq(league.getBonusAmount(LeagueBonus.League.None), 0);
+        assertEq(league.bonusAmount(LeagueBonus.League.Gold), 120e6);
+        assertEq(league.bonusAmount(LeagueBonus.League.Bronze), BRONZE);
+        assertEq(league.bonusAmount(LeagueBonus.League.Silver), SILVER);
+        assertEq(league.bonusAmount(LeagueBonus.League.Diamond), DIAMOND);
+        assertEq(league.bonusAmount(LeagueBonus.League.None), 0);
     }
 
     function test_setBonusAmount_emitsEvent() public {
@@ -523,21 +497,32 @@ contract LeagueBonusTest is Setup {
         assertEq(silverCount, 0);
     }
 
-    /// `None` is the zero value, so an unpaid wallet reads as None — distinct from every real
-    /// league, Bronze included.
-    function test_highestBonusedLeague_unpaidWalletIsNone() public view {
-        assertEq(uint8(league.highestBonusedLeague(user1)), uint8(LeagueBonus.League.None));
-        assertFalse(league.hasAnyBonus(user1));
+    function test_unpaidWalletHasEmptyMask() public view {
+        assertEq(league.paidLeaguesMask(user1), 0);
+        assertFalse(league.isLeaguePaid(user1, LeagueBonus.League.Bronze));
+        // `None` is not a league and never reads as paid
+        assertFalse(league.isLeaguePaid(user1, LeagueBonus.League.None));
     }
 
-    function test_qualifiesForBonus_onlyStrictlyHigherLeagues() public {
-        assertTrue(league.qualifiesForBonus(user1, LeagueBonus.League.Silver));
-
+    /// Only the exact league is consumed by a payout — neighbours in either direction stay open.
+    function test_qualifiesForBonus_onlyTheExactLeagueIsConsumed() public {
         vm.prank(operator);
         league.sendBonus(user1, LeagueBonus.League.Gold);
 
-        assertFalse(league.qualifiesForBonus(user1, LeagueBonus.League.Silver), "lower league");
         assertFalse(league.qualifiesForBonus(user1, LeagueBonus.League.Gold), "same league");
+        assertTrue(league.qualifiesForBonus(user1, LeagueBonus.League.Silver), "lower league");
         assertTrue(league.qualifiesForBonus(user1, LeagueBonus.League.Diamond), "higher league");
+    }
+
+    /// Bit n-1 encodes league n. Pinned because the backend reads the mask directly, and any change
+    /// here silently reinterprets every stored record.
+    function test_maskBitLayoutIsPinned() public {
+        vm.prank(operator);
+        league.sendBonus(user1, LeagueBonus.League.Bronze);
+        assertEq(league.paidLeaguesMask(user1), 1 << 0);
+
+        vm.prank(operator);
+        league.sendBonus(user1, LeagueBonus.League.Diamond);
+        assertEq(league.paidLeaguesMask(user1), (1 << 0) | (1 << 3));
     }
 }
