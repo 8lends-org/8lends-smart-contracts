@@ -251,18 +251,19 @@ const DEPLOY_DESCRIPTORS: Record<string, DeployDescriptor> = {
     configKey: "MaclearBonus",
     configKeyImpl: "MaclearBonus_impl",
   },
-  CryptoCourceBonus: {
+  CryptoCourseBonus: {
     useProxy: true,
     initializer: "initialize",
+    // Amounts are per course now and are set after deploy with setCourseAmount / setCourseAmounts —
+    // there is no global bonus amount, so initialize takes two arguments.
     getProxyArgs: (config) => {
-      if (!config.USDC || !config.CryptoCourceTrustedSigner) {
-        throw new Error("USDC, CryptoCourceTrustedSigner required in config");
+      if (!config.USDC || !config.CryptoCourseTrustedSigner) {
+        throw new Error("USDC, CryptoCourseTrustedSigner required in config");
       }
-      const bonusAmount = process.env.CRYPTO_COURCE_BONUS_AMOUNT ?? "30000000"; // 30 USDC (6 decimals)
-      return [config.USDC, config.CryptoCourceTrustedSigner, bonusAmount];
+      return [config.USDC, config.CryptoCourseTrustedSigner];
     },
-    configKey: "CryptoCourceBonus",
-    configKeyImpl: "CryptoCourceBonus_impl",
+    configKey: "CryptoCourseBonus",
+    configKeyImpl: "CryptoCourseBonus_impl",
   },
 };
 
