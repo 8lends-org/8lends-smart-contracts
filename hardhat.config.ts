@@ -37,7 +37,8 @@ const config: HardhatUserConfig = {
             url: process.env.BASE_RPC_URL,
             accounts: {
                 mnemonic: process.env.OWNER_MNEMONIC_PROD,
-            }
+                initialIndex: Number(process.env.INITIAL_INDEX) || 0
+            },
         },
         hardhat: {
             gasPrice: 100000000000,
@@ -61,8 +62,9 @@ const config: HardhatUserConfig = {
             chainId: 11155111,
             url: process.env.ETHEREUM_SEPOLIA_RPC_URL,
             accounts: {
-                mnemonic: process.env.OWNER_MNEMONIC_DEV
-            }
+                mnemonic: process.env.OWNER_MNEMONIC_DEV,
+                initialIndex: Number(process.env.INITIAL_INDEX) || 0
+            },
         }
     },
     gasReporter: {
@@ -73,38 +75,12 @@ const config: HardhatUserConfig = {
         runOnCompile: true,
         clear: true,
         flat: true,
-        only: [':Fundraise$', ':RewardSystem$', ':Treasury$', ':Token$', ':ManagerRegistry$', ':Rewards2$', ':Market$', ':Lending8$', ':Oracle$', ':AdaptiveCurveIrm$', ':LimitedSeller$', ':BTC8L$', ':EscrowFactory$', ':AmlEscrow$', ':WelcomeBonus$', ':MaclearBonus$'],
+        only: [':Fundraise$', ':RewardSystem$', ':Treasury$', ':Token$', ':ManagerRegistry$', ':Rewards2$', ':Market$', ':Lending8$', ':Oracle$', ':AdaptiveCurveIrm$', ':LimitedSeller$', ':BTC8L$', ':EscrowFactory$', ':AmlEscrow$', ':WelcomeBonus$', ':MaclearBonus$', ':CustomBonus$', ':LeagueBonus$'],
         spacing: 2,
         format: 'json',
     },
     etherscan: {
         apiKey: process.env.ETHERSCAN_API_KEY,
-        customChains: [
-            {
-                network: "base",
-                chainId: 8453,
-                urls: {
-                  apiURL: "https://api.basescan.org/api",
-                  browserURL: "https://basescan.org"
-                }
-            },
-            {
-                network: "base_sepolia",
-                chainId: 84532,
-                urls: {
-                  apiURL: "https://api-sepolia.basescan.org/api",
-                  browserURL: "https://sepolia.basescan.org"
-                }
-              },
-            {
-                network: "unichain_sepolia",
-                chainId: 1301,
-                urls: {
-                  apiURL: "https://api.etherscan.io/v2/api",
-                  browserURL: "https://sepolia.uniscan.xyz"
-                }
-              }
-        ]
     }
 };
 

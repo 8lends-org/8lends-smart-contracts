@@ -44,6 +44,68 @@ contract ManagerRegistryTest is Setup {
     }
 
     // ═══════════════════════════════════════════════════════════════
+    //                     OPERATOR ROLE
+    // ═══════════════════════════════════════════════════════════════
+    //
+    // The operator role exists so that a hot backend key can do routine work (bonus
+    // payouts) without also holding manager rights. Two properties carry that, and both
+    // are the opposite of how `managers` behaves — hence the tests.
+
+    /// Managers are self-expanding (see test_managerCanPromoteOtherManager). Operators are
+    /// deliberately not: only the owner grants them. If this ever fails because someone
+    /// "made it consistent with the rest of the file", the role is back to drifting.
+    function test_setOperatorStatus_onlyOwner_notManager() public {
+        address newOperator = makeAddr("newOperator");
+
+        vm.prank(manager);
+        vm.expectRevert();
+        managerRegistry.setOperatorStatus(newOperator, true);
+
+        vm.prank(attacker);
+        vm.expectRevert();
+        managerRegistry.setOperatorStatus(newOperator, true);
+
+        vm.prank(owner);
+        managerRegistry.setOperatorStatus(newOperator, true);
+        assertTrue(managerRegistry.isOperator(newOperator));
+    }
+
+    /// Grant and revoke, state and event in both directions. Rotation of a backend key is
+    /// exactly these two calls — no upgrade, no downtime.
+    function test_setOperatorStatus_grantAndRevoke() public {
+        address newOperator = makeAddr("newOperator");
+
+        vm.expectEmit(true, true, true, true, address(managerRegistry));
+        emit ManagerRegistry.OperatorUpdated(newOperator, true);
+        vm.prank(owner);
+        managerRegistry.setOperatorStatus(newOperator, true);
+        assertTrue(managerRegistry.isOperator(newOperator));
+
+        vm.expectEmit(true, true, true, true, address(managerRegistry));
+        emit ManagerRegistry.OperatorUpdated(newOperator, false);
+        vm.prank(owner);
+        managerRegistry.setOperatorStatus(newOperator, false);
+        assertFalse(managerRegistry.isOperator(newOperator));
+    }
+
+    /// `isOperator` reads the mapping only. Unlike `isManager`, which also admits
+    /// `rewardSystemAddress`, no contract is implicitly an operator — and unlike the
+    /// setters in this contract, the owner is not implicitly one either.
+    function test_isOperator_noImplicitMembers() public view {
+        // a manager is not an operator — pins that the migration actually removed isManager
+        // from the operator predicate rather than OR-ing the two together
+        assertTrue(managerRegistry.isManager(manager));
+        assertFalse(managerRegistry.isOperator(manager));
+
+        assertFalse(managerRegistry.isOperator(owner));
+        assertFalse(managerRegistry.isOperator(address(rewardSystem)));
+        assertFalse(managerRegistry.isOperator(address(rewards2)));
+        assertFalse(managerRegistry.isOperator(address(fundraise)));
+        assertFalse(managerRegistry.isOperator(attacker));
+        assertFalse(managerRegistry.isOperator(address(0)));
+    }
+
+    // ═══════════════════════════════════════════════════════════════
     //                   POOL STATUS
     // ═══════════════════════════════════════════════════════════════
 
