@@ -131,8 +131,8 @@ async function setupUniswapLiquidity(owner: any, token: Token, usdcToken: TestER
 
   
   // Connect to Uniswap contracts
-  const factory = await ethers.getContractAt("contracts/interfaces/IUniswapV2Factory.sol:IUniswapV2Factory", UNISWAP_V2_FACTORY) as any;
-  const router = await ethers.getContractAt("contracts/lending/interfaces/IUniswapV2Router02.sol:IUniswapV2Router02", UNISWAP_V2_ROUTER) as any;
+  const factory = await ethers.getContractAt("contracts/interfaces/external/IUniswapV2Factory.sol:IUniswapV2Factory", UNISWAP_V2_FACTORY) as any;
+  const router = await ethers.getContractAt("contracts/interfaces/external/IUniswapV2Router02.sol:IUniswapV2Router02", UNISWAP_V2_ROUTER) as any;
   
   // Create TOKEN1111/USDC pair
   const tokenAddress = await token.getAddress();

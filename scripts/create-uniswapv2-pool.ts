@@ -50,11 +50,11 @@ async function main() {
 
   // Connect to Uniswap contracts
   const factory = await ethers.getContractAt(
-    "contracts/interfaces/IUniswapV2Factory.sol:IUniswapV2Factory",
+    "contracts/interfaces/external/IUniswapV2Factory.sol:IUniswapV2Factory",
     config.uniswapV2Factory
   );
   const router = await ethers.getContractAt(
-    "contracts/interfaces/IUniswapV2Router02.sol:IUniswapV2Router02",
+    "contracts/interfaces/external/IUniswapV2Router02.sol:IUniswapV2Router02",
     config.uniswapV2Router
   );
 

@@ -2,7 +2,7 @@
 pragma solidity ^0.8.23;
 
 import "../Setup.sol";
-import {CryptoCourseBonus} from "../../../contracts/crypto-course-bonus/CryptoCourseBonus.sol";
+import {CryptoCourseBonus} from "../../../contracts/bonus/CryptoCourseBonus.sol";
 import "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 
 contract CryptoCourseBonusTest is Setup {

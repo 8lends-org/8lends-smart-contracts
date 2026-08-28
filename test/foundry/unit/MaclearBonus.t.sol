@@ -2,7 +2,7 @@
 pragma solidity ^0.8.23;
 
 import "../Setup.sol";
-import {MaclearBonus} from "../../../contracts/maclear-bonus/MaclearBonus.sol";
+import {MaclearBonus} from "../../../contracts/bonus/MaclearBonus.sol";
 import "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 
 contract MaclearBonusTest is Setup {

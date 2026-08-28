@@ -5,7 +5,7 @@ import { Id, ILending8StaticTyping, ILending8Base, MarketParams, Position, Marke
 import { ILending8LiquidateCallback, ILending8RepayCallback, ILending8SupplyCallback, ILending8SupplyCollateralCallback, ILending8FlashLoanCallback } from "./interfaces/ILending8Callbacks.sol";
 import { IIrm } from "./interfaces/IIrm.sol";
 import { IERC20 } from "./interfaces/IERC20.sol";
-import { IERC20Metadata } from "../interfaces/IERC20Metadata.sol";
+import { IERC20Metadata } from "../interfaces/token/IERC20Metadata.sol";
 import { IOraclePrice } from "./interfaces/IOraclePrice.sol";
 
 import "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";

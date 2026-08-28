@@ -16,9 +16,9 @@ import "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 import "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
 import "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
 import { IUniswapV2Router02 } from "./interfaces/IUniswapV2Router02.sol";
-import { IUniswapV2Factory } from "../interfaces/IUniswapV2Factory.sol";
+import { IUniswapV2Factory } from "../interfaces/external/IUniswapV2Factory.sol";
 import { IOraclePrice } from "./interfaces/IOraclePrice.sol";
-import { IERC20Metadata } from "../interfaces/IERC20Metadata.sol";
+import { IERC20Metadata } from "../interfaces/token/IERC20Metadata.sol";
 
 /// @title FlashLiquidator
 /// @notice Liquidate unhealthy Lending8 positions. If a Uniswap V2 pair exists for collateral/loan: flash-loan loan token from Lending8, liquidate, swap collateral to loan, repay flash. If no pair: liquidate using loan token already held by this contract (no flash).

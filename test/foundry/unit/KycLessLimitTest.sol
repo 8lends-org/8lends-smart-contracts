@@ -5,8 +5,8 @@ import "forge-std/Test.sol";
 import "../Setup.sol";
 import {AmlEscrow} from "../../../contracts/escrow/AmlEscrow.sol";
 import {EscrowFactory} from "../../../contracts/escrow/EscrowFactory.sol";
-import {IAmlEscrow} from "../../../contracts/escrow/interfaces/IAmlEscrow.sol";
-import {IOracle} from "../../../contracts/fundraise/interfaces/IOracle.sol";
+import {IAmlEscrow} from "../../../contracts/interfaces/protocol/IAmlEscrow.sol";
+import {IOracle} from "../../../contracts/interfaces/protocol/IOracle.sol";
 import "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 
 contract KycLessLimitTest is Setup {

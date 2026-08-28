@@ -4,12 +4,12 @@ pragma solidity ^0.8.23;
 import "forge-std/Test.sol";
 
 // Protocol contracts
-import {Fundraise} from "../../contracts/fundraise/Fundraise.sol";
-import {Token} from "../../contracts/8lnds/Token.sol";
-import {ManagerRegistry} from "../../contracts/manager-registry/ManagerRegistry.sol";
-import {RewardSystem} from "../../contracts/reward-system/RewardSystem.sol";
-import {Rewards2} from "../../contracts/rewards2/Rewards2.sol";
-import {Treasury} from "../../contracts/treasury/Treasury.sol";
+import {Fundraise} from "../../contracts/core/Fundraise.sol";
+import {Token} from "../../contracts/token/8lnds/Token.sol";
+import {ManagerRegistry} from "../../contracts/core/ManagerRegistry.sol";
+import {RewardSystem} from "../../contracts/core/RewardSystem.sol";
+import {Rewards2} from "../../contracts/core/Rewards2.sol";
+import {Treasury} from "../../contracts/core/Treasury.sol";
 
 // OpenZeppelin proxy
 import "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
