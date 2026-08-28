@@ -2,7 +2,7 @@ import dotenv from "dotenv";
 import hre, { ethers } from "hardhat";
 import { upgrades } from "hardhat";
 import * as readline from "readline";
-import { readJsonFile, writeJsonFile } from "./helpers";
+import { readJsonFile, writeJsonFile } from "./utils/helpers";
 
 dotenv.config();
 

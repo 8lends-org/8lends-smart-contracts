@@ -3,8 +3,8 @@ import { ethers } from "hardhat";
 import * as fs from "fs/promises";
 import * as path from "path";
 import * as readline from "readline";
-import { readJsonFile } from "./helpers";
-import { resolveAllTimeInvestedUsdInput } from "./migrate-all-time-invested-usd-input";
+import { readJsonFile } from "./utils/helpers";
+import { resolveAllTimeInvestedUsdInput } from "./utils/migrate-all-time-invested-usd-input";
 
 dotenv.config();
 

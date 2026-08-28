@@ -2,7 +2,9 @@ import dotenv from "dotenv";
 import { ethers } from "hardhat";
 import fs from "fs";
 import path from "path";
-import { readJsonFile } from "../helpers";
+import { readJsonFile } from "../utils/helpers";
+import { requireOwner } from "../utils/owner-guard";
+import { inputFingerprint, openProgress } from "../utils/batch-progress";
 
 
 interface WalletDistribution {
@@ -54,10 +56,7 @@ async function main(): Promise<void> {
     console.log("REWARDS2", config.Rewards2);
 
     // Owner check for contract interaction permission
-    const owner: string = await rewards2.owner();
-    if (owner.toLowerCase() !== (await signer.getAddress()).toLowerCase()) {
-        throw new Error("❌ Not the owner of Rewards2 contract");
-    }
+    await requireOwner(config.Rewards2 as string, "Rewards2");
 
 
 
@@ -88,7 +87,16 @@ async function main(): Promise<void> {
     const batches: number = Math.ceil(addresses.length / BATCH_SIZE);
     console.log(`🔄 Processing in ${batches} batches (${BATCH_SIZE} addresses per batch)\n`);
 
-    for (let i = 0; i < batches; i++) {
+    // Resume support: a run that dies mid-way must not pay the earlier batches again.
+    const progress = openProgress({
+        script: "distribute-vesting-rewards2",
+        chainId: net.chainId,
+        fingerprint: inputFingerprint(addresses.map((a, i) => [a, amounts[i]] as const)),
+        batchSize: BATCH_SIZE,
+        totalBatches: batches,
+    });
+
+    for (let i = progress.startBatch; i < batches; i++) {
         const start: number = i * BATCH_SIZE;
         const end: number = Math.min((i + 1) * BATCH_SIZE, addresses.length);
 
@@ -113,6 +121,7 @@ async function main(): Promise<void> {
             console.log(`   ⏳ Transaction sent: ${tx.hash}`);
             const receipt = await tx.wait();
             nonce++;
+            progress.record(i, tx.hash);
             console.log(`   ✅ Transaction confirmed in block ${receipt?.blockNumber}`);
             console.log(`   ⛽ Gas used: ${receipt?.gasUsed.toString()}\n`);
         } catch (error: any) {
@@ -120,6 +129,9 @@ async function main(): Promise<void> {
             throw error;
         }
     }
+
+    progress.finish();
+
 
     console.log("=".repeat(80));
     console.log("✅ All tokens distributed successfully!");

@@ -7,7 +7,7 @@
 
 import dotenv from "dotenv";
 import { ethers } from "hardhat";
-import { readJsonFile, writeJsonFile } from "../helpers";
+import { readJsonFile, writeJsonFile } from "../utils/helpers";
 dotenv.config();
 
 interface InvestorStats {

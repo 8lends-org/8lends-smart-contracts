@@ -1,6 +1,7 @@
 import dotenv from "dotenv";
 import hre, { ethers } from "hardhat";
-import { readJsonFile } from "../helpers";
+import { readJsonFile } from "../utils/helpers";
+import { requireOwner } from "../utils/owner-guard";
 dotenv.config();
 
 async function main() {
@@ -34,10 +35,7 @@ async function main() {
   const managerRegistry = await ethers.getContractAt("ManagerRegistry", managerRegistryAddress);
 
   // Check owner rights
-  const owner = await managerRegistry.owner();
-  if (owner.toLowerCase() !== (await signer.getAddress()).toLowerCase()) {
-    throw new Error("Not the owner of ManagerRegistry contract");
-  }
+  await requireOwner(config.ManagerRegistry as string, "ManagerRegistry");
 
   // Check current pool status
   const currentPoolStatus = await managerRegistry.pools(POOL_ADDRESS);

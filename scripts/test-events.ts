@@ -10,7 +10,7 @@
 import * as fs from "fs/promises";
 import * as path from "path";
 import { ethers } from "hardhat";
-import { readJsonFile } from "./helpers";
+import { readJsonFile } from "./utils/helpers";
 import type { Log } from "ethers";
 import { Interface, type InterfaceAbi } from "ethers";
 

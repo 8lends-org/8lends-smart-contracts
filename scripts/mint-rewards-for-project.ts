@@ -3,6 +3,7 @@ import { ethers } from "hardhat";
 import { readFileSync } from "fs";
 import { join } from "path";
 import { formatUnits } from "ethers";
+import { requireOwner } from "./utils/owner-guard";
 
 dotenv.config();
 
@@ -36,6 +37,7 @@ async function main(): Promise<void> {
 
         const RewardSystemABI = readFileSync(join(__dirname, `../abis/RewardSystem.json`), "utf8");
         const rewardSystem = new ethers.Contract(config.RewardSystem, RewardSystemABI, signer);
+        await requireOwner(config.RewardSystem, "RewardSystem");
         const mintTx = await rewardSystem.mintRewardsForProject(BLOCKCHAIN_PROJECT_ID);
         console.log(`   ⏳ Mint transaction sent: ${mintTx.hash}`);
         await mintTx.wait();

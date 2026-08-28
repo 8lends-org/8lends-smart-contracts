@@ -10,7 +10,7 @@
 
 import dotenv from "dotenv";
 import { ethers } from "hardhat";
-import { readJsonFile, writeJsonFile } from "../helpers";
+import { readJsonFile, writeJsonFile } from "../utils/helpers";
 dotenv.config();
 
 interface InvestEvent {
@@ -101,7 +101,7 @@ async function main(): Promise<void> {
       existingData.lastUpdated = new Date().toISOString();
       await writeJsonFile(outputPath, existingData);
     } catch (error) {
-      // Файла нет, ничего не делаем
+      // No file, nothing to do
     }
   }
 
@@ -132,7 +132,7 @@ async function main(): Promise<void> {
         }
       }
     } catch (error) {
-      // Файла нет, начинаем с нуля
+      // No file, start from scratch
     }
 
     for (const event of newEvents) {

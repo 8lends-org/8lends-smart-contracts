@@ -1,7 +1,5 @@
 import * as fs from "fs/promises";
 import * as path from "path";
-import MerkleTree from "merkletreejs";
-import { ethers, upgrades } from "hardhat";
 
 export enum Stage {
   ComingSoon = 0,
@@ -48,21 +46,4 @@ export async function writeJsonFile(filePath: string, data: any): Promise<void> 
     console.error("Error: ", error);
     throw error;
   }
-}
-
-export const hashAddress = (address: string): Buffer => {
-  address = address.toLowerCase().replace(/^0x/, "");
-  return Buffer.from(ethers.getBytes(ethers.keccak256("0x" + address)));
-};
-
-export async function createMerkleTree(whitelist: string[]): Promise<MerkleTree> {
-  const leafNodes: Buffer[] = whitelist.map(hashAddress);
-  const merkleTree = new MerkleTree(leafNodes, ethers.keccak256, { sortPairs: true });
-  // whitelist.forEach((address, index) => {
-  //   const hashedAddress = hashAddress(address);
-  // //   console.log(`Proof for ${address}: ${merkleTree.getHexProof(hashedAddress)}`);
-
-  // });
-
-  return merkleTree;
 }

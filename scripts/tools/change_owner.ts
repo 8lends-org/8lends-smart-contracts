@@ -1,7 +1,7 @@
 import fs from "fs";
 import dotenv from "dotenv";
 import hre, { ethers } from "hardhat";
-import { readJsonFile } from "../helpers";
+import { readJsonFile } from "../utils/helpers";
 import { HDNodeWallet, Mnemonic } from "ethers";
 dotenv.config();
 

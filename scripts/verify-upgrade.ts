@@ -1,6 +1,6 @@
 import dotenv from "dotenv";
 import { ethers, upgrades } from "hardhat";
-import { readJsonFile, writeJsonFile } from "./helpers";
+import { readJsonFile, writeJsonFile } from "./utils/helpers";
 dotenv.config();
 
 /**

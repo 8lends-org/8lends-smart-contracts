@@ -1,7 +1,8 @@
 import fs from "fs";
 import dotenv from "dotenv";
 import hre, { ethers } from "hardhat";
-import { readJsonFile, writeJsonFile } from "../helpers";
+import { readJsonFile, writeJsonFile } from "../utils/helpers";
+import { requireOwner } from "../utils/owner-guard";
 dotenv.config();
 
 async function main() {
@@ -23,6 +24,7 @@ async function main() {
     "ManagerRegistry",
     config.ManagerRegistry
   );
+  await requireOwner(config.ManagerRegistry, "ManagerRegistry");
   const addPoolToManagerRegistryTx = await managerRegistryContract.setPoolStatus(
     await signer.getAddress(),
     true

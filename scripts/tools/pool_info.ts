@@ -8,7 +8,7 @@ import { formatUnits, parseUnits } from "ethers";
 
 dotenv.config();
 
-// ABI для Uniswap V2 Router
+// ABI for the Uniswap V2 Router
 const UNISWAP_ROUTER_ABI = [
     "function swapTokensForExactTokens(uint amountOut, uint amountInMax, address[] calldata path, address to, uint deadline) external returns (uint[] memory amounts)",
     "function getAmountsIn(uint amountOut, address[] memory path) public view returns (uint[] memory amounts)",
@@ -29,7 +29,7 @@ const POOL_ABI = [
 
 const main = async () => {
     const net = await ethers.provider.getNetwork();
-    console.log("nework: ", net.name);
+    console.log("network: ", net.name);
 
     const config = JSON.parse(readFileSync(join(__dirname, `../config/${net.chainId}-config.json`), "utf8"));
 

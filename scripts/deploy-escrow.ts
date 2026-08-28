@@ -13,7 +13,7 @@
 
 import dotenv from "dotenv";
 import hre, { ethers, upgrades } from "hardhat";
-import { readJsonFile, writeJsonFile } from "./helpers";
+import { readJsonFile, writeJsonFile } from "./utils/helpers";
 
 dotenv.config();
 

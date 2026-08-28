@@ -2,6 +2,7 @@ import dotenv from "dotenv";
 import { ethers } from "hardhat";
 import { readFileSync } from "fs";
 import { join } from "path";
+import { requireOwner } from "./utils/owner-guard";
 
 dotenv.config();
 
@@ -36,6 +37,7 @@ async function main(): Promise<void> {
 
     const CONTRACT_ABI = readFileSync(join(__dirname, `../abis/${CONTRACT}.json`), "utf8");
     const contract = new ethers.Contract(config[CONTRACT], CONTRACT_ABI, signer);
+    await requireOwner(config[CONTRACT], CONTRACT);
     const updateOracleTx = await contract.setOracle(config.Oracle);
     console.log(`   ⏳ Update Oracle transaction sent: ${updateOracleTx.hash}`);
     await updateOracleTx.wait();

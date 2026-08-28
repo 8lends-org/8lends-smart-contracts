@@ -2,7 +2,7 @@ import dotenv from "dotenv";
 import { ethers } from "hardhat";
 import fs from "fs";
 import path from "path";
-import { readJsonFile } from "./helpers";
+import { readJsonFile } from "./utils/helpers";
 
 dotenv.config();
 

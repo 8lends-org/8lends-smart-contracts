@@ -1,6 +1,7 @@
 import dotenv from "dotenv";
 import hre, { ethers } from "hardhat";
-import { readJsonFile } from "../helpers";
+import { readJsonFile } from "../utils/helpers";
+import { requireOwner } from "../utils/owner-guard";
 dotenv.config();
 
 async function main() {
@@ -29,6 +30,7 @@ async function main() {
   }
   // Connect to Token contract
   const token = await ethers.getContractAt("Token", config.token);
+  await requireOwner(config.token, "Token");
 
   // Get command line arguments
 

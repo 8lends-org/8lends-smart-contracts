@@ -1,7 +1,8 @@
 import fs from "fs";
 import dotenv from "dotenv";
 import hre, { ethers } from "hardhat";
-import { readJsonFile, writeJsonFile } from "../helpers";
+import { readJsonFile, writeJsonFile } from "../utils/helpers";
+import { requireOwner } from "../utils/owner-guard";
 
 dotenv.config();
 
@@ -35,6 +36,7 @@ async function main() {
   }
 
   const Fundraise = await ethers.getContractAt("Fundraise", config.Fundraise);
+  await requireOwner(config.Fundraise, "Fundraise");
   console.log("Fundraise contract address:", config.Fundraise);
 
   // Check current trusted signer
