@@ -2,7 +2,7 @@ import { expect } from "chai";
 import * as fs from "fs/promises";
 import * as os from "os";
 import * as path from "path";
-import { resolveAllTimeInvestedUsdInput } from "../../scripts/migrate-all-time-invested-usd-input";
+import { resolveAllTimeInvestedUsdInput } from "../../scripts/utils/migrate-all-time-invested-usd-input";
 
 // TODO: 
 describe("resolveAllTimeInvestedUsdInput", function () {

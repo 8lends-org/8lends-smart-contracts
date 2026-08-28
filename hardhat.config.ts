@@ -42,21 +42,16 @@ const config: HardhatUserConfig = {
         },
         hardhat: {
             gasPrice: 100000000000,
-            chainId: process.env.FORK_SEPOLIA === "1" ? 11155111 : 8453,
+            chainId: 8453,
             hardfork: "cancun",
             // allowUnlimitedContractSize: true,
-            forking: process.env.FORK_SEPOLIA === "1"
-                ? {
-                    enabled: true,
-                    url: process.env.ETHEREUM_SEPOLIA_RPC_URL || "https://rpc.sepolia.org",
-                    // blockNumber: 	10446607,
-                    // Не задаём blockNumber — используем latest, иначе RPC может вернуть "historical state is not available" (нужен archive-узел).
-                  }
-                : {
-                    enabled: true,
-                    url: process.env.BASE_RPC_URL || '',
-                    // blockNumber: 42103098,
-                  },
+            // Always on, no switch: general/Oracle/balance-table assert against the real base
+            // deployment, and the forked network must not depend on an env var — otherwise
+            // `npx hardhat test` differs per machine. No blockNumber: the RPC has no archive state.
+            forking: {
+                enabled: true,
+                url: process.env.BASE_RPC_URL || "",
+            },
         },
         sepolia: {
             chainId: 11155111,

@@ -9,7 +9,7 @@ import {
   TestERC20,
   Token,
   RewardSystem
-} from "../typechain-types";
+} from "../../typechain-types";
 import { formatEther } from "ethers";
 
   // Uniswap V2 on Base (Uniswap Labs deployment, chain 8453)

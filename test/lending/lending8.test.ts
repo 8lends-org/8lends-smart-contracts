@@ -192,4 +192,39 @@ describe("Lending8", function () {
       expect(wbtcAfter - wbtcBefore).to.equal(collateralAmount);
     });
   });
+
+  describe("liquidation guard", function () {
+    // The only FlashLiquidator case that cannot live in Foundry: "position is healthy" is raised by
+    // Lending8 itself, and every Foundry suite drives FlashLiquidator through a mock that does not
+    // model position health. Everything else about FlashLiquidator is covered in
+    // test/foundry/unit/FlashLiquidator*.t.sol against the real contract logic.
+    it("a healthy position cannot be liquidated", async function () {
+      const { lending8, usdc, wbtc, marketParams, owner, user } = await loadFixture(deployLending8Fixture);
+
+      await usdc.connect(user).approve(await lending8.getAddress(), parseUnits("100000", 6));
+      await lending8.connect(user).supply(marketParams, parseUnits("10000", 6), 0n, user.address, "0x");
+
+      const collateralAmount = parseUnits("0.001", 8);
+      await wbtc.connect(user).approve(await lending8.getAddress(), collateralAmount);
+      await lending8.connect(user).supplyCollateral(marketParams, collateralAmount, user.address, "0x");
+
+      // 50 USDC against a 53.6 USDC limit, so the position stays well inside LLTV
+      await lending8.connect(user).borrow(marketParams, parseUnits("50", 6), 0n, user.address, user.address);
+
+      const FlashLiquidatorFactory = await ethers.getContractFactory("FlashLiquidator", owner);
+      const flashLiqProxy = await upgrades.deployProxy(
+        FlashLiquidatorFactory,
+        [await lending8.getAddress(), owner.address, ethers.ZeroAddress],
+        { kind: "uups", initializer: "initialize" }
+      );
+      const flashLiq = await ethers.getContractAt("FlashLiquidator", await flashLiqProxy.getAddress());
+
+      // Funded, so the call gets past the own-balance check and actually reaches Lending8
+      await usdc.connect(owner).transfer(await flashLiq.getAddress(), parseUnits("1000", 6));
+
+      await expect(
+        flashLiq.liquidate(buildMarketId(marketParams), user.address, parseUnits("10", 6))
+      ).to.be.revertedWith("position is healthy");
+    });
+  });
 });

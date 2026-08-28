@@ -1,5 +1,3 @@
-import { formatUnits, formatEther } from "ethers";
-
 // Types for balance tracking
 export interface BalanceData {
   usdc: string;

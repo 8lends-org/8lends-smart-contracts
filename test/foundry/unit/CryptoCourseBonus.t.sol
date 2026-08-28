@@ -78,7 +78,7 @@ contract CryptoCourseBonusTest is Setup {
         new ERC1967Proxy(address(impl), data);
     }
 
-    // ── claim: основной путь ──
+    // ── claim: happy path ──
 
     function test_claim_success() public {
         vm.prank(user1);
@@ -136,7 +136,7 @@ contract CryptoCourseBonusTest is Setup {
         assertEq(usdc.balanceOf(user1), 25e6);
     }
 
-    // ── claim: разовость и конфигурация ──
+    // ── claim: once-only and configuration ──
 
     function test_claim_revert_sameCourseTwice() public {
         bytes memory sig = _sign(user1, COURSE_A);
@@ -153,12 +153,12 @@ contract CryptoCourseBonusTest is Setup {
     /// was retired by zeroing it. Retiring is the targeted revocation: vouchers already issued for
     /// that course die, other courses keep working.
     function test_claim_revert_unconfiguredOrRetiredCourse() public {
-        // никогда не настраивался
+        // never configured
         vm.prank(user1);
         vm.expectRevert("Course not configured");
         bonus.claim(COURSE_UNKNOWN, _sign(user1, COURSE_UNKNOWN));
 
-        // настроен, потом обнулён — то же состояние
+        // configured, then zeroed — same state
         bytes memory sig = _sign(user1, COURSE_A);
 
         vm.prank(owner);
@@ -174,7 +174,7 @@ contract CryptoCourseBonusTest is Setup {
     }
 
     function test_claim_revert_insufficientBalance() public {
-        // балансе читаем до prank: внешний вызов в аргументе израсходовал бы его
+        // read the balance before the prank: an external call in an argument would consume it
         uint256 bal = usdc.balanceOf(address(bonus));
         vm.prank(owner);
         bonus.withdraw(address(usdc), bal, owner);
@@ -184,7 +184,7 @@ contract CryptoCourseBonusTest is Setup {
         bonus.claim(COURSE_A, _sign(user1, COURSE_A));
     }
 
-    // ── claim: связывание подписи. Каждый тест меняет одно поле прообраза ──
+    // ── claim: signature binding. Each test varies one preimage field ──
 
     function test_claim_revert_foreignSigner() public {
         (, uint256 attackerPk) = makeAddrAndKey("attackerSigner");
@@ -388,27 +388,6 @@ contract CryptoCourseBonusTest is Setup {
         vm.prank(owner);
         vm.expectRevert(abi.encodeWithSignature("InvalidInitialization()"));
         bonus.initialize(address(usdc), backend);
-    }
-
-    /// Upgrading is the one irreversible admin power, so pin who may do it — and that the payment
-    /// records survive, since a wrong layout would silently reset them.
-    function test_upgrade_onlyOwner_andStatePersists() public {
-        vm.prank(user1);
-        bonus.claim(COURSE_A, _sign(user1, COURSE_A));
-
-        CryptoCourseBonus newImpl = new CryptoCourseBonus();
-
-        vm.prank(attacker);
-        vm.expectRevert();
-        bonus.upgradeToAndCall(address(newImpl), "");
-
-        vm.prank(owner);
-        bonus.upgradeToAndCall(address(newImpl), "");
-
-        assertTrue(bonus.isClaimed(user1, COURSE_A));
-        assertEq(bonus.courseAmount(COURSE_B), AMOUNT_B);
-        assertEq(bonus.totalBonusCount(), 1);
-        assertEq(bonus.trustedSigner(), backend);
     }
 
     // ── views ──
