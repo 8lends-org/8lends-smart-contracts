@@ -109,8 +109,13 @@ figures from the two are not comparable, and deployments go through Hardhat.
 Individual scripts take further inputs the same way; each file documents its own in a header
 comment.
 
-Deployed addresses live in `scripts/config/<chainId>-config.json`, which is gitignored — it is
-local state, not a shared source of truth.
+Deployed addresses live in `scripts/config/<chainId>-config.json` and are committed: this is the
+record of what exists on each chain, and scripts resolve proxies through it. Deploy and upgrade
+scripts rewrite the file, so expect it in diffs — that is the point. Nothing secret goes in;
+`trustedSigner` is an address, its key stays in `.env`.
+
+What is not committed is per-run state: `scripts/state/` (batch progress) and the `safe-*.json`
+batches.
 
 ## Networks
 
