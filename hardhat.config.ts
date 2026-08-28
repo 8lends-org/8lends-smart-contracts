@@ -14,6 +14,13 @@ import "hardhat-abi-exporter";
 
 
 dotenv.config();
+
+// Base's public endpoint is the default so that `npx hardhat test` works on a fresh clone and in
+// CI without any secret. It is rate-limited and slow (minutes rather than seconds on a cold fork
+// cache), so set BASE_RPC_URL to a dedicated provider for day-to-day work and for deployments.
+const BASE_RPC_URL = process.env.BASE_RPC_URL || "https://mainnet.base.org";
+const SEPOLIA_RPC_URL = process.env.ETHEREUM_SEPOLIA_RPC_URL || "https://rpc.sepolia.org";
+
 const config: HardhatUserConfig = {
     solidity: {
         compilers: [
@@ -34,7 +41,7 @@ const config: HardhatUserConfig = {
     networks: {
         base: {
             chainId: 8453,
-            url: process.env.BASE_RPC_URL,
+            url: BASE_RPC_URL,
             accounts: {
                 mnemonic: process.env.OWNER_MNEMONIC_PROD,
                 initialIndex: Number(process.env.INITIAL_INDEX) || 0
@@ -45,17 +52,16 @@ const config: HardhatUserConfig = {
             chainId: 8453,
             hardfork: "cancun",
             // allowUnlimitedContractSize: true,
-            // Always on, no switch: general/Oracle/balance-table assert against the real base
-            // deployment, and the forked network must not depend on an env var — otherwise
-            // `npx hardhat test` differs per machine. No blockNumber: the RPC has no archive state.
+            // Always on, no switch: general/oracle/balance-table assert against the real Base
+            // deployment. No blockNumber: the public RPC has no archive state.
             forking: {
                 enabled: true,
-                url: process.env.BASE_RPC_URL || "",
+                url: BASE_RPC_URL,
             },
         },
         sepolia: {
             chainId: 11155111,
-            url: process.env.ETHEREUM_SEPOLIA_RPC_URL,
+            url: SEPOLIA_RPC_URL,
             accounts: {
                 mnemonic: process.env.OWNER_MNEMONIC_DEV,
                 initialIndex: Number(process.env.INITIAL_INDEX) || 0
