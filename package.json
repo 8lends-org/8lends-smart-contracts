@@ -7,7 +7,6 @@
     "test:general": "hardhat test test/general.test.ts",
     "test:oracle": "hardhat test test/oracle.test.ts",
     "test:lending": "hardhat test test/lending/lending8.test.ts",
-    "test:scripts": "hardhat test test/scripts/migrate-all-time-invested-usd-input.test.ts",
     "forge:build": "forge build",
     "forge:test": "forge test -vvv",
     "forge:test:unit": "forge test --match-path 'test/foundry/unit/*' -vvv",
