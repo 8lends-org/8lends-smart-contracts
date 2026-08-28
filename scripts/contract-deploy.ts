@@ -3,6 +3,7 @@ import hre, { ethers } from "hardhat";
 import { upgrades } from "hardhat";
 import * as readline from "readline";
 import { readJsonFile, writeJsonFile } from "./utils/helpers";
+import { requireRealNetwork } from "./utils/network-guard";
 
 dotenv.config();
 
@@ -181,13 +182,6 @@ const DEPLOY_DESCRIPTORS: Record<string, DeployDescriptor> = {
     },
     configKey: "AdaptiveCurveIrm",
   },
-  MockERC20: {
-    useProxy: true,
-    initializer: "initialize",
-    getProxyArgs: (_config, owner) => [owner, "Test usdt", "TUSDT"],
-    configKey: "USDC",
-    configKeyImpl: "USDC_impl",
-  },
   FlashLiquidator: {
     useProxy: true,
     initializer: "initialize",
@@ -312,6 +306,7 @@ const DEPLOY_DESCRIPTORS: Record<string, DeployDescriptor> = {
 };
 
 async function main(): Promise<void> {
+  requireRealNetwork();
   const contractName = process.env.CONTRACT;
   if (!contractName) {
     throw new Error("Set CONTRACT env (e.g. CONTRACT=TreasuryLending)");

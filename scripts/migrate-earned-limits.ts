@@ -50,6 +50,7 @@ import { readFileSync, writeFileSync } from "fs";
 import { ethers } from "hardhat";
 import { join } from "path";
 import { requireOwner } from "./utils/owner-guard";
+import { requireRealNetwork } from "./utils/network-guard";
 
 const BASIS_POINTS = 1_000_000n;
 const BATCH_SIZE = 200;
@@ -66,6 +67,7 @@ const STAGE_REPAID = 5;
 const DELAY = 1000;
 
 async function main() {
+  requireRealNetwork();
   const net = await ethers.provider.getNetwork();
   console.log("network: ", net.name);
 

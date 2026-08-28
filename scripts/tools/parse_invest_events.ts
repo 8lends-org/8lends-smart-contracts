@@ -3,7 +3,7 @@
  * 
  * Usage:
  *   npx hardhat run scripts/tools/parse_invest_events.ts --network base
- *   npx hardhat run scripts/tools/parse_invest_events.ts --network base_sepolia
+ *   npx hardhat run scripts/tools/parse_invest_events.ts --network sepolia
  * 
  * Optional: Add fundraiseDeployBlock to config to speed up scanning
  */
@@ -11,6 +11,7 @@
 import dotenv from "dotenv";
 import { ethers } from "hardhat";
 import { readJsonFile, writeJsonFile } from "../utils/helpers";
+import { requireRealNetwork } from "../utils/network-guard";
 dotenv.config();
 
 interface InvestEvent {
@@ -47,6 +48,7 @@ interface ParseResults {
 }
 
 async function main(): Promise<void> {
+  requireRealNetwork();
   const net = await ethers.provider.getNetwork();
   console.log(`\nNetwork name: ${net.name}\n`);
 

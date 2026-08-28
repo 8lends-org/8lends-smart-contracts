@@ -2,9 +2,11 @@ import dotenv from "dotenv";
 import hre, { ethers } from "hardhat";
 import { readJsonFile } from "../utils/helpers";
 import { requireOwner } from "../utils/owner-guard";
+import { requireRealNetwork } from "../utils/network-guard";
 dotenv.config();
 
 async function main() {
+  requireRealNetwork();
   const net = await ethers.provider.getNetwork();
   console.log(`\nNetwork name: ${net.name}\n`);
 
@@ -20,7 +22,7 @@ async function main() {
   console.log("Signer native balance:", ethers.formatEther(signerBalance));
 
   // Check if USDC address exists in config
-  const tokenAddress = config.testUsdt || config.usdc;
+  const tokenAddress = config.USDC as string;
   if (!tokenAddress) {
     throw new Error("USDC/testUsdt address not found in config");
   }
@@ -28,17 +30,17 @@ async function main() {
   console.log("Token address:", tokenAddress);
 
   // Connect to Token contract
-  const testToken = await ethers.getContractAt("MockERC20", tokenAddress);
+  const testToken = await ethers.getContractAt("contracts/test-tokens/testerc20.sol:TestERC20", tokenAddress);
   await requireOwner(tokenAddress, "USDC (test token)");
 
   // Get parameters from environment variables
 
   if (!TO_WALLET_ADDRESS || !AMOUNT) {
     console.log(
-      "Usage: TO_WALLET_ADDRESS=0x123... AMOUNT=1000 npx hardhat run scripts/mint_test_token.ts --network <network>"
+      "Usage: TO_WALLET_ADDRESS=0x123... AMOUNT=1000 npx hardhat run scripts/tools/mint_usdc.ts --network <network>"
     );
     console.log(
-      "Example: TO_WALLET_ADDRESS=0x123... AMOUNT=1000 npx hardhat run scripts/mint_test_token.ts --network base_sepolia"
+      "Example: TO_WALLET_ADDRESS=0x123... AMOUNT=1000 npx hardhat run scripts/tools/mint_usdc.ts --network sepolia"
     );
     process.exit(1);
   }

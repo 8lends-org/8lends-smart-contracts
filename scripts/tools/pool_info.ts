@@ -4,6 +4,7 @@ import { ethers } from "hardhat";
 import { readFileSync } from "fs";
 import { join } from "path";
 import dotenv from "dotenv";
+import { requireRealNetwork } from "../utils/network-guard";
 import { formatUnits, parseUnits } from "ethers";
 
 dotenv.config();
@@ -28,6 +29,7 @@ const POOL_ABI = [
 
 
 const main = async () => {
+  requireRealNetwork();
     const net = await ethers.provider.getNetwork();
     console.log("network: ", net.name);
 
@@ -41,7 +43,7 @@ const main = async () => {
     // price, reserve0, reserve1
 
     const factoryContract = new ethers.Contract(config.uniswapV2Factory, UNISWAP_FACTORY_ABI, ethers.provider);
-    const pool = await factoryContract.getPair(config.token, config.usdc);
+    const pool = await factoryContract.getPair(config.token, config.USDC);
 
     const poolContract = new ethers.Contract(pool, POOL_ABI, ethers.provider);
 

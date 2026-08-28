@@ -1,6 +1,7 @@
 import dotenv from "dotenv";
 import { ethers, upgrades } from "hardhat";
 import { readJsonFile, writeJsonFile } from "./utils/helpers";
+import { requireRealNetwork } from "./utils/network-guard";
 dotenv.config();
 
 /**
@@ -10,6 +11,7 @@ dotenv.config();
  */
 
 async function main() {
+  requireRealNetwork();
   const contractName = process.env.CONTRACT;
 
   if (!contractName) {

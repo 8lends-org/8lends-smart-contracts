@@ -3,6 +3,7 @@ import { ethers } from "hardhat";
 import fs from "fs";
 import path from "path";
 import { readJsonFile } from "./utils/helpers";
+import { requireRealNetwork } from "./utils/network-guard";
 
 dotenv.config();
 
@@ -38,6 +39,7 @@ interface SendData {
  * Entrypoint for the batch sending tokens script.
  */
 async function main() {
+  requireRealNetwork();
     const net = await ethers.provider.getNetwork();
     const filePath = `./scripts/config/${net.chainId}-config.json`;
     const config = await readJsonFile(filePath);

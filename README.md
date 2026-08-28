@@ -134,7 +134,7 @@ transactions directly, on Base they can only prepare a batch for the Safe.
 CONTRACT=Fundraise npx hardhat run scripts/contract-deploy.ts --network sepolia
 ```
 
-`scripts/contract-deploy.ts` knows 25 contracts, asks for confirmation, and writes the resulting
+`scripts/contract-deploy.ts` knows 24 contracts, asks for confirmation, and writes the resulting
 address into the chain config.
 
 On Base the owner is a Safe, so nothing is sent directly. Two scripts prepare a JSON to drag into

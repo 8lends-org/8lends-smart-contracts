@@ -2,6 +2,7 @@ import { Contract } from "ethers";
 import { readFileSync } from "fs";
 import { ethers } from "hardhat";
 import { join } from "path";
+import { requireRealNetwork } from "./utils/network-guard";
 
 /**
  * Backfill individual investment positions for existing investors.
@@ -50,6 +51,7 @@ const Multicall3Abi = [
 ] as const;
 
 async function main() {
+  requireRealNetwork();
   const net = await ethers.provider.getNetwork();
 
   const config: {

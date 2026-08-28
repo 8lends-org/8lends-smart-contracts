@@ -2,6 +2,7 @@ import dotenv from "dotenv";
 import { ethers } from "hardhat";
 import { readFileSync } from "fs";
 import { join } from "path";
+import { requireRealNetwork } from "./utils/network-guard";
 
 dotenv.config();
 
@@ -17,6 +18,7 @@ const PERCENT = process.env.PERCENT;
  * when using claimAndSellTokensForProjectBatch function.
  */
 async function main(): Promise<void> {
+  requireRealNetwork();
     const net = await ethers.provider.getNetwork();
     console.log("🌐 Network:", net.name, `(Chain ID: ${net.chainId})`);
 

@@ -5,6 +5,7 @@ import path from "path";
 import { readJsonFile } from "../utils/helpers";
 import { requireOwner } from "../utils/owner-guard";
 import { inputFingerprint, openProgress } from "../utils/batch-progress";
+import { requireRealNetwork } from "../utils/network-guard";
 
 dotenv.config();
 
@@ -38,6 +39,7 @@ interface WalletDistribution {
  * Main function to distribute tokens immediately (without vesting) to wallet distributions.
  */
 async function main(): Promise<void> {
+  requireRealNetwork();
     const net = await ethers.provider.getNetwork();
     const filePath = `./scripts/config/${net.chainId}-config.json`;
     const config = await readJsonFile(filePath);

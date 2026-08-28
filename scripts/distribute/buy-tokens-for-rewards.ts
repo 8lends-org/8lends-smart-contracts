@@ -3,6 +3,7 @@ import { ethers } from "hardhat";
 import { readFileSync } from "fs";
 import { join } from "path";
 import { formatUnits } from "ethers";
+import { requireRealNetwork } from "../utils/network-guard";
 
 dotenv.config();
 
@@ -32,20 +33,21 @@ const ERC20_ABI = [
  * Buys an exact number of tokens using the available USDC balance.
  */
 async function main(): Promise<void> {
+  requireRealNetwork();
     const net = await ethers.provider.getNetwork();
     console.log("network: ", net.name);
 
     const config: {
         uniswapV2Router: string;
-        usdc: string;
+        USDC: string;
         token: string;
         RewardSystem: string;
-    } = JSON.parse(readFileSync(join(__dirname, `./config/${net.chainId}-config.json`), "utf8"));
+    } = JSON.parse(readFileSync(join(__dirname, `../config/${net.chainId}-config.json`), "utf8"));
 
     if (!config.uniswapV2Router) {
         throw new Error("❌ Uniswap V2 Router address not found in config");
     }
-    if (!config.usdc) {
+    if (!config.USDC) {
         throw new Error("❌ USDC address not found in config");
     }
     if (!config.token) {
@@ -55,7 +57,7 @@ async function main(): Promise<void> {
     console.log("\n" + "=".repeat(80));
     console.log(`🌐 Network: ${net.name} (chainId: ${net.chainId})`);
     console.log(`📍 Uniswap Router: ${config.uniswapV2Router}`);
-    console.log(`📍 USDC: ${config.usdc}`);
+    console.log(`📍 USDC: ${config.USDC}`);
     console.log(`📍 Token: ${config.token}`);
     console.log("=".repeat(80) + "\n");
 
@@ -67,7 +69,7 @@ async function main(): Promise<void> {
 
     // Connect to the contracts
     const uniswapRouter = new ethers.Contract(config.uniswapV2Router, UNISWAP_ROUTER_ABI, signer);
-    const usdcContract = new ethers.Contract(config.usdc, ERC20_ABI, signer);
+    const usdcContract = new ethers.Contract(config.USDC, ERC20_ABI, signer);
     const tokenContract = new ethers.Contract(config.token, ERC20_ABI, signer);
 
     // Fetch token information
@@ -102,7 +104,7 @@ async function main(): Promise<void> {
         
 
         // Prepare token swap path (USDC -> TOKEN)
-        const path = [config.usdc, config.token];
+        const path = [config.USDC, config.token];
         console.log("path:", path);
         console.log("amountOut:", amountOut);
 
@@ -165,7 +167,7 @@ async function main(): Promise<void> {
         console.log("=".repeat(80) + "\n");
     }else if(USDC_AMOUNT_TO_BUY) {
         const amountIn = ethers.parseUnits(USDC_AMOUNT_TO_BUY, usdcDecimals);
-        const path = [config.usdc, config.token];
+        const path = [config.USDC, config.token];
         console.log("path:", path);
         console.log("amountIn:", amountIn);
 

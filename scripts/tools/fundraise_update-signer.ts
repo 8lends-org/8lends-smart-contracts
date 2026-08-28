@@ -3,10 +3,12 @@ import dotenv from "dotenv";
 import hre, { ethers } from "hardhat";
 import { readJsonFile, writeJsonFile } from "../utils/helpers";
 import { requireOwner } from "../utils/owner-guard";
+import { requireRealNetwork } from "../utils/network-guard";
 
 dotenv.config();
 
 async function main() {
+  requireRealNetwork();
   const net = await ethers.provider.getNetwork();
   console.log("\nNetwork name:", net.name, "\n");
 

@@ -8,6 +8,7 @@
 import dotenv from "dotenv";
 import { ethers } from "hardhat";
 import { readJsonFile, writeJsonFile } from "../utils/helpers";
+import { requireRealNetwork } from "../utils/network-guard";
 dotenv.config();
 
 interface InvestorStats {
@@ -40,6 +41,7 @@ interface PeriodResults {
 }
 
 async function main(): Promise<void> {
+  requireRealNetwork();
   const startDate = new Date("2025-12-02T09:25:00Z");
   const endDate = new Date("2025-12-11T10:00:00Z");
   

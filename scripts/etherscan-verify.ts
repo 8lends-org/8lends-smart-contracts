@@ -1,9 +1,11 @@
 import dotenv from "dotenv";
 import hre, { ethers } from "hardhat";
 import { readJsonFile } from "./utils/helpers";
+import { requireRealNetwork } from "./utils/network-guard";
 dotenv.config();
 
 async function main() {
+  requireRealNetwork();
   const config = await readJsonFile(
     `./scripts/config/${(await ethers.provider.getNetwork()).chainId}-config.json`
   );

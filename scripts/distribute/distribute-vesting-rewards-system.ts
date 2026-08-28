@@ -5,6 +5,7 @@ import path from "path";
 import { readJsonFile } from "../utils/helpers";
 import { requireOwner } from "../utils/owner-guard";
 import { inputFingerprint, openProgress } from "../utils/batch-progress";
+import { requireRealNetwork } from "../utils/network-guard";
 
 interface WalletDistribution {
     project_id: number;
@@ -35,6 +36,7 @@ if(!FILE_PATH) {
  * Main function to distribute vesting tokens to wallet distributions.
  */
 async function main(): Promise<void> {
+  requireRealNetwork();
     const net = await ethers.provider.getNetwork();
     const filePath = `./scripts/config/${net.chainId}-config.json`;
     const config = await readJsonFile(filePath);

@@ -3,6 +3,7 @@ import { ethers } from "hardhat";
 import { readFileSync } from "fs";
 import { join } from "path";
 import { requireOwner } from "./utils/owner-guard";
+import { requireRealNetwork } from "./utils/network-guard";
 
 dotenv.config();
 
@@ -14,6 +15,7 @@ const CONTRACT: OracleTarget = process.env.CONTRACT as OracleTarget;
  * Script for setting the oracle in the contract.
  */
 async function main(): Promise<void> {
+  requireRealNetwork();
     const net = await ethers.provider.getNetwork();
     console.log("network: ", net.name);
 

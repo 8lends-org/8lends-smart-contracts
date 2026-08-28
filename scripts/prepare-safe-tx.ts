@@ -2,6 +2,7 @@ import dotenv from "dotenv";
 import hre, { ethers } from "hardhat";
 import { readJsonFile } from "./utils/helpers";
 import { buildTransaction, findAbiFunction, isDryRun, signatureOf, tryReadOwner, writeBatch } from "./utils/safe-batch";
+import { requireRealNetwork } from "./utils/network-guard";
 dotenv.config();
 
 /**
@@ -48,6 +49,7 @@ function usage(message: string): never {
 }
 
 async function main() {
+  requireRealNetwork();
   // Empty values are treated as absent: .env carries these keys as blank placeholders.
   const contractName = process.env.CONTRACT || undefined;
   const method = process.env.METHOD || undefined;

@@ -25,6 +25,7 @@ import * as dotenv from "dotenv";
 import { ethers } from "ethers";
 import * as fs from "fs";
 import * as path from "path";
+import { requireRealNetwork } from "../utils/network-guard";
 dotenv.config();
 
 // Fundraise Stage enum (see Fundraise.sol)
@@ -170,6 +171,7 @@ async function fetchLogsViaEtherscan(
 }
 
 async function main() {
+  requireRealNetwork();
   const networkName = (process.env.NETWORK ?? "base").toLowerCase();
   const netCfg = NETWORKS[networkName];
   if (!netCfg) {

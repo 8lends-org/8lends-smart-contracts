@@ -4,6 +4,7 @@ import { readFileSync } from "fs";
 import { join } from "path";
 import { formatUnits } from "ethers";
 import { requireOwner } from "./utils/owner-guard";
+import { requireRealNetwork } from "./utils/network-guard";
 
 dotenv.config();
 
@@ -15,6 +16,7 @@ const BLOCKCHAIN_PROJECT_ID = process.env.BLOCKCHAIN_PROJECT_ID;
  * Script for minting rewards for a project.
  */
 async function main(): Promise<void> {
+  requireRealNetwork();
     const net = await ethers.provider.getNetwork();
     console.log("network: ", net.name);
 
