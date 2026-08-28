@@ -1,11 +1,11 @@
 import * as dotenv from "dotenv";
 import { HardhatUserConfig } from "hardhat/config";
-import "@nomicfoundation/hardhat-toolbox";
+import "@nomicfoundation/hardhat-ethers";
 import "@nomicfoundation/hardhat-chai-matchers";
 import "@openzeppelin/hardhat-upgrades";
 import "hardhat-gas-reporter"
 import '@typechain/hardhat'
-// hardhat-tracer подключать только при тестах/запуске ноды — при compile инициирует провайдер и падает с "missing field _format" (EDR/Hardhat 2.26).
+// Only for tests / running a node: on compile it initialises the provider and fails with "missing field _format" (EDR/Hardhat 2.26).
 if (!process.argv.includes("compile")) {
     require("hardhat-tracer");
 }
