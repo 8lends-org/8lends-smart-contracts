@@ -21,6 +21,17 @@ dotenv.config();
 const BASE_RPC_URL = process.env.BASE_RPC_URL || "https://mainnet.base.org";
 const SEPOLIA_RPC_URL = process.env.ETHEREUM_SEPOLIA_RPC_URL || "https://rpc.sepolia.org";
 
+/**
+ * HD accounts for a network, or none at all when the mnemonic is unset. An accounts object
+ * without a mnemonic fails config validation with HH8, which is what breaks `hardhat test` in
+ * CI — there are no mnemonics there. A network with no accounts loads fine and simply cannot
+ * sign, which is the honest outcome for an environment that has no key.
+ */
+function hdAccounts(mnemonic: string | undefined) {
+    if (!mnemonic) return undefined;
+    return { mnemonic, initialIndex: Number(process.env.INITIAL_INDEX) || 0 };
+}
+
 const config: HardhatUserConfig = {
     solidity: {
         compilers: [
@@ -42,10 +53,7 @@ const config: HardhatUserConfig = {
         base: {
             chainId: 8453,
             url: BASE_RPC_URL,
-            accounts: {
-                mnemonic: process.env.OWNER_MNEMONIC_PROD,
-                initialIndex: Number(process.env.INITIAL_INDEX) || 0
-            },
+            accounts: hdAccounts(process.env.OWNER_MNEMONIC_PROD),
         },
         hardhat: {
             gasPrice: 100000000000,
@@ -62,10 +70,7 @@ const config: HardhatUserConfig = {
         sepolia: {
             chainId: 11155111,
             url: SEPOLIA_RPC_URL,
-            accounts: {
-                mnemonic: process.env.OWNER_MNEMONIC_DEV,
-                initialIndex: Number(process.env.INITIAL_INDEX) || 0
-            },
+            accounts: hdAccounts(process.env.OWNER_MNEMONIC_DEV),
         }
     },
     gasReporter: {
