@@ -346,7 +346,7 @@ contract RewardSystem is Initializable, UUPSUpgradeable, OwnableUpgradeable, Ree
     /// @param _tokenPercentage token percentage 60000 is 6%
     /// @param _welcomeBonusAmount welcome bonus amount in USDC-decimal units (dynamic, not hardcoded to 6 decimals)
     /// @param _minInvestmentForBonus min investment for bonus in USDC-decimal units (dynamic, not hardcoded to 6 decimals)
-    /// @param _weeklyUnlock weekly unlock 2_500_000 is 2.5%
+    /// @param _weeklyUnlock weekly unlock 25000 is 2.5%
     /// @param _vestingWeeks vesting weeks 40 is 40 weeks
     /// @dev all percentage parameters must be less or equal to 1_000_000 (100e4 = 100%)
     function setParameters(
