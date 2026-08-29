@@ -6,7 +6,7 @@ import { requireRealNetwork } from "../utils/network-guard";
 dotenv.config();
 
 async function main() {
-  requireRealNetwork();
+  await requireRealNetwork();
   const net = await ethers.provider.getNetwork();
   console.log("\nNetwork name:", net.name, "\n");
 

@@ -33,7 +33,7 @@ const ERC20_ABI = [
  * Buys an exact number of tokens using the available USDC balance.
  */
 async function main(): Promise<void> {
-  requireRealNetwork();
+  await requireRealNetwork();
     const net = await ethers.provider.getNetwork();
     console.log("network: ", net.name);
 

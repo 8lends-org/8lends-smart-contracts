@@ -125,7 +125,7 @@ function decodeLog(log: Log, topic0Decoders: Map<string, Interface>): DecodedEve
 }
 
 async function main(): Promise<void> {
-  requireRealNetwork();
+  await requireRealNetwork();
   const net = await ethers.provider.getNetwork();
   console.log(`Network: ${net.name} (chainId: ${net.chainId})\n`);
 

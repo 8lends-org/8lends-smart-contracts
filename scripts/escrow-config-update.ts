@@ -46,7 +46,7 @@ async function sendIfChanged(
 }
 
 async function main(): Promise<void> {
-  requireRealNetwork();
+  await requireRealNetwork();
     const net = await ethers.provider.getNetwork();
     const filePath = `./scripts/config/${net.chainId}-config.json`;
     const config = (await readJsonFile(filePath)) as Cfg;

@@ -5,7 +5,7 @@ import { requireRealNetwork } from "./utils/network-guard";
 dotenv.config();
 
 async function main() {
-  requireRealNetwork();
+  await requireRealNetwork();
   const config = await readJsonFile(
     `./scripts/config/${(await ethers.provider.getNetwork()).chainId}-config.json`
   );

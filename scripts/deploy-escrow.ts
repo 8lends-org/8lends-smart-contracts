@@ -21,7 +21,7 @@ dotenv.config();
 type Config = Record<string, string>;
 
 async function main(): Promise<void> {
-  requireRealNetwork();
+  await requireRealNetwork();
   // ── env validation ──────────────────────────────────────────────────────────
   const signerAddr = process.env.SIGNER;
   if (!signerAddr || signerAddr === "0x0000000000000000000000000000000000000000") {

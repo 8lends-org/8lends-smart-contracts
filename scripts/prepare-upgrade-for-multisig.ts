@@ -35,7 +35,7 @@ function contractMethodFromAbi(abi: any[], name: string): SafeTransaction["contr
 }
 
 async function main() {
-  requireRealNetwork();
+  await requireRealNetwork();
   // The in-process `hardhat` network forks base and reports its chainId, so a run without
   // --network looks exactly like a real one. Rather than refuse, treat it as a rehearsal: the
   // implementation lands on a throwaway chain, so the batch is marked and the config is left alone.

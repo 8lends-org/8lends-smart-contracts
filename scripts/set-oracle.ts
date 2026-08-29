@@ -15,7 +15,7 @@ const CONTRACT: OracleTarget = process.env.CONTRACT as OracleTarget;
  * Script for setting the oracle in the contract.
  */
 async function main(): Promise<void> {
-  requireRealNetwork();
+  await requireRealNetwork();
     const net = await ethers.provider.getNetwork();
     console.log("network: ", net.name);
 

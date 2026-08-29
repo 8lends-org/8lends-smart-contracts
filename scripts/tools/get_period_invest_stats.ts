@@ -41,7 +41,7 @@ interface PeriodResults {
 }
 
 async function main(): Promise<void> {
-  requireRealNetwork();
+  await requireRealNetwork();
   const startDate = new Date("2025-12-02T09:25:00Z");
   const endDate = new Date("2025-12-11T10:00:00Z");
   

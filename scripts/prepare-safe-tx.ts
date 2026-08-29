@@ -49,7 +49,7 @@ function usage(message: string): never {
 }
 
 async function main() {
-  requireRealNetwork();
+  await requireRealNetwork();
   // Empty values are treated as absent: .env carries these keys as blank placeholders.
   const contractName = process.env.CONTRACT || undefined;
   const method = process.env.METHOD || undefined;

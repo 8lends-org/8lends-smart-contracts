@@ -18,7 +18,7 @@ const PERCENT = process.env.PERCENT;
  * when using claimAndSellTokensForProjectBatch function.
  */
 async function main(): Promise<void> {
-  requireRealNetwork();
+  await requireRealNetwork();
     const net = await ethers.provider.getNetwork();
     console.log("🌐 Network:", net.name, `(Chain ID: ${net.chainId})`);
 

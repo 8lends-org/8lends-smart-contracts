@@ -11,7 +11,7 @@ dotenv.config();
  */
 
 async function main() {
-  requireRealNetwork();
+  await requireRealNetwork();
   const contractName = process.env.CONTRACT;
 
   if (!contractName) {

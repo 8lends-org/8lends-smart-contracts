@@ -39,7 +39,7 @@ interface WalletDistribution {
  * Main function to distribute tokens immediately (without vesting) to wallet distributions.
  */
 async function main(): Promise<void> {
-  requireRealNetwork();
+  await requireRealNetwork();
     const net = await ethers.provider.getNetwork();
     const filePath = `./scripts/config/${net.chainId}-config.json`;
     const config = await readJsonFile(filePath);

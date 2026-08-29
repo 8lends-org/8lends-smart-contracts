@@ -48,7 +48,7 @@ interface ParseResults {
 }
 
 async function main(): Promise<void> {
-  requireRealNetwork();
+  await requireRealNetwork();
   const net = await ethers.provider.getNetwork();
   console.log(`\nNetwork name: ${net.name}\n`);
 

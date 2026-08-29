@@ -29,7 +29,7 @@ const POOL_ABI = [
 
 
 const main = async () => {
-  requireRealNetwork();
+  await requireRealNetwork();
     const net = await ethers.provider.getNetwork();
     console.log("network: ", net.name);
 

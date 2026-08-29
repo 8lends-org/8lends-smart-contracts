@@ -171,7 +171,7 @@ async function fetchLogsViaEtherscan(
 }
 
 async function main() {
-  requireRealNetwork();
+  await requireRealNetwork();
   const networkName = (process.env.NETWORK ?? "base").toLowerCase();
   const netCfg = NETWORKS[networkName];
   if (!netCfg) {

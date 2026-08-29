@@ -67,7 +67,7 @@ const STAGE_REPAID = 5;
 const DELAY = 1000;
 
 async function main() {
-  requireRealNetwork();
+  await requireRealNetwork();
   const net = await ethers.provider.getNetwork();
   console.log("network: ", net.name);
 

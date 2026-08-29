@@ -17,7 +17,7 @@ const CONTRACT : "RewardSystem" | "Rewards2" = process.env.CONTRACT as "RewardSy
  * Script for minting rewards for a project.
  */
 async function main(): Promise<void> {
-  requireRealNetwork();
+  await requireRealNetwork();
     const net = await ethers.provider.getNetwork();
     console.log("network: ", net.name);
 

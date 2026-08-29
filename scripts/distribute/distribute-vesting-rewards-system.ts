@@ -36,7 +36,7 @@ if(!FILE_PATH) {
  * Main function to distribute vesting tokens to wallet distributions.
  */
 async function main(): Promise<void> {
-  requireRealNetwork();
+  await requireRealNetwork();
     const net = await ethers.provider.getNetwork();
     const filePath = `./scripts/config/${net.chainId}-config.json`;
     const config = await readJsonFile(filePath);

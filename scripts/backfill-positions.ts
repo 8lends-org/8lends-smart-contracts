@@ -51,7 +51,7 @@ const Multicall3Abi = [
 ] as const;
 
 async function main() {
-  requireRealNetwork();
+  await requireRealNetwork();
   const net = await ethers.provider.getNetwork();
 
   const config: {

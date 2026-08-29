@@ -306,7 +306,7 @@ const DEPLOY_DESCRIPTORS: Record<string, DeployDescriptor> = {
 };
 
 async function main(): Promise<void> {
-  requireRealNetwork();
+  await requireRealNetwork();
   const contractName = process.env.CONTRACT;
   if (!contractName) {
     throw new Error("Set CONTRACT env (e.g. CONTRACT=TreasuryLending)");

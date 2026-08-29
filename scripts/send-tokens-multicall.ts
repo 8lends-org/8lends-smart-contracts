@@ -39,7 +39,7 @@ interface SendData {
  * Entrypoint for the batch sending tokens script.
  */
 async function main() {
-  requireRealNetwork();
+  await requireRealNetwork();
     const net = await ethers.provider.getNetwork();
     const filePath = `./scripts/config/${net.chainId}-config.json`;
     const config = await readJsonFile(filePath);
