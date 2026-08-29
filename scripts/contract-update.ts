@@ -1,31 +1,24 @@
 import dotenv from "dotenv";
 import hre, { ethers } from "hardhat";
-import { readJsonFile, writeJsonFile } from "./helpers";
+import { readJsonFile, writeJsonFile } from "./utils/helpers";
+import { requireOwner } from "./utils/owner-guard";
+import { requireRealNetwork } from "./utils/network-guard";
 dotenv.config();
 
 // Get contract name from environment variable
 const contractName = process.env.CONTRACT;
 
 if (!contractName) {
-  console.error(
-    "Usage: CONTRACT=<ContractName> npx hardhat run scripts/contract-update.ts --network <network>"
-  );
-  console.error(
-    "Example: CONTRACT=Fundraise npx hardhat run scripts/contract-update.ts --network base"
-  );
-  console.error(
-    "Example: CONTRACT=LimitedSeller npx hardhat run scripts/contract-update.ts --network base"
-  );
-  console.error(
-    "Example: CONTRACT=MaclearBonus npx hardhat run scripts/contract-update.ts --network base"
-  );
-  console.error(
-    "Example: CONTRACT=CryptoCourceBonus npx hardhat run scripts/contract-update.ts --network base"
-  );
+  console.error("CONTRACT is not set.\n");
+  console.error("  CONTRACT=<Name> npx hardhat run scripts/contract-update.ts --network <network>");
+  console.error("  e.g. CONTRACT=Fundraise npx hardhat run scripts/contract-update.ts --network base\n");
+  console.error("<Name> is the config key of the proxy to upgrade. The signer must be its owner —");
+  console.error("if the owner is a Safe, use scripts/prepare-upgrade-for-multisig.ts instead.");
   process.exit(1);
 }
 
 async function main() {
+  await requireRealNetwork();
   const net = await ethers.provider.getNetwork();
   const filePath = `./scripts/config/${net.chainId}-config.json`;
   const config = await readJsonFile(filePath);
@@ -47,13 +40,7 @@ async function main() {
     }
 
     const factory = await ethers.getContractAt("EscrowFactory", config.EscrowFactory as string);
-    const factoryOwner = (await factory.owner()).toLowerCase();
-    if (factoryOwner !== me) {
-      console.log(`EscrowFactory: ${config.EscrowFactory}`);
-      console.log(`Owner: ${factoryOwner}`);
-      console.log(`Signer: ${me}`);
-      throw new Error("Not the owner of EscrowFactory");
-    }
+    await requireOwner(config.EscrowFactory as string, "EscrowFactory");
 
     await hre.run("clean");
     await hre.run("compile");
@@ -87,17 +74,7 @@ async function main() {
   // Check owner rights
   const contract = await ethers.getContractAt(contractName!, config[contractKey] as string);
 
-try{
-    const owner = await contract.owner();
-    if (owner.toLowerCase() !== me) {
-      console.log(`Contract: ${config[contractKey]}`);
-      console.log(`Owner: ${owner}`);
-      console.log(`Signer: ${me}`);
-      throw new Error("Not the owner");
-    }
-
-  }catch(err){}
-  
+  await requireOwner(config[contractKey] as string, contractName!);
 
   // Force update
   await hre.run("clean");

@@ -1,6 +1,8 @@
 import dotenv from "dotenv";
 import { ethers } from "hardhat";
-import { readJsonFile } from "./helpers";
+import { readJsonFile } from "./utils/helpers";
+import { requireOwner } from "./utils/owner-guard";
+import { requireRealNetwork } from "./utils/network-guard";
 
 dotenv.config();
 
@@ -44,6 +46,7 @@ async function sendIfChanged(
 }
 
 async function main(): Promise<void> {
+  await requireRealNetwork();
     const net = await ethers.provider.getNetwork();
     const filePath = `./scripts/config/${net.chainId}-config.json`;
     const config = (await readJsonFile(filePath)) as Cfg;
@@ -59,15 +62,16 @@ async function main(): Promise<void> {
     const me = (await signer.getAddress()).toLowerCase();
     console.log(`Signer: ${me}`);
 
+    // Both guards up front: the script writes to two contracts, and a late check would leave the
+    // first one already updated if the signer owns it but not the second.
+    await requireOwner(config.EscrowFactory as string, "EscrowFactory");
+    await requireOwner(config.Fundraise as string, "Fundraise");
+
     // -----------------------------------------------------------------------
     // EscrowFactory
     // -----------------------------------------------------------------------
     console.log("\n=== EscrowFactory ===");
     const factory = await ethers.getContractAt("EscrowFactory", config.EscrowFactory);
-    const factoryOwner = (await factory.owner()).toLowerCase();
-    if (factoryOwner !== me) {
-        throw new Error(`Not the owner of EscrowFactory (owner=${factoryOwner})`);
-    }
 
     // implementation (clone target for new escrows; existing clones are pinned)
     await sendIfChanged(
@@ -175,10 +179,6 @@ async function main(): Promise<void> {
     // -----------------------------------------------------------------------
     console.log("\n=== Fundraise ===");
     const fundraise = await ethers.getContractAt("Fundraise", config.Fundraise);
-    const fundraiseOwner = (await fundraise.owner()).toLowerCase();
-    if (fundraiseOwner !== me) {
-        throw new Error(`Not the owner of Fundraise (owner=${fundraiseOwner})`);
-    }
 
     await sendIfChanged(
         "amlGateway",

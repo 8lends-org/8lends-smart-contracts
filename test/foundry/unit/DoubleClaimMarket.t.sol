@@ -2,7 +2,7 @@
 pragma solidity ^0.8.23;
 
 import "../Setup.sol";
-import "../../../contracts/market/Market.sol";
+import "../../../contracts/core/market/Market.sol";
 
 /// @notice Regression suite for CRITICAL finding #1 + HIGH finding #2 (.docs/findings.md),
 ///         locking in fix variant A (single source of truth for the claimed watermark).

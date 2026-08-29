@@ -5,7 +5,7 @@ import "forge-std/Test.sol";
 import "../Setup.sol";
 import {AmlEscrow} from "../../../contracts/escrow/AmlEscrow.sol";
 import {EscrowFactory} from "../../../contracts/escrow/EscrowFactory.sol";
-import {IOracle} from "../../../contracts/fundraise/interfaces/IOracle.sol";
+import {IOracle} from "../../../contracts/interfaces/protocol/IOracle.sol";
 import "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 
 /// @notice Mock oracle that allows configuring priceSource and updatedAt timestamps

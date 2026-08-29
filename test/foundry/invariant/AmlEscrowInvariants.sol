@@ -5,7 +5,7 @@ import "forge-std/Test.sol";
 import "../Setup.sol";
 import {AmlEscrow} from "../../../contracts/escrow/AmlEscrow.sol";
 import {EscrowFactory} from "../../../contracts/escrow/EscrowFactory.sol";
-import {IAmlEscrow} from "../../../contracts/escrow/interfaces/IAmlEscrow.sol";
+import {IAmlEscrow} from "../../../contracts/interfaces/protocol/IAmlEscrow.sol";
 import "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 
 // ---------------------------------------------------------------------------

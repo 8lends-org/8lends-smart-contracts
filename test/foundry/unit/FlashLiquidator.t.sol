@@ -127,7 +127,8 @@ contract FlashLiquidatorTest is Test {
     address public attackerAddr;
     address public borrowerAddr;
 
-    MarketParams public testMarketParams;
+    // Not `public`: a public getter named test* would be collected by forge as a test.
+    MarketParams internal testMarketParams;
 
     function setUp() public {
         ownerAddr = makeAddr("owner");
@@ -227,9 +228,47 @@ contract FlashLiquidatorTest is Test {
         assertEq(mockLending8.lastRepaidShares(), expectedRepaidShares);
     }
 
+    function test_liquidate_revert_unknownMarket() public {
+        _seedLiquidator(10_000e6);
+        // The mock reports zero params for an id it does not know, which is what the check reads
+        vm.expectRevert("FlashLiq: market not found");
+        flashLiquidator.liquidate(Id.wrap(keccak256("no such market")), borrowerAddr, 10_000e6);
+    }
+
+    function test_liquidate_revert_marketHasNoBorrows() public {
+        _seedLiquidator(10_000e6);
+        // Known market, but nobody ever borrowed: this check precedes the per-borrower debt check,
+        // so the message is about the market rather than the address.
+        mockLending8.setMarketState(0, 0);
+        vm.expectRevert("FlashLiq: market has no borrows");
+        flashLiquidator.liquidate(_marketId(), borrowerAddr, 10_000e6);
+    }
+
     // ═══════════════════════════════════════════════════════════════
     //                    ADMIN
     // ═══════════════════════════════════════════════════════════════
+
+    function test_setMaxSlippage_revert_aboveCap() public {
+        // MAX_SLIPPAGE is 0.1e18 and is not owner-adjustable
+        vm.prank(ownerAddr);
+        vm.expectRevert("FlashLiq: slippage too high");
+        flashLiquidator.setMaxSlippage(0.11e18);
+    }
+
+    function test_setMaxSlippage_atCap_accepted() public {
+        uint256 previous = flashLiquidator.maxSlippage();
+        vm.expectEmit(true, true, true, true);
+        emit FlashLiquidator.MaxSlippageUpdated(previous, 0.1e18);
+        vm.prank(ownerAddr);
+        flashLiquidator.setMaxSlippage(0.1e18);
+        assertEq(flashLiquidator.maxSlippage(), 0.1e18, "the cap itself must be allowed");
+    }
+
+    function test_setMaxSlippage_revert_notOwner() public {
+        vm.prank(attackerAddr);
+        vm.expectRevert();
+        flashLiquidator.setMaxSlippage(0.01e18);
+    }
 
     function test_setUniswapV2Router_success() public {
         address router = makeAddr("router");

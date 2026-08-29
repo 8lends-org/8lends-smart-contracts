@@ -10,10 +10,10 @@ async function main() {
 
   if (!FROM_PRIVATE_KEY || !TO_ADDRESS || !AMOUNT) {
     console.log(
-      "Usage: FROM_PRIVATE_KEY=0x123... TO_ADDRESS=0x123... AMOUNT=0.01 npx hardhat run scripts/send_native.ts --network <network>"
+      "Usage: FROM_PRIVATE_KEY=0x123... TO_ADDRESS=0x123... AMOUNT=0.01 npx hardhat run scripts/tools/send_native.ts --network <network>"
     );
     console.log(
-      "Example: FROM_PRIVATE_KEY=0x123... TO_ADDRESS=0x123... AMOUNT=0.01 npx hardhat run scripts/send_native.ts --network base_sepolia"
+      "Example: FROM_PRIVATE_KEY=0x123... TO_ADDRESS=0x123... AMOUNT=0.01 npx hardhat run scripts/tools/send_native.ts --network sepolia"
     );
     process.exit(1);
   }
@@ -76,10 +76,10 @@ async function main() {
 
   console.log(`\nNew balances:`);
   console.log(
-    `Signer: ${ethers.formatEther(newSignerBalance)} ${net.name === "base_sepolia" ? "ETH" : "UNI"}`
+    `Signer: ${ethers.formatEther(newSignerBalance)} ETH`
   );
   console.log(
-    `Receiver: ${ethers.formatEther(receiverBalance)} ${net.name === "base_sepolia" ? "ETH" : "UNI"}`
+    `Receiver: ${ethers.formatEther(receiverBalance)} ETH`
   );
 }
 

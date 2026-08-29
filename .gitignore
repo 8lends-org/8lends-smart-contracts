@@ -8,31 +8,24 @@ node_modules
 /artifacts
 
 # TypeChain files
-/typechain
 /typechain-types
-
-# solidity-coverage files
-/coverage
-/coverage.json
 
 # Foundry files
 /forge-out
-/cache_forge
 
-# Slither
-slither-report.json
-
-# Hardhat Ignition default folder for deployments against a local node
-ignition/deployments/chain-31337
-scripts/config/
+scripts/state/
 
 .DS_Store
-distribution/
 
-parse*
-period*
-recovery
+# Reports written to the repo root by scripts/tools/
+parse_invest_events.json
+period_invest_stats_*.json
 
 .idea/
-.docs/
 gasReporterOutput.json
+
+# Safe Transaction Builder batches produced by scripts/prepare-upgrade-for-multisig.ts
+safe-upgrade-*.json
+safe-tx-*.json
+DRY-RUN-*.json
+safe-batch-*.json

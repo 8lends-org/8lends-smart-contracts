@@ -1,6 +1,6 @@
 import { expect } from "chai";
 import { ethers } from "hardhat";
-import { deployContracts } from "./helpers";
+import { deployContracts } from "./utils/helpers";
 import {
   ManagerRegistry,
   Treasury,
@@ -12,10 +12,10 @@ import {
 } from "../typechain-types";
 import { HardhatEthersSigner } from "@nomicfoundation/hardhat-ethers/signers";
 import { time } from "@nomicfoundation/hardhat-network-helpers";
-import { Stage } from "../scripts/helpers";
+import { Stage } from "../scripts/utils/helpers";
 import { formatEther, formatUnits, parseEther, parseUnits } from "ethers";
 
-import { BalanceTable, BalanceEntry } from "./balance-table";
+import { BalanceTable, BalanceEntry } from "./utils/balance-table";
 
 
 
@@ -23,8 +23,9 @@ import { BalanceTable, BalanceEntry } from "./balance-table";
 
 describe("🚀 8lends Protocol - General Flow Tests", function () {
   // 🔧 Configuration
-  const LOGGING_ADDITIONALS = true; // Set to true to enable detailed logging and balance tracking
-  const TRACE_BALANCES = true; // Set to true to enable detailed logging and balance tracking
+  // Flip to true for the step-by-step trace and the balance tables while debugging.
+  const LOGGING_ADDITIONALS = false;
+  const TRACE_BALANCES = false;
 
   // 📊 Balance tracking storage
   const balanceTable = new BalanceTable();
@@ -45,6 +46,13 @@ describe("🚀 8lends Protocol - General Flow Tests", function () {
   let fundraise: Fundraise;
   let router: IUniswapV2Router02;
   let poolAddress: string;
+  // Project used by the whole vesting/claim chain below. Set when it is created, rather than
+  // hardcoded, so adding a test that creates a project does not shift it out from under them.
+  let vestingProjectId: bigint;
+  // Total token reward for that project, captured when it is activated rather than hardcoded:
+  // the amount depends on the token price at investment time, so any test that moves the pool
+  // changes it. The assertions below are about the unlock percentages, not this number.
+  let vestingTotalTokens: bigint;
 
   // 📊 Test Data
   let projectData: any;
@@ -71,15 +79,44 @@ describe("🚀 8lends Protocol - General Flow Tests", function () {
   const INVESTOR_INTEREST_RATE = parseUnits("20", 4); // 20%
 
   // 🔧 Helper Functions
-  /**
-   * Conditional logging function - only logs when LOGGING_ADDITIONALS is true
-   * @param message - Log message
-   * @param args - Additional arguments to log
-   */
+  /** Logs only when LOGGING_ADDITIONALS is on. Indents so the trace nests under mocha's test titles. */
   function log(message: string, ...args: any[]) {
     if (LOGGING_ADDITIONALS) {
-      console.log(message, ...args);
+      console.log(" ".repeat(19) + message, ...args);
     }
+  }
+
+  /**
+   * Copies an on-chain project into a struct for setProject, with the given fields replaced.
+   * projects() already returns bigints, so nothing needs converting; the fields are listed
+   * explicitly because spreading the result would carry its numeric tuple indices along.
+   */
+  function cloneProject(
+    current: Fundraise.ProjectStructOutput,
+    overrides: Partial<Omit<Fundraise.ProjectStruct, "innerStruct">> & {
+      innerStruct?: Partial<Fundraise.InnerProjectStructStruct>;
+    } = {}
+  ): Fundraise.ProjectStruct {
+    const { innerStruct, ...top } = overrides;
+    return {
+      hardCap: current.hardCap,
+      softCap: current.softCap,
+      totalInvested: current.totalInvested,
+      startAt: current.startAt,
+      preFundDuration: current.preFundDuration,
+      investorInterestRate: current.investorInterestRate,
+      openStageEndAt: current.openStageEndAt,
+      ...top,
+      innerStruct: {
+        platformInterestRate: current.innerStruct.platformInterestRate,
+        totalRepaid: current.innerStruct.totalRepaid,
+        borrower: current.innerStruct.borrower,
+        fundedTime: current.innerStruct.fundedTime,
+        loanToken: current.innerStruct.loanToken,
+        stage: current.innerStruct.stage,
+        ...innerStruct,
+      },
+    };
   }
 
   async function invest(projectId: bigint, amount: bigint){
@@ -170,7 +207,7 @@ describe("🚀 8lends Protocol - General Flow Tests", function () {
 
   // 🏗️ Helper Functions
   async function createProject(amountMin: string="20000", amountMax: string="40000") {
-    log("                   📋 CREATE PROJECT");
+    log("📋 CREATE PROJECT");
     projectData = {
       softCap: ethers.parseUnits(amountMin, 6),
       hardCap: ethers.parseUnits(amountMax, 6),
@@ -198,11 +235,14 @@ describe("🚀 8lends Protocol - General Flow Tests", function () {
 
   describe("💰 Investment Flow Tests", function () {
 
-    it("🚀 Deploy contracts and setup", async function () {
-      // Clear balance history for fresh start
+    // 📊 Test Variables
+    let softCap: bigint;
+
+    // Deploying and funding is setup, not a test. It used to sit in the first two `it` blocks,
+    // which reported a broken environment as two failing tests and let the rest run regardless.
+    before(async function () {
       clearBalanceHistory();
-      
-      // Deploy base contracts
+
       const deployResult = await deployContracts();
       owner = deployResult.owner;
       manager = deployResult.manager;
@@ -219,18 +259,12 @@ describe("🚀 8lends Protocol - General Flow Tests", function () {
       router = deployResult.router;
       poolAddress = deployResult.poolAddress;
 
-      // Mint USDC for testing
-      // await usdcToken.mint(investor.address, ethers.parseUnits("10000", 6)); // 10k USDC    
       project = await createProject();
       await trackBalances("Created project");
-    });
 
-    // 📊 Test Variables
-    let softCap: bigint;
-
-    it("💵 Mint USDC for testing", async function () {
+      // Fund the investor up to softCap, which is what the first investment tests spend
       softCap = project.softCap;
-      await usdcToken.mint(investor.address, softCap); // 10k USDC    
+      await usdcToken.mint(investor.address, softCap);
       await usdcToken.connect(investor).approve(await fundraise.getAddress(), softCap);
       await trackBalances("Minted USDC");
     });
@@ -239,7 +273,7 @@ describe("🚀 8lends Protocol - General Flow Tests", function () {
       const amount = 10000;
       await usdcToken.mint(await rewardSystem.getAddress(), amount * 1e6);
       const balanceOfRewardSystem = await usdcToken.balanceOf(await rewardSystem.getAddress());
-      log("                   💵 BALANCE OF REWARD SYSTEM", formatUnits(balanceOfRewardSystem, 6));
+      log("💵 BALANCE OF REWARD SYSTEM", formatUnits(balanceOfRewardSystem, 6));
       expect(balanceOfRewardSystem).to.equal(amount * 1e6);
       await trackBalances(`Sent ${amount} USDC to reward system`);
     });
@@ -305,9 +339,9 @@ describe("🚀 8lends Protocol - General Flow Tests", function () {
         expect((await fundraise.projects(0)).innerStruct.stage).to.equal(Stage.Funded); // Funded
         const project = await fundraise.projects(0);
         const platformFee = (project.totalInvested * project.innerStruct.platformInterestRate) / await fundraise.BASIS_POINTS();
-      log("                   💰 PLATFORM FEE", formatUnits(platformFee, 6));
-      log("                   📊 SOFT CAP", formatUnits(softCap, 6));
-      log("                   💵 TOTAL INVESTED", formatUnits(project.totalInvested, 6));
+      log("💰 PLATFORM FEE", formatUnits(platformFee, 6));
+      log("📊 SOFT CAP", formatUnits(softCap, 6));
+      log("💵 TOTAL INVESTED", formatUnits(project.totalInvested, 6));
         const balanceOfBorrower = await usdcToken.balanceOf(await borrower.getAddress());
         expect(balanceOfBorrower).to.equal(softCap - platformFee);
         await trackBalances("Sent funds to borrower");
@@ -318,20 +352,20 @@ describe("🚀 8lends Protocol - General Flow Tests", function () {
 
     it("✅ Rewards should be activated after Stage.Funded", async function () {
       const projectRewards = await rewardSystem.getProjectRewards(await investor.getAddress(), 0);
-      log("                   🎯 PROJECT REWARDS IS ACTIVATED", projectRewards.isActivated);
-      log("                   💵 PROJECT REWARDS TOTAL USDC", formatUnits(projectRewards.totalUSDC, 6));
-      log("                   🪙 PROJECT REWARDS TOTAL TOKENS", formatEther(projectRewards.totalTokens));
+      log("🎯 PROJECT REWARDS IS ACTIVATED", projectRewards.isActivated);
+      log("💵 PROJECT REWARDS TOTAL USDC", formatUnits(projectRewards.totalUSDC, 6));
+      log("🪙 PROJECT REWARDS TOTAL TOKENS", formatEther(projectRewards.totalTokens));
       expect(projectRewards.isActivated).to.be.true;
     });
 
     it(`🏦 Treasury balance should be ${formatUnits(PLATFORM_PERCENT, 4)}% of investment`, async function () {
       const balanceOfTreasury = await usdcToken.balanceOf(await treasury.getAddress());
       const burnedUSDC = (await rewardSystem.burnPercentage()) * project.totalInvested / await fundraise.BASIS_POINTS();
-      log("                   💰 BALANCE OF TREASURY", formatUnits(balanceOfTreasury, 6));
-      log("                   📊 PROJECT INVESTED", formatUnits(project.totalInvested, 6));
-      log("                   📈 PLATFORM PERCENT", formatUnits(PLATFORM_PERCENT, 4));
-      log("                   🔥 BURNED USDC", formatUnits(burnedUSDC, 6));
-      log("                   💵 EXPECTED BALANCE OF TREASURY", formatUnits(project.totalInvested * PLATFORM_PERCENT / await fundraise.BASIS_POINTS(), 6));
+      log("💰 BALANCE OF TREASURY", formatUnits(balanceOfTreasury, 6));
+      log("📊 PROJECT INVESTED", formatUnits(project.totalInvested, 6));
+      log("📈 PLATFORM PERCENT", formatUnits(PLATFORM_PERCENT, 4));
+      log("🔥 BURNED USDC", formatUnits(burnedUSDC, 6));
+      log("💵 EXPECTED BALANCE OF TREASURY", formatUnits(project.totalInvested * PLATFORM_PERCENT / await fundraise.BASIS_POINTS(), 6));
 
       expect(balanceOfTreasury).to.equal(project.totalInvested * PLATFORM_PERCENT / await fundraise.BASIS_POINTS());
     });
@@ -344,10 +378,10 @@ describe("🚀 8lends Protocol - General Flow Tests", function () {
 
 
       const balanceOfRewardSystem = await usdcToken.balanceOf(await rewardSystem.getAddress());
-      log("                   💵 BALANCE OF REWARD SYSTEM", formatUnits(balanceOfRewardSystem, 6));
+      log("💵 BALANCE OF REWARD SYSTEM", formatUnits(balanceOfRewardSystem, 6));
 
-      log("                   💵 PROJECT REWARDS TOTAL USDC", formatUnits(projectRewards.totalUSDC, 6));
-      log("                   🪙 PROJECT REWARDS TOTAL TOKENS", formatEther(projectRewards.totalTokens));
+      log("💵 PROJECT REWARDS TOTAL USDC", formatUnits(projectRewards.totalUSDC, 6));
+      log("🪙 PROJECT REWARDS TOTAL TOKENS", formatEther(projectRewards.totalTokens));
 
       // 30 USDC for new user bonus
       expect(projectRewards.totalUSDC).to.be.eq(30e6);
@@ -373,18 +407,18 @@ describe("🚀 8lends Protocol - General Flow Tests", function () {
       
       const initialBalance = await usdcToken.balanceOf(await inviter.getAddress());
 
-      log("                   💵 PROJECT REWARDS TOTAL USDC", formatUnits(projectRewards.totalUSDC, 6));
-      log("                   👤 INVITER BALANCE", formatUnits(initialBalance, 6));
+      log("💵 PROJECT REWARDS TOTAL USDC", formatUnits(projectRewards.totalUSDC, 6));
+      log("👤 INVITER BALANCE", formatUnits(initialBalance, 6));
       
       await rewardSystem.connect(inviter).claimUSDCForProject(0);
       
       const finalBalance = await usdcToken.balanceOf(await inviter.getAddress());
-      log("                   👤 INVITER BALANCE AFTER", formatUnits(finalBalance, 6));
+      log("👤 INVITER BALANCE AFTER", formatUnits(finalBalance, 6));
 
       expect(finalBalance - initialBalance).to.equal(projectRewards.totalUSDC);
       const balanceOfRewardSystemAfter = await usdcToken.balanceOf(await rewardSystem.getAddress());
       expect(balanceOfRewardSystemAfter).to.equal(balanceOfRewardSystem - projectRewards.totalUSDC);
-      log("                   🏦 BALANCE OF TREASURY AFTER", formatUnits(balanceOfRewardSystemAfter, 6));
+      log("🏦 BALANCE OF TREASURY AFTER", formatUnits(balanceOfRewardSystemAfter, 6));
       await trackBalances("Inviter claimed USDC rewards");
     });
 
@@ -397,17 +431,17 @@ describe("🚀 8lends Protocol - General Flow Tests", function () {
 
     it("🪙 Investor token rewards (6% tokens)", async() => {
       const tokenPercentage = await rewardSystem.tokenPercentage();
-      log("                   📊 TOKEN PERCENTAGE", tokenPercentage);
+      log("📊 TOKEN PERCENTAGE", tokenPercentage);
       const investorInfo = await fundraise.investorInfo(await investor.getAddress(), 0);
       const investorInvestedAmount = investorInfo.investedAmount;
-      log("                   💵 INVESTOR INVESTED USDC", formatUnits(investorInvestedAmount, 6));
+      log("💵 INVESTOR INVESTED USDC", formatUnits(investorInvestedAmount, 6));
       // investor vesting total amount
       const investorVestingTotalAmount = await rewardSystem.getVestingInfoForProject(await investor.getAddress(), 0);
-      log("                   🪙 INVESTOR VESTING TOKEN TOTAL AMOUNT", formatEther(investorVestingTotalAmount.totalAmount));
-      log("                   ✅ INVESTOR VESTING TOKEN CLAIMED AMOUNT", formatEther(investorVestingTotalAmount.claimedAmount));
-      log("                   🎯 INVESTOR VESTING TOKEN CLAIMABLE AMOUNT", formatEther(investorVestingTotalAmount.claimableAmount));
-      log("                   ⏰ INVESTOR VESTING TOKEN START TIME", new Date(Number(investorVestingTotalAmount.startTime) * 1000).toLocaleString());
-      log("                   🔥 INVESTOR VESTING TOKEN IS ACTIVE", investorVestingTotalAmount.isActive);
+      log("🪙 INVESTOR VESTING TOKEN TOTAL AMOUNT", formatEther(investorVestingTotalAmount.totalAmount));
+      log("✅ INVESTOR VESTING TOKEN CLAIMED AMOUNT", formatEther(investorVestingTotalAmount.claimedAmount));
+      log("🎯 INVESTOR VESTING TOKEN CLAIMABLE AMOUNT", formatEther(investorVestingTotalAmount.claimableAmount));
+      log("⏰ INVESTOR VESTING TOKEN START TIME", new Date(Number(investorVestingTotalAmount.startTime) * 1000).toLocaleString());
+      log("🔥 INVESTOR VESTING TOKEN IS ACTIVE", investorVestingTotalAmount.isActive);
       expect(investorVestingTotalAmount.totalAmount).to.be.greaterThanOrEqual(investorInvestedAmount * tokenPercentage / 100n);
     });
 
@@ -419,18 +453,18 @@ describe("🚀 8lends Protocol - General Flow Tests", function () {
       const tokenPercentage = await rewardSystem.tokenPercentage();
 
       const investorVestingTotalAmount = await rewardSystem.getVestingInfoForProject(await investor.getAddress(), 0);
-      log("                   🪙 INVESTOR VESTING TOKEN TOTAL AMOUNT", formatEther(investorVestingTotalAmount.totalAmount));
-      log("                   ✅ INVESTOR VESTING TOKEN CLAIMED AMOUNT", formatEther(investorVestingTotalAmount.claimedAmount));
-      log("                   🎯 INVESTOR VESTING TOKEN CLAIMABLE AMOUNT", formatEther(investorVestingTotalAmount.claimableAmount));
+      log("🪙 INVESTOR VESTING TOKEN TOTAL AMOUNT", formatEther(investorVestingTotalAmount.totalAmount));
+      log("✅ INVESTOR VESTING TOKEN CLAIMED AMOUNT", formatEther(investorVestingTotalAmount.claimedAmount));
+      log("🎯 INVESTOR VESTING TOKEN CLAIMABLE AMOUNT", formatEther(investorVestingTotalAmount.claimableAmount));
 
       // weekly correct amount
       const weeklyUnlock = await rewardSystem.weeklyUnlock(); //25
-      log("                   📊 WEEKLY UNLOCK", formatUnits(weeklyUnlock,1));
-      log("                   💵 INVESTOR INVESTED USDC", formatUnits(investorInvestedAmount, 6));
-      log("                   📈 TOKEN PERCENTAGE", tokenPercentage/BASIS_POINTS * 100n);
+      log("📊 WEEKLY UNLOCK", formatUnits(weeklyUnlock,1));
+      log("💵 INVESTOR INVESTED USDC", formatUnits(investorInvestedAmount, 6));
+      log("📈 TOKEN PERCENTAGE", tokenPercentage/BASIS_POINTS * 100n);
 
       const _expectedClaimableAmount = investorVestingTotalAmount.totalAmount * weeklyUnlock * 2n / BASIS_POINTS;
-      log("                   🎯 EXPECTED CLAIMABLE AMOUNT", formatEther(_expectedClaimableAmount));
+      log("🎯 EXPECTED CLAIMABLE AMOUNT", formatEther(_expectedClaimableAmount));
       expect(investorVestingTotalAmount.claimableAmount).to.be.eq(_expectedClaimableAmount);
     });
 
@@ -445,7 +479,7 @@ describe("🚀 8lends Protocol - General Flow Tests", function () {
     it("✅ After claim, claimableAmount should be 0", async () => {
       const { claimableAmount } = await rewardSystem.getVestingInfoForProject(await investor.getAddress(), 0);
       const balance = await token.balanceOf(await investor.getAddress());
-      log("                   🪙 INVESTOR TOKEN BALANCE", formatEther(balance));
+      log("🪙 INVESTOR TOKEN BALANCE", formatEther(balance));
       expect(claimableAmount).to.be.eq(0);
     });
 
@@ -454,26 +488,41 @@ describe("🚀 8lends Protocol - General Flow Tests", function () {
     });
 
     it("💱 Sell claimed tokens on DEX", async () => {
-      let balanceTokens = await token.balanceOf(await investor.getAddress());
-      await token.connect(investor).approve(await router.getAddress(), balanceTokens);
-      let balanceUsdt = await usdcToken.balanceOf(await investor.getAddress());
-      log("                   💵 INVESTOR USDC BALANCE", formatUnits(balanceUsdt, 6));
+      const tokensBefore = await token.balanceOf(await investor.getAddress());
+      expect(tokensBefore).to.be.greaterThan(0);
+      const usdcBefore = await usdcToken.balanceOf(await investor.getAddress());
 
-      log("                   🪙 INVESTOR TOKENS BALANCE", formatEther(balanceTokens));
-      await router.connect(investor).swapExactTokensForTokens(balanceTokens, 0, [await token.getAddress(), await usdcToken.getAddress()], await investor.getAddress(), await time.latest() + 1000);
+      await token.connect(investor).approve(await router.getAddress(), tokensBefore);
+      await router.connect(investor).swapExactTokensForTokens(
+        tokensBefore,
+        0,
+        [await token.getAddress(), await usdcToken.getAddress()],
+        await investor.getAddress(),
+        await time.latest() + 1000
+      );
 
-      const balanceUsdtAfterSwap = await usdcToken.balanceOf(await investor.getAddress());
-      log("                   💵 INVESTOR USDC BALANCE AFTER SWAP", formatUnits(balanceUsdt, 6));
-      log("                   📈 INVESTOR INCREMENTED USDC", formatUnits(balanceUsdtAfterSwap - balanceUsdt, 6));
-      balanceTokens = await token.balanceOf(await investor.getAddress());
-      log("                   🪙 INVESTOR TOKENS BALANCE AFTER SWAP", formatEther(balanceTokens));
+      // The whole balance goes in, and the proceeds come back as USDC
+      expect(await token.balanceOf(await investor.getAddress())).to.equal(0);
+      const usdcGained = (await usdcToken.balanceOf(await investor.getAddress())) - usdcBefore;
+      expect(usdcGained).to.be.greaterThan(0);
+
+      log("🪙 TOKENS SOLD", formatEther(tokensBefore));
+      log("📈 INVESTOR INCREMENTED USDC", formatUnits(usdcGained, 6));
       await trackBalances("Sold claimed tokens on DEX");
     });
 
     it("💱 Check token price on DEX", async () => {
-      const usdcAmount = 100;
-      const tokenPrice = await router.getAmountsOut(ethers.parseUnits(usdcAmount.toString(), 6), [await usdcToken.getAddress(), await token.getAddress()]);
-      log("                   💰 TOKEN PRICE", usdcAmount/Number(formatEther(tokenPrice[1])));
+      const path = [await usdcToken.getAddress(), await token.getAddress()];
+      const forOne = await router.getAmountsOut(ethers.parseUnits("100", 6), path);
+      const forTwo = await router.getAmountsOut(ethers.parseUnits("200", 6), path);
+
+      // The pool quotes a real price, and more USDC in buys more tokens out. Below that, the
+      // constant-product curve makes twice the input buy strictly less than twice the output.
+      expect(forOne[1]).to.be.greaterThan(0);
+      expect(forTwo[1]).to.be.greaterThan(forOne[1]);
+      expect(forTwo[1]).to.be.lessThan(forOne[1] * 2n);
+
+      log("💰 TOKEN PRICE", 100 / Number(formatEther(forOne[1])));
     });
 
     it("✅ Enable token buying", async () => {
@@ -492,8 +541,8 @@ describe("🚀 8lends Protocol - General Flow Tests", function () {
       await router.connect(inviter).swapExactTokensForTokens(inviterBalanceUSDT, 0, path, await inviter.getAddress(), await time.latest() + 1000);
       const inviterBalanceTokens = await token.balanceOf(await inviter.getAddress());
       const inviterBalanceUSDTAfterSwap = await usdcToken.balanceOf(await inviter.getAddress());
-      log("                   🪙 INVITER TOKENS BALANCE", formatEther(inviterBalanceTokens));
-      log("                   💵 INVITER USDC BALANCE AFTER SWAP", formatUnits(inviterBalanceUSDTAfterSwap, 6));
+      log("🪙 INVITER TOKENS BALANCE", formatEther(inviterBalanceTokens));
+      log("💵 INVITER USDC BALANCE AFTER SWAP", formatUnits(inviterBalanceUSDTAfterSwap, 6));
       await trackBalances("Inviter can buy tokens on DEX");
       expect(inviterBalanceTokens).to.be.greaterThan(0);
       expect(inviterBalanceUSDTAfterSwap).to.be.eq(0);
@@ -515,8 +564,8 @@ describe("🚀 8lends Protocol - General Flow Tests", function () {
     it("✅ But inviter can sell their tokens", async () => {
       const inviterBalanceTokens = await token.balanceOf(await inviter.getAddress());
       const inviterBalanceUSDT = await usdcToken.balanceOf(await inviter.getAddress());
-      log("                   💵 INVITER USDC BALANCE", formatUnits(inviterBalanceUSDT, 6));
-      log("                   🪙 INVITER TOKENS BALANCE", formatEther(inviterBalanceTokens));
+      log("💵 INVITER USDC BALANCE", formatUnits(inviterBalanceUSDT, 6));
+      log("🪙 INVITER TOKENS BALANCE", formatEther(inviterBalanceTokens));
      
       await token.connect(inviter).approve(await router.getAddress(), inviterBalanceTokens);
       await router.connect(inviter).swapExactTokensForTokens(inviterBalanceTokens, 0, [await token.getAddress(), await usdcToken.getAddress()], await inviter.getAddress(), await time.latest() + 1000);
@@ -524,65 +573,33 @@ describe("🚀 8lends Protocol - General Flow Tests", function () {
       const inviterBalanceUSDTAfterSwap = await usdcToken.balanceOf(await inviter.getAddress());
       const inviterBalanceTokensAfterSwap = await token.balanceOf(await inviter.getAddress());
 
-      log("                   💵 INVITER USDC BALANCE AFTER SWAP", formatUnits(inviterBalanceUSDTAfterSwap, 6));
-      log("                   🪙 INVITER TOKENS BALANCE AFTER SWAP", formatEther(inviterBalanceTokensAfterSwap));
+      log("💵 INVITER USDC BALANCE AFTER SWAP", formatUnits(inviterBalanceUSDTAfterSwap, 6));
+      log("🪙 INVITER TOKENS BALANCE AFTER SWAP", formatEther(inviterBalanceTokensAfterSwap));
       expect(inviterBalanceUSDTAfterSwap).to.be.greaterThan(inviterBalanceUSDT);
       expect(inviterBalanceTokensAfterSwap).to.be.eq(0);
       await trackBalances("Inviter can sell their tokens");
     });
 
-    it.skip("❌ Test project cancellation - rewards remain pending", async function () {
-      // Create second project
-      const projectData2 = {
-        softCap: ethers.parseUnits("1000", 6),
-        hardCap: ethers.parseUnits("2000", 6),
-        totalInvested: 0,
-        startAt: await time.latest() - 10,
-        preFundDuration: 7 * 24 * 3600,
-        investorInterestRate: INVESTOR_INTEREST_RATE,
-        openStageEndAt: await time.latest() + 7 * 24 * 3600,
-        innerStruct: {
-          borrower: await borrower.getAddress(),
-          loanToken: await usdcToken.getAddress(),
-          platformInterestRate: PLATFORM_PERCENT,
-          totalRepaid: 0,
-          fundedTime: 0,
-          stage: 0
-        }
-      };
+    it("❌ Test project cancellation - rewards remain pending", async function () {
+      const projectId = await fundraise.projectCount();
+      await createProject("1000", "2000");
 
-      const projectId2 = await fundraise.projectCount();
-      await fundraise.connect(manager).createProject(projectData2, 2);
+      // Stay under softCap: the project has to still be cancellable from Open
+      const investment = ethers.parseUnits("500", 6);
+      await usdcToken.mint(investor.address, investment);
+      await invest(projectId, investment);
 
-      // Invest in project
-      await usdcToken.mint(investor.address, ethers.parseUnits("5000", 6));
-      await usdcToken.connect(investor).approve(await fundraise.getAddress(), ethers.parseUnits("5000", 6));
+      await fundraise.connect(manager).cancelProject(projectId);
+      expect((await fundraise.projects(projectId)).innerStruct.stage).to.equal(Stage.Canceled);
 
-      // Create signature for investment
-      const currentNonce2 = await fundraise.userNonces(await investor.getAddress());
-      const nonceForSignature2 = currentNonce2 + 1n;
-      const messageHash2 = ethers.solidityPackedKeccak256(
-        ["address", "uint256", "uint256", "uint256", "address"],
-        [await investor.getAddress(), projectId2, ethers.parseUnits("5000", 6), nonceForSignature2, await inviter.getAddress()]
-      );
-      const signature2 = await backend.signMessage(ethers.getBytes(messageHash2));
-
-      await fundraise.connect(investor).investUpdateV2(projectId2, ethers.parseUnits("5000", 6), nonceForSignature2, signature2, inviter);
-      
-      // Cancel project
-      await fundraise.connect(manager).cancelProject(projectId2);
-      
-      // Check that rewards exist but are not activated
-      const projectRewards = await rewardSystem.getProjectRewards(await investor.getAddress(), projectId2);
-      log("                   💵 PROJECT 2 REWARDS USDC", formatUnits(projectRewards.totalUSDC, 6));
-      log("                   🪙 PROJECT 2 REWARDS TOKENS", formatEther(projectRewards.totalTokens));
-      log("                   🎯 PROJECT 2 IS ACTIVATED", projectRewards.isActivated);
-      // USDC rewards may be 0 if investor already claimed them, but token rewards should be present
+      // Investing records the investor's token rewards; only reaching Funded activates them
+      const projectRewards = await rewardSystem.getProjectRewards(await investor.getAddress(), projectId);
+      log("🪙 PROJECT REWARDS TOKENS", formatEther(projectRewards.totalTokens));
       expect(projectRewards.totalTokens).to.be.greaterThan(0);
       expect(projectRewards.isActivated).to.be.false;
-      
+
       // Cannot claim rewards from canceled project
-      await expect(rewardSystem.connect(investor).claimUSDCForProject(projectId2))
+      await expect(rewardSystem.connect(investor).claimUSDCForProject(projectId))
         .to.be.revertedWith("Project rewards not activated");
     });
 
@@ -600,12 +617,12 @@ describe("🚀 8lends Protocol - General Flow Tests", function () {
       // make repayment
       await fundraise.connect(borrower).makeRepayment(0, totalRepaymentAmount);
       project = await fundraise.projects(0);
-      log("                   📊 PROJECT STAGE" , project.innerStruct.stage);
-      log("                   💵 PROJECT TOTAL REPAID" , formatUnits(project.innerStruct.totalRepaid, 6));
-      log("                   ⏰ PROJECT FUNDED TIME" , new Date(Number(project.innerStruct.fundedTime) * 1000).toLocaleString());
-      log("                   💰 PROJECT TOTAL INVESTED" , formatUnits(project.totalInvested, 6));
-      log("                   📈 PROJECT INVESTOR INTEREST" , formatUnits(investorInterest, 6));
-      log("                   💸 PROJECT TOTAL REPAYMENT AMOUNT" , formatUnits(totalRepaymentAmount, 6));
+      log("📊 PROJECT STAGE" , project.innerStruct.stage);
+      log("💵 PROJECT TOTAL REPAID" , formatUnits(project.innerStruct.totalRepaid, 6));
+      log("⏰ PROJECT FUNDED TIME" , new Date(Number(project.innerStruct.fundedTime) * 1000).toLocaleString());
+      log("💰 PROJECT TOTAL INVESTED" , formatUnits(project.totalInvested, 6));
+      log("📈 PROJECT INVESTOR INTEREST" , formatUnits(investorInterest, 6));
+      log("💸 PROJECT TOTAL REPAYMENT AMOUNT" , formatUnits(totalRepaymentAmount, 6));
     
       expect(project.innerStruct.stage).to.equal(Stage.Repaid, "Stage is not Repaid"); // Repaid
       expect(project.innerStruct.totalRepaid).to.equal(totalRepaymentAmount);
@@ -625,10 +642,10 @@ describe("🚀 8lends Protocol - General Flow Tests", function () {
       await rewardSystem.connect(investor).claimTokensForProject(0);
       const balance = await token.balanceOf(await investor.getAddress());
       const { claimableAmount, totalAmount, claimedAmount } = await rewardSystem.getVestingInfoForProject(await investor.getAddress(), 0);
-      log("                   🪙 INVESTOR TOKEN BALANCE", formatEther(balance));
-      log("                   📊 INVESTOR TOKEN TOTAL AMOUNT", formatEther(totalAmount));
-      log("                   ✅ INVESTOR TOKEN CLAIMED AMOUNT", formatEther(claimedAmount));
-      log("                   🎯 INVESTOR TOKEN CLAIMABLE AMOUNT", formatEther(claimableAmount));
+      log("🪙 INVESTOR TOKEN BALANCE", formatEther(balance));
+      log("📊 INVESTOR TOKEN TOTAL AMOUNT", formatEther(totalAmount));
+      log("✅ INVESTOR TOKEN CLAIMED AMOUNT", formatEther(claimedAmount));
+      log("🎯 INVESTOR TOKEN CLAIMABLE AMOUNT", formatEther(claimableAmount));
 
       // subtract 2.5% from totalAmount that was already claimed earlier
       const totalAmountMinus25 = totalAmount - (totalAmount * 2n * 25n / 1000n);
@@ -638,7 +655,7 @@ describe("🚀 8lends Protocol - General Flow Tests", function () {
       await trackBalances("after 40 weeks investor claimed all tokens");
     });
 
-    it("Ivester sold all tokens", async () => {
+    it("Investor sold all tokens", async () => {
       const investorBalanceTokens = await token.balanceOf(await investor.getAddress());
       const investorBalanceUSDT = await usdcToken.balanceOf(await investor.getAddress());
       await token.connect(investor).approve(await router.getAddress(), investorBalanceTokens);
@@ -743,227 +760,85 @@ describe("🚀 8lends Protocol - General Flow Tests", function () {
     it("🚫 Non-manager cannot update project", async () => {
       const projectId = await fundraise.projectCount();
       const currentProject = await fundraise.projects(projectId);
-      
-      log("🔍 Current project data:", {
-        hardCap: currentProject.hardCap.toString(),
-        softCap: currentProject.softCap.toString(),
-        totalInvested: currentProject.totalInvested.toString(),
-        startAt: currentProject.startAt.toString(),
-        preFundDuration: currentProject.preFundDuration.toString(),
-        investorInterestRate: currentProject.investorInterestRate.toString(),
-        openStageEndAt: currentProject.openStageEndAt.toString(),
-        innerStruct: {
-          platformInterestRate: currentProject.innerStruct.platformInterestRate.toString(),
-          totalRepaid: currentProject.innerStruct.totalRepaid.toString(),
-          borrower: currentProject.innerStruct.borrower,
-          fundedTime: currentProject.innerStruct.fundedTime.toString(),
-          loanToken: currentProject.innerStruct.loanToken,
-          stage: currentProject.innerStruct.stage.toString()
-        }
-      });
-      
-      // Create deep copy of object
-      const updatedProject = {
-        hardCap: ethers.parseUnits("3000", 6),
-        softCap: BigInt(currentProject.softCap.toString()),
-        totalInvested: BigInt(currentProject.totalInvested.toString()),
-        startAt: BigInt(currentProject.startAt.toString()),
-        preFundDuration: BigInt(currentProject.preFundDuration.toString()),
-        investorInterestRate: BigInt(currentProject.investorInterestRate.toString()),
-        openStageEndAt: BigInt(currentProject.openStageEndAt.toString()),
-        innerStruct: {
-          platformInterestRate: BigInt(currentProject.innerStruct.platformInterestRate.toString()),
-          totalRepaid: BigInt(currentProject.innerStruct.totalRepaid.toString()),
-          borrower: currentProject.innerStruct.borrower,
-          fundedTime: BigInt(currentProject.innerStruct.fundedTime.toString()),
-          loanToken: currentProject.innerStruct.loanToken,
-          stage: Number(currentProject.innerStruct.stage.toString())
-        }
-      };
-      
-      log("🔍 Updated project data:", updatedProject);
-      
+      const updatedProject = cloneProject(currentProject, { hardCap: ethers.parseUnits("3000", 6) });
+
       await expect(fundraise.connect(investor).setProject(projectId, updatedProject))
         .to.be.revertedWithCustomError(fundraise, "NotAManager");
     });
 
-    it.skip("🚫 Cannot update funded project", async () => {
+    it("🚫 Cannot update funded project", async () => {
       const projectId = 0; // Use first project, which is already funded
       const currentProject = await fundraise.projects(projectId);
       
       log("🔍 Funded project stage:", currentProject.innerStruct.stage.toString());
-      
-      const updatedProject = {
-        hardCap: ethers.parseUnits("3000", 6),
-        softCap: BigInt(currentProject.softCap.toString()),
-        totalInvested: BigInt(currentProject.totalInvested.toString()),
-        startAt: BigInt(currentProject.startAt.toString()),
-        preFundDuration: BigInt(currentProject.preFundDuration.toString()),
-        investorInterestRate: BigInt(currentProject.investorInterestRate.toString()),
-        openStageEndAt: BigInt(currentProject.openStageEndAt.toString()),
-        innerStruct: {
-          platformInterestRate: BigInt(currentProject.innerStruct.platformInterestRate.toString()),
-          totalRepaid: BigInt(currentProject.innerStruct.totalRepaid.toString()),
-          borrower: currentProject.innerStruct.borrower,
-          fundedTime: BigInt(currentProject.innerStruct.fundedTime.toString()),
-          loanToken: currentProject.innerStruct.loanToken,
-          stage: Number(currentProject.innerStruct.stage.toString())
-        }
-      };
-      
+
+      const updatedProject = cloneProject(currentProject, { hardCap: ethers.parseUnits("3000", 6) });
+
       await expect(fundraise.connect(manager).setProject(projectId, updatedProject))
-        .to.be.revertedWith("Can't update funded project");
+        .to.be.revertedWithCustomError(fundraise, "CantUpdateFundedProject");
     });
 
-    it.skip("🚫 Cannot extend openStageEndAt more than 30 days", async () => {
-      // Create new project and move it to Open stage
+    it("🚫 Cannot extend openStageEndAt more than 30 days", async () => {
+      // Create a project and move it to Open stage with an investment
       const projectId = await fundraise.projectCount();
       await createProject();
-      
-      // Make investment to move project to Open stage
+
       const investmentAmount = ethers.parseUnits("1000", 6);
       await usdcToken.mint(await investor.getAddress(), investmentAmount);
-      await usdcToken.connect(investor).approve(await fundraise.getAddress(), investmentAmount);
-      
-      // Create signature for investment
-      const currentNonce = await fundraise.userNonces(await investor.getAddress());
-      const nonceForSignature = currentNonce + 1n;
-      const messageHash = ethers.solidityPackedKeccak256(
-        ["address", "uint256", "uint256", "uint256", "address"],
-        [await investor.getAddress(), projectId, investmentAmount, nonceForSignature, inviter]
-      );
-      const signature = await backend.signMessage(ethers.getBytes(messageHash));
+      await invest(projectId, investmentAmount);
 
-      await fundraise.connect(investor).investUpdateV2(projectId, investmentAmount, nonceForSignature, signature, inviter);
-      
       const currentProject = await fundraise.projects(projectId);
       log("🔍 Project stage:", currentProject.innerStruct.stage.toString());
-      
-      log("🔍 Current openStageEndAt:", currentProject.openStageEndAt.toString());
-      log("🔍 New openStageEndAt:", (BigInt(currentProject.openStageEndAt.toString()) + 32n * 86400n).toString());
-      
-      // Create object with same values but change only openStageEndAt
-      const updatedProject = {
-        hardCap: BigInt(currentProject.hardCap.toString()),
-        softCap: BigInt(currentProject.softCap.toString()),
-        totalInvested: BigInt(currentProject.totalInvested.toString()),
-        startAt: BigInt(currentProject.startAt.toString()),
-        preFundDuration: BigInt(currentProject.preFundDuration.toString()),
-        investorInterestRate: BigInt(currentProject.investorInterestRate.toString()),
-        openStageEndAt: BigInt(currentProject.openStageEndAt.toString()) + 32n * 86400n, // +32 days
-        innerStruct: {
-          platformInterestRate: BigInt(currentProject.innerStruct.platformInterestRate.toString()),
-          totalRepaid: BigInt(currentProject.innerStruct.totalRepaid.toString()),
-          borrower: currentProject.innerStruct.borrower,
-          fundedTime: BigInt(currentProject.innerStruct.fundedTime.toString()),
-          loanToken: currentProject.innerStruct.loanToken,
-          stage: Number(currentProject.innerStruct.stage.toString())
-        }
-      };
-      
-      log("🔍 Difference in days:", ((BigInt(currentProject.openStageEndAt.toString()) + 32n * 86400n) - BigInt(currentProject.openStageEndAt.toString())) / 86400n);
-      log("🔍 openStageEndAt changed:", updatedProject.openStageEndAt !== BigInt(currentProject.openStageEndAt.toString()));
-      
+
+      // Only openStageEndAt changes: 32 days past the current end, over the 30-day cap
+      const updatedProject = cloneProject(currentProject, {
+        openStageEndAt: currentProject.openStageEndAt + 32n * 86400n,
+      });
+
       await expect(fundraise.connect(manager).setProject(projectId, updatedProject))
-        .to.be.revertedWith("Too long");
+        .to.be.revertedWithCustomError(fundraise, "OpenStageExtensionTooLong");
     });
 
-    it.skip("🚫 Cannot decrease platform interest rate", async () => {
-      // Create new project and move it to Open stage
+    it("🚫 Cannot decrease platform interest rate", async () => {
+      // Create a project and move it to Open stage with an investment
       const projectId = await fundraise.projectCount();
       await createProject();
-      
-      // Make investment to move project to Open stage
+
       const investmentAmount = ethers.parseUnits("1000", 6);
       await usdcToken.mint(await investor.getAddress(), investmentAmount);
-      await usdcToken.connect(investor).approve(await fundraise.getAddress(), investmentAmount);
-      
-      // Create signature for investment
-      const currentNonce = await fundraise.userNonces(await investor.getAddress());
-      const nonceForSignature = currentNonce + 1n;
-      const messageHash = ethers.solidityPackedKeccak256(
-        ["address", "uint256", "uint256", "uint256", "address"],
-        [await investor.getAddress(), projectId, investmentAmount, nonceForSignature, inviter]
-      );
-      const signature = await backend.signMessage(ethers.getBytes(messageHash));
+      await invest(projectId, investmentAmount);
 
-      await fundraise.connect(investor).investUpdateV2(projectId, investmentAmount, nonceForSignature, signature, inviter);
-      
       const currentProject = await fundraise.projects(projectId);
       log("🔍 Project stage:", currentProject.innerStruct.stage.toString());
-      
-      log("🔍 Current platform interest rate:", currentProject.innerStruct.platformInterestRate.toString());
-      log("🔍 New platform interest rate:", parseUnits("2", 4).toString());
-      
-      const updatedProject = {
-        hardCap: BigInt(currentProject.hardCap.toString()),
-        softCap: BigInt(currentProject.softCap.toString()),
-        totalInvested: BigInt(currentProject.totalInvested.toString()),
-        startAt: BigInt(currentProject.startAt.toString()),
-        preFundDuration: BigInt(currentProject.preFundDuration.toString()),
-        investorInterestRate: BigInt(currentProject.investorInterestRate.toString()),
-        openStageEndAt: BigInt(currentProject.openStageEndAt.toString()),
-        innerStruct: {
-          platformInterestRate: parseUnits("2", 4), // 2% instead of 3%
-          totalRepaid: BigInt(currentProject.innerStruct.totalRepaid.toString()),
-          borrower: currentProject.innerStruct.borrower,
-          fundedTime: BigInt(currentProject.innerStruct.fundedTime.toString()),
-          loanToken: currentProject.innerStruct.loanToken,
-          stage: Number(currentProject.innerStruct.stage.toString())
-        }
-      };
-      
+
+      // 2% instead of the project's 3%
+      const updatedProject = cloneProject(currentProject, {
+        innerStruct: { platformInterestRate: parseUnits("2", 4) },
+      });
+
       await expect(fundraise.connect(manager).setProject(projectId, updatedProject))
-        .to.be.revertedWith("Wrong percents");
+        .to.be.revertedWithCustomError(fundraise, "WrongPercents");
     });
 
-    it.skip("🚫 Cannot decrease investor interest rate", async () => {
-      // Create new project and move it to Open stage
+    it("🚫 Cannot decrease investor interest rate", async () => {
+      // Create a project and move it to Open stage with an investment
       const projectId = await fundraise.projectCount();
       await createProject();
-      
-      // Make investment to move project to Open stage
+
       const investmentAmount = ethers.parseUnits("1000", 6);
       await usdcToken.mint(await investor.getAddress(), investmentAmount);
-      await usdcToken.connect(investor).approve(await fundraise.getAddress(), investmentAmount);
-      
-      // Create signature for investment
-      const currentNonce = await fundraise.userNonces(await investor.getAddress());
-      const nonceForSignature = currentNonce + 1n;
-      const messageHash = ethers.solidityPackedKeccak256(
-        ["address", "uint256", "uint256", "uint256", "address"],
-        [await investor.getAddress(), projectId, investmentAmount, nonceForSignature, inviter]
-      );
-      const signature = await backend.signMessage(ethers.getBytes(messageHash));
+      await invest(projectId, investmentAmount);
 
-      await fundraise.connect(investor).investUpdateV2(projectId, investmentAmount, nonceForSignature, signature, inviter);
-      
       const currentProject = await fundraise.projects(projectId);
       log("🔍 Project stage:", currentProject.innerStruct.stage.toString());
-      
-      log("🔍 Current investor interest rate:", currentProject.investorInterestRate.toString());
-      log("🔍 New investor interest rate:", parseUnits("1", 4).toString());
-      
-      const updatedProject = {
-        hardCap: BigInt(currentProject.hardCap.toString()),
-        softCap: BigInt(currentProject.softCap.toString()),
-        totalInvested: BigInt(currentProject.totalInvested.toString()),
-        startAt: BigInt(currentProject.startAt.toString()),
-        preFundDuration: BigInt(currentProject.preFundDuration.toString()),
-          investorInterestRate: parseUnits("1", 4), // 1% instead of 1.5%
-        openStageEndAt: BigInt(currentProject.openStageEndAt.toString()),
-        innerStruct: {
-          platformInterestRate: BigInt(currentProject.innerStruct.platformInterestRate.toString()),
-          totalRepaid: BigInt(currentProject.innerStruct.totalRepaid.toString()),
-          borrower: currentProject.innerStruct.borrower,
-          fundedTime: BigInt(currentProject.innerStruct.fundedTime.toString()),
-          loanToken: currentProject.innerStruct.loanToken,
-          stage: Number(currentProject.innerStruct.stage.toString())
-        }
-      };
-      
+
+      // 1% instead of the project's 20%
+      const updatedProject = cloneProject(currentProject, {
+        investorInterestRate: parseUnits("1", 4),
+      });
+
       await expect(fundraise.connect(manager).setProject(projectId, updatedProject))
-        .to.be.revertedWith("Wrong percents");
+        .to.be.revertedWithCustomError(fundraise, "WrongPercents");
     });
 
 
@@ -971,94 +846,62 @@ describe("🚀 8lends Protocol - General Flow Tests", function () {
     // 🔥 TOKEN BURNING TESTS
     // ========================================
 
-    it.skip("🔥 Test token burning on project activation", async function () {
-      // Create new project for burn test
-      const burnTestProjectData = {
-        softCap: ethers.parseUnits("20000", 6),
-        hardCap: ethers.parseUnits("40000", 6),
-        totalInvested: 0,
-        startAt: await time.latest() - 10,
-        preFundDuration: 7 * 24 * 3600,
-        investorInterestRate: INVESTOR_INTEREST_RATE,
-        openStageEndAt: await time.latest() + 7 * 24 * 3600,
-        innerStruct: {
-          borrower: await borrower.getAddress(),
-          loanToken: await usdcToken.getAddress(),
-          platformInterestRate: PLATFORM_PERCENT,
-          totalRepaid: 0,
-          fundedTime: 0,
-          stage: 0
-        }
-      };
-
+    it("🔥 Buy-back and burn on project activation keeps totalSupply flat", async function () {
       const burnTestProjectId = await fundraise.projectCount();
-      await fundraise.connect(manager).createProject(burnTestProjectData, 1);
+      await createProject();
 
-      // Invest in project
       const burnTestInvestmentAmount = ethers.parseUnits("20000", 6);
       await usdcToken.mint(investor.address, burnTestInvestmentAmount);
-      await usdcToken.connect(investor).approve(await fundraise.getAddress(), burnTestInvestmentAmount);
+      await invest(burnTestProjectId, burnTestInvestmentAmount);
 
-      // Create signature for investment
-      const burnTestCurrentNonce = await fundraise.userNonces(await investor.getAddress());
-      const burnTestNonceForSignature = burnTestCurrentNonce + 1n;
-      const burnTestMessageHash = ethers.solidityPackedKeccak256(
-        ["address", "uint256", "uint256", "uint256", "address"],
-        [await investor.getAddress(), burnTestProjectId, burnTestInvestmentAmount, burnTestNonceForSignature, inviter]
-      );
-      const burnTestSignature = await backend.signMessage(ethers.getBytes(burnTestMessageHash));
+      // _mintRewards mints this many reward tokens, then buys the same number off the pool and
+      // burns them. Read it before activation, since activation is what consumes it.
+      const tokensForMint = await rewardSystem.rewardTokensAmount(burnTestProjectId);
+      expect(tokensForMint).to.be.greaterThan(0);
+      expect(await rewardSystem.burnPercentage()).to.be.greaterThan(0);
 
-      await fundraise.connect(investor).investUpdateV2(burnTestProjectId, burnTestInvestmentAmount, burnTestNonceForSignature, burnTestSignature, inviter);
-      
-      // Get token balance before burning
-      const totalSupplyBeforeBurn = await token.totalSupply();
-      
-      log("                   📊 TOTAL SUPPLY BEFORE BURN", formatEther(totalSupplyBeforeBurn));
-      
-      // Move project to Funded stage (this activates burning)
+      const rewardSystemAddr = await rewardSystem.getAddress();
+      const supplyBefore = await token.totalSupply();
+      const poolTokensBefore = await token.balanceOf(poolAddress);
+      const poolUsdcBefore = await usdcToken.balanceOf(poolAddress);
+      const rsUsdcBefore = await usdcToken.balanceOf(rewardSystemAddr);
+      const rsTokensBefore = await token.balanceOf(rewardSystemAddr);
+
+      // Reaching Funded activates the project's rewards, which is what runs the buy-back
       await fundraise.connect(manager).transferFundsToBorrower(burnTestProjectId);
-      
-      // Get token balance after burning
-      const totalSupplyAfterBurn = await token.totalSupply();
-      
-      log("                   📊 TOTAL SUPPLY AFTER BURN", formatEther(totalSupplyAfterBurn));
-      
-      // Check that tokens were burned
-      const burnPercentage = await rewardSystem.burnPercentage();
-      const expectedBurnAmount = (burnTestInvestmentAmount * burnPercentage) / await rewardSystem.BASIS_POINTS();
-      
-      // Get amount of tokens that should have been burned
-      const path = [await usdcToken.getAddress(), await token.getAddress()];
-      const amounts = await router.getAmountsOut(expectedBurnAmount, path);
-      const expectedTokensBurned = amounts[1];
-      
-      log("                   💵 EXPECTED USDC TO BURN", formatUnits(expectedBurnAmount, 6));
-      log("                   🪙 EXPECTED TOKENS TO BURN", formatEther(expectedTokensBurned));
-      log("                   📉 ACTUAL SUPPLY REDUCTION", formatEther(totalSupplyBeforeBurn - totalSupplyAfterBurn));
-      
-      // Check that total supply decreased
-      expect(totalSupplyAfterBurn).to.be.lessThan(totalSupplyBeforeBurn);
-      await trackBalances("Test token burning on project activation");
+
+      // The mint and the burn are deliberately paired, so supply does not move at all
+      expect(await token.totalSupply()).to.equal(supplyBefore);
+
+      // The burnt tokens come out of the pool, paid for with the RewardSystem's own USDC
+      const poolTokensAfter = await token.balanceOf(poolAddress);
+      expect(poolTokensAfter).to.equal(poolTokensBefore - tokensForMint);
+
+      const usdcSpent = rsUsdcBefore - (await usdcToken.balanceOf(rewardSystemAddr));
+      expect(usdcSpent).to.be.greaterThan(0);
+      expect(await usdcToken.balanceOf(poolAddress)).to.equal(poolUsdcBefore + usdcSpent);
+
+      // What stays behind is the minted rewards; the bought-back tokens are the ones burnt
+      expect(await token.balanceOf(rewardSystemAddr)).to.equal(rsTokensBefore + tokensForMint);
+
+      log("🪙 TOKENS MINTED AND BOUGHT BACK", formatEther(tokensForMint));
+      log("💵 USDC SPENT ON BUY-BACK", formatUnits(usdcSpent, 6));
+      await trackBalances("Buy-back and burn on project activation");
     });
 
-    it("Add project 1 and invest 1000", async () => {
-      const projectId = 1;
+    it("Add the vesting project and invest 1000", async () => {
+      vestingProjectId = await fundraise.projectCount();
       await createProject("1000", "1000");
+
       const investmentAmount = ethers.parseUnits("1000", 6);
       await usdcToken.mint(await investor.getAddress(), investmentAmount);
-      await usdcToken.connect(investor).approve(await fundraise.getAddress(), investmentAmount);
+      await invest(vestingProjectId, investmentAmount);
+      await fundraise.connect(manager).transferFundsToBorrower(vestingProjectId);
 
-      
-      const currentNonce = await fundraise.userNonces(await investor.getAddress());
-      const nonceForSignature = currentNonce + 1n;
-      const messageHash = ethers.solidityPackedKeccak256(
-        ["address", "uint256", "uint256", "uint256", "address"],
-        [await investor.getAddress(), projectId, investmentAmount, nonceForSignature, await inviter.getAddress()]
-      );
-      const signature = await backend.signMessage(ethers.getBytes(messageHash));
-
-      await fundraise.connect(investor).investUpdateV2(projectId, investmentAmount, nonceForSignature, signature, await inviter.getAddress());
-      await fundraise.connect(manager).transferFundsToBorrower(projectId);
+      vestingTotalTokens = (
+        await rewardSystem.getVestingInfoForProject(await investor.getAddress(), vestingProjectId)
+      ).totalAmount;
+      expect(vestingTotalTokens).to.be.greaterThan(0);
 
       await trackBalances("Added project 1 and invested 1000");
     });
@@ -1068,82 +911,61 @@ describe("🚀 8lends Protocol - General Flow Tests", function () {
     // 🎁 ADDITIONAL UNLOCK TESTS
     // ========================================
 
-    // it("mint twap for reward system", async () => {
-    //   const balanceBefore = await token.balanceOf(await rewardSystem.getAddress());
-    //   const amount = parseEther("1000");
-    //   await rewardSystem.connect(owner).mintRewardsTWAP(amount);
-    //   const balanceAfter = await token.balanceOf(await rewardSystem.getAddress());
-    //   expect(balanceAfter).to.equal(balanceBefore + amount);
-    //   await trackBalances("Minted twap for reward system");
-    // });
-
-
-    // it("🔥 Test distributeVestingTokens", async () => {
-    //   const projectId = 1;
-    //   const users = [investor.address]
-    //   const amounts = [parseEther("1000")];
-    //   const projectIds = [projectId];
-    //   const vestingInfoBefore = await rewardSystem.getVestingInfoForProject(await investor.getAddress(), projectId);
-    //   await rewardSystem.connect(owner).distributeVestingTokens(users, amounts, projectIds);
-    //   const vestingInfoAfter = await rewardSystem.getVestingInfoForProject(await investor.getAddress(), projectId);
-    //   expect(vestingInfoAfter.totalAmount).to.equal(vestingInfoBefore.totalAmount + amounts[0]);
-    //   await trackBalances("Distributed vesting tokens to investor");
-    // });
-
-
-    const MAGIC_TOTLAL_TOKENS = 5938984763627118734080n;
-
-
     it("available for claim 2.5%", async () => {
-      const projectId = 1;
+      const projectId = vestingProjectId;
       const vestingInfo = await rewardSystem.getVestingInfoForProject(await investor.getAddress(), projectId);
-      expect(vestingInfo.claimableAmount).to.equal(MAGIC_TOTLAL_TOKENS * 250n / 10000n);
+      expect(vestingInfo.claimableAmount).to.equal(vestingTotalTokens * 250n / 10000n);
     });
 
-    it("Check investor project 1 vesting info", async () => {
-      const projectId = 1;
+    it("Check investor vesting project info", async () => {
+      const projectId = vestingProjectId;
       const investorVestingInfo = await rewardSystem.getVestingInfoForProject(await investor.getAddress(), projectId);
-      log("                   🎯 INVESTOR TOTAL TOKENS", formatEther(investorVestingInfo.totalAmount));
-      log("                   ✅ INVESTOR CLAIMED", formatEther(investorVestingInfo.claimedAmount));
-      log("                   💰 INVESTOR CLAIMABLE", formatEther(investorVestingInfo.claimableAmount));
-      log("                   📊 MAGIC_TOTAL", formatEther(MAGIC_TOTLAL_TOKENS));
+      log("🎯 INVESTOR TOTAL TOKENS", formatEther(investorVestingInfo.totalAmount));
+      log("✅ INVESTOR CLAIMED", formatEther(investorVestingInfo.claimedAmount));
+      log("💰 INVESTOR CLAIMABLE", formatEther(investorVestingInfo.claimableAmount));
+      log("📊 TOTAL AT ACTIVATION", formatEther(vestingTotalTokens));
       
-      expect(investorVestingInfo.totalAmount).to.equal(MAGIC_TOTLAL_TOKENS);
+      expect(investorVestingInfo.totalAmount).to.equal(vestingTotalTokens);
     });
 
-    it("Check inviter project 0 and 1", async () => {
-      const inviterVesting0 = await rewardSystem.getVestingInfoForProject(await inviter.getAddress(), 0);
-      const inviterVesting1 = await rewardSystem.getVestingInfoForProject(await inviter.getAddress(), 1);
-      
-      log("                   🎯 INVITER PROJECT 0 TOTAL", formatEther(inviterVesting0.totalAmount));
-      log("                   🎯 INVITER PROJECT 1 TOTAL", formatEther(inviterVesting1.totalAmount));
-      log("                   ✅ INVITER PROJECT 0 CLAIMED", formatEther(inviterVesting0.claimedAmount));
-      log("                   ✅ INVITER PROJECT 1 CLAIMED", formatEther(inviterVesting1.claimedAmount));
+    it("Inviter accrues referral USDC, not vesting tokens", async () => {
+      const inviterAddr = await inviter.getAddress();
+      const rewards = await rewardSystem.getProjectRewards(inviterAddr, vestingProjectId);
+      const vesting = await rewardSystem.getVestingInfoForProject(inviterAddr, vestingProjectId);
+
+      // recordInvestment credits totalRewardsUSDC to the inviter and totalRewardsTokens to the
+      // investor, so the inviter's vesting total stays at zero however much they invite.
+      expect(rewards.totalUSDC).to.be.greaterThan(0);
+      expect(vesting.totalAmount).to.equal(0);
+
+      log("💵 INVITER REFERRAL USDC", formatUnits(rewards.totalUSDC, 6));
     });
 
-    it("RewardSystem balance check", async () => {
+    it("RewardSystem holds enough tokens to cover the vesting project", async () => {
       const totalTokens = await token.balanceOf(await rewardSystem.getAddress());
-      const investorVesting1 = await rewardSystem.getVestingInfoForProject(await investor.getAddress(), 1);
-      const unclaimed = investorVesting1.totalAmount - investorVesting1.claimedAmount;
-      
-      log("                   💼 REWARD SYSTEM BALANCE", formatEther(totalTokens));
-      log("                   🎯 INVESTOR PROJECT 1 UNCLAIMED", formatEther(unclaimed));
-      
-      // Balance should equal investor's unclaimed tokens for project 1
-      expect(totalTokens).to.be.closeTo(unclaimed, parseEther("0.01"));
+      const vesting = await rewardSystem.getVestingInfoForProject(await investor.getAddress(), vestingProjectId);
+      const unclaimed = vesting.totalAmount - vesting.claimedAmount;
+
+      log("💼 REWARD SYSTEM BALANCE", formatEther(totalTokens));
+      log("🎯 VESTING PROJECT UNCLAIMED", formatEther(unclaimed));
+
+      // A solvency check, not an equality: the balance also covers the other projects' rewards.
+      // Equality only held while this was the only project with rewards outstanding.
+      expect(unclaimed).to.be.greaterThan(0);
+      expect(totalTokens).to.be.greaterThanOrEqual(unclaimed);
     });
 
     it("claim 2.5%", async () => {
-      const projectId = 1;
+      const projectId = vestingProjectId;
       const balanceBefore = await token.balanceOf(await investor.getAddress());
       await rewardSystem.connect(investor).claimTokensForProject(projectId);
       const balanceAfter = await token.balanceOf(await investor.getAddress());
-      expect(balanceAfter).to.equal(balanceBefore + MAGIC_TOTLAL_TOKENS * 250n / 10000n);
+      expect(balanceAfter).to.equal(balanceBefore + vestingTotalTokens * 250n / 10000n);
       await trackBalances("Claimed 2.5%");
     });
 
     it("available for claim 0% after claim", async () => {
-      const projectId = 1;
+      const projectId = vestingProjectId;
       const vestingInfo = await rewardSystem.getVestingInfoForProject(await investor.getAddress(), projectId);
       expect(vestingInfo.claimableAmount).to.equal(0);
     });
@@ -1153,16 +975,16 @@ describe("🚀 8lends Protocol - General Flow Tests", function () {
       await rewardSystem.connect(manager).setAdditionalUnlock(additionalUnlock);
       const currentAdditionalUnlock = await rewardSystem.additionalUnlockPercentage();
       expect(currentAdditionalUnlock).to.equal(additionalUnlock);
-      log("                   📊 ADDITIONAL UNLOCK SET TO", Number(currentAdditionalUnlock) / 10000, "%");
+      log("📊 ADDITIONAL UNLOCK SET TO", Number(currentAdditionalUnlock) / 10000, "%");
     });
 
 
     it("claim additional unlock 26% and sell", async () => {
-      const projectId = 1;
+      const projectId = vestingProjectId;
       const balanceBefore = await token.balanceOf(await investor.getAddress());
       const usdcBalanceBefore = await usdcToken.balanceOf(await investor.getAddress());
 
-      const claimableAmount = MAGIC_TOTLAL_TOKENS * 2600n / 10000n;
+      const claimableAmount = vestingTotalTokens * 2600n / 10000n;
       
       const amountsOut = await router.getAmountsOut(claimableAmount, [await token.getAddress(), await usdcToken.getAddress()]);
       const minUsdcAmount = await rewardSystem.getClaimAndSellAmounts(await investor.getAddress(), [projectId]);
@@ -1177,7 +999,7 @@ describe("🚀 8lends Protocol - General Flow Tests", function () {
     });
 
     it("available for claim 0% after claim and sell", async () => {
-      const projectId = 1;
+      const projectId = vestingProjectId;
       const vestingInfo = await rewardSystem.getVestingInfoForProject(await investor.getAddress(), projectId);
       expect(vestingInfo.claimableAmount).to.equal(0);
     });
@@ -1186,34 +1008,41 @@ describe("🚀 8lends Protocol - General Flow Tests", function () {
       await rewardSystem.connect(manager).setAdditionalUnlock(0);
       const currentAdditionalUnlock = await rewardSystem.additionalUnlockPercentage();
       expect(currentAdditionalUnlock).to.equal(0);
-      log("                   📊 ADDITIONAL UNLOCK SET TO", Number(currentAdditionalUnlock) / 10000, "%");
+      log("📊 ADDITIONAL UNLOCK SET TO", Number(currentAdditionalUnlock) / 10000, "%");
     });
 
     it("available for claim 0% after set additional unlock to 0%", async () => {
-      const projectId = 1;
+      const projectId = vestingProjectId;
       const vestingInfo = await rewardSystem.getVestingInfoForProject(await investor.getAddress(), projectId);
       expect(vestingInfo.claimableAmount).to.equal(0);
     });
 
     it("skip 1 week and claim 2.5%", async () => {
-      const projectId = 1;
+      const projectId = vestingProjectId;
       await time.increase(7 * 24 * 3600);
+
+      // Another week unlocks another 2.5%. Compared with a few wei of slack, because the contract
+      // truncates per claim, so the running total drifts from one 250/10000 of the whole.
+      const before = await rewardSystem.getVestingInfoForProject(await investor.getAddress(), projectId);
+      expect(before.claimableAmount).to.be.closeTo(vestingTotalTokens * 250n / 10000n, 10n);
+
+      // The transfer itself must match what the contract reported, to the wei
       const balanceBefore = await token.balanceOf(await investor.getAddress());
       await rewardSystem.connect(investor).claimTokensForProject(projectId);
       const balanceAfter = await token.balanceOf(await investor.getAddress());
-      expect(balanceAfter).to.equal(balanceBefore + MAGIC_TOTLAL_TOKENS * 250n / 10000n);
+      expect(balanceAfter).to.equal(balanceBefore + before.claimableAmount);
       await trackBalances("1w, claim 2.5%");
     });
 
     it("skip week, set additional unlock to 50% and claim 52.5%", async () => {
       await time.increase(7 * 24 * 3600);
-      const projectId = 1;
+      const projectId = vestingProjectId;
       await rewardSystem.connect(manager).setAdditionalUnlock(500000);
       const usdcBalanceBefore = await usdcToken.balanceOf(await investor.getAddress());
       await rewardSystem.connect(investor).claimTokensForProject(projectId);
       const balanceAfter = await token.balanceOf(await investor.getAddress());
 
-      const claimedTotal= MAGIC_TOTLAL_TOKENS * (250n + 250n + 250n) / 10000n;
+      const claimedTotal= vestingTotalTokens * (250n + 250n + 250n) / 10000n;
       const usdcBalanceAfter = await usdcToken.balanceOf(await investor.getAddress());
       await trackBalances("1w, unlock to 50%, claim 5.5%");
       expect(usdcBalanceAfter).to.be.equals(usdcBalanceBefore);
@@ -1221,7 +1050,7 @@ describe("🚀 8lends Protocol - General Flow Tests", function () {
     });
 
     it("skip 20 weeks, sell remaining with 50% bonus", async () => {
-      const projectId = 1;
+      const projectId = vestingProjectId;
 
       // Skip to week 22
 
@@ -1245,8 +1074,8 @@ describe("🚀 8lends Protocol - General Flow Tests", function () {
       
       const vestingInfo = await rewardSystem.getVestingInfoForProject(await investor.getAddress(), projectId);
       expect(vestingInfo.claimableAmount).to.equal(0);
-      expect(vestingInfo.totalAmount).to.equal(MAGIC_TOTLAL_TOKENS);
-      expect(vestingInfo.claimedAmount).to.equal(MAGIC_TOTLAL_TOKENS);
+      expect(vestingInfo.totalAmount).to.equal(vestingTotalTokens);
+      expect(vestingInfo.claimedAmount).to.equal(vestingTotalTokens);
 
       const balance = await token.balanceOf(await investor.getAddress());
       
@@ -1255,21 +1084,21 @@ describe("🚀 8lends Protocol - General Flow Tests", function () {
       // Total: 100%
       
       
-      log("                   🪙 INVESTOR BALANCE", formatEther(balance));
-      log("                   🎯 EXPECTED ~50%", formatEther(vestingInfo.totalAmount / 2n));
+      log("🪙 INVESTOR BALANCE", formatEther(balance));
+      log("🎯 EXPECTED ~50%", formatEther(vestingInfo.totalAmount / 2n));
       
       
       expect(balance).to.be.equals(vestingInfo.totalAmount / 2n);
     });
 
     it("available for claim 0% after skip week, set additional unlock to 50% and claim 52.5%", async () => {
-      const projectId = 1;
+      const projectId = vestingProjectId;
       const vestingInfo = await rewardSystem.getVestingInfoForProject(await investor.getAddress(), projectId);
       expect(vestingInfo.claimableAmount).to.equal(0);
     });
 
     it("try claim - should fail", async () => {
-      const projectId = 1;
+      const projectId = vestingProjectId;
       await time.increase(20 * 7 * 24 * 3600);
 
       await expect(rewardSystem.connect(investor).claimTokensForProject(projectId)).to.be.revertedWith("No tokens to claim");
@@ -1292,84 +1121,49 @@ describe("🚀 8lends Protocol - General Flow Tests", function () {
     });
 
 
-    it.skip("🔥 Test burning with different investment amounts", async function () {
-      // Create project with larger amount for more noticeable burning
-      const largeBurnTestProjectData = {
-        softCap: ethers.parseUnits("100000", 6),
-        hardCap: ethers.parseUnits("200000", 6),
-        totalInvested: 0,
-        startAt: await time.latest() - 10,
-        preFundDuration: 7 * 24 * 3600,
-        investorInterestRate: INVESTOR_INTEREST_RATE,
-        openStageEndAt: await time.latest() + 7 * 24 * 3600,
-        innerStruct: {
-          borrower: await borrower.getAddress(),
-          loanToken: await usdcToken.getAddress(),
-          platformInterestRate: PLATFORM_PERCENT,
-          totalRepaid: 0,
-          fundedTime: 0,
-          stage: 0
-        }
+    it("🔥 Buy-back holds at different investment sizes", async function () {
+      // Runs the whole cycle twice at a 5x ratio, in one test, so the comparison does not depend
+      // on what other tests left behind.
+      const fundAndActivate = async (softCap: string, hardCap: string, amount: string) => {
+        const projectId = await fundraise.projectCount();
+        await createProject(softCap, hardCap);
+
+        const investment = ethers.parseUnits(amount, 6);
+        await usdcToken.mint(investor.address, investment);
+        await invest(projectId, investment);
+
+        // The buy-back is paid out of the RewardSystem's own USDC, so it has to be topped up or
+        // activation reverts with "Not enough USDC to buy tokens". Same as the funding test above.
+        await usdcToken.mint(await rewardSystem.getAddress(), investment);
+
+        const tokensForMint = await rewardSystem.rewardTokensAmount(projectId);
+        const supplyBefore = await token.totalSupply();
+        const poolTokensBefore = await token.balanceOf(poolAddress);
+
+        await fundraise.connect(manager).transferFundsToBorrower(projectId);
+
+        const poolDrop = poolTokensBefore - (await token.balanceOf(poolAddress));
+        return { tokensForMint, poolDrop, supplyBefore, supplyAfter: await token.totalSupply() };
       };
 
-      const largeBurnTestProjectId = await fundraise.projectCount();
-      await fundraise.connect(manager).createProject(largeBurnTestProjectData, 1);
+      const small = await fundAndActivate("20000", "40000", "20000");
+      const large = await fundAndActivate("100000", "200000", "100000");
 
-      // Invest large amount
-      const largeInvestmentAmount = ethers.parseUnits("100000", 6);
-      await usdcToken.mint(investor.address, largeInvestmentAmount);
-      await usdcToken.connect(investor).approve(await fundraise.getAddress(), largeInvestmentAmount);
+      for (const run of [small, large]) {
+        // The invariant is size-independent: supply flat, and the buy-back takes exactly what
+        // was minted out of the pool.
+        expect(run.supplyAfter).to.equal(run.supplyBefore);
+        expect(run.poolDrop).to.equal(run.tokensForMint);
+        expect(run.tokensForMint).to.be.greaterThan(0);
+      }
 
-      // Create signature for investment
-      const largeBurnTestCurrentNonce = await fundraise.userNonces(await investor.getAddress());
-      const largeBurnTestNonceForSignature = largeBurnTestCurrentNonce + 1n;
-      const largeBurnTestMessageHash = ethers.solidityPackedKeccak256(
-        ["address", "uint256", "uint256", "uint256", "address"],
-        [await investor.getAddress(), largeBurnTestProjectId, largeInvestmentAmount, largeBurnTestNonceForSignature, inviter]
-      );
-      const largeBurnTestSignature = await backend.signMessage(ethers.getBytes(largeBurnTestMessageHash));
+      // A bigger investment buys back more. Not asserted as exactly 5x: the reward is linear in
+      // USDC, but converting it to tokens uses the price, and the first buy-back moved the pool.
+      expect(large.tokensForMint).to.be.greaterThan(small.tokensForMint);
 
-      await fundraise.connect(investor).investUpdateV2(largeBurnTestProjectId, largeInvestmentAmount, largeBurnTestNonceForSignature, largeBurnTestSignature, inviter);
-      
-      const totalSupplyBeforeLargeBurn = await token.totalSupply();
-
-
-            // Check that burning is proportional to investment
-            const burnPercentage = await rewardSystem.burnPercentage();
-            const expectedBurnAmountUSDC = (largeInvestmentAmount * burnPercentage) / await rewardSystem.BASIS_POINTS();
-
-            // Get expected amount of tokens to burn
-            const path = [await usdcToken.getAddress(), await token.getAddress()];
-            const amounts = await router.getAmountsOut(expectedBurnAmountUSDC, path);
-            const expectedTokensBurned = amounts[1];
-      
-      // Activate burning
-      await fundraise.connect(manager).transferFundsToBorrower(largeBurnTestProjectId);
-      
-      const totalSupplyAfterLargeBurn = await token.totalSupply();
-      const burnedAmount = totalSupplyBeforeLargeBurn - totalSupplyAfterLargeBurn;
-      
-      log("                   🔥 LARGE BURN TEST");
-      log("                   💵 LARGE INVESTMENT AMOUNT", formatUnits(largeInvestmentAmount, 6));
-      log("                   📊 TOTAL SUPPLY BEFORE LARGE BURN", formatEther(totalSupplyBeforeLargeBurn));
-      log("                   📊 TOTAL SUPPLY AFTER LARGE BURN", formatEther(totalSupplyAfterLargeBurn));
-      log("                   🔥 ACTUAL TOKENS BURNED", formatEther(burnedAmount));
-      
-      // Check that burning occurred
-      expect(burnedAmount).to.be.greaterThan(0);
-      expect(totalSupplyAfterLargeBurn).to.be.lessThan(totalSupplyBeforeLargeBurn);
-      
-
-          
-      log("                   💵 EXPECTED USDC TO BURN", formatUnits(expectedBurnAmountUSDC, 6));
-      log("                   🪙 EXPECTED TOKENS TO BURN", formatEther(expectedTokensBurned));
-      
-      // Check that approximately expected amount of tokens were burned (accounting for swap error)
-      const tolerance = expectedTokensBurned / 10n; // 10% tolerance
-      expect(burnedAmount).to.be.closeTo(expectedTokensBurned, tolerance);
-      await trackBalances("Test burning with different investment amounts");
+      log("🪙 SMALL RUN TOKENS", formatEther(small.tokensForMint));
+      log("🪙 LARGE RUN TOKENS", formatEther(large.tokensForMint));
+      await trackBalances("Buy-back at different investment sizes");
     });
-
-
   });
 });

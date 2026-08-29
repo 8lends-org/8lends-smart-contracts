@@ -10,9 +10,10 @@
 import * as fs from "fs/promises";
 import * as path from "path";
 import { ethers } from "hardhat";
-import { readJsonFile } from "./helpers";
+import { readJsonFile } from "./utils/helpers";
 import type { Log } from "ethers";
 import { Interface, type InterfaceAbi } from "ethers";
+import { requireRealNetwork } from "./utils/network-guard";
 
 const CHUNK_SIZE = 10000;
 const MAX_BLOCKS_COUNT = 200000;
@@ -124,6 +125,7 @@ function decodeLog(log: Log, topic0Decoders: Map<string, Interface>): DecodedEve
 }
 
 async function main(): Promise<void> {
+  await requireRealNetwork();
   const net = await ethers.provider.getNetwork();
   console.log(`Network: ${net.name} (chainId: ${net.chainId})\n`);
 

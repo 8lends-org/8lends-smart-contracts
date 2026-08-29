@@ -4,7 +4,7 @@ pragma solidity 0.8.23;
 import "forge-std/Test.sol";
 import "../mocks/MockUSDC.sol";
 import {AmlEscrow} from "../../../contracts/escrow/AmlEscrow.sol";
-import {IAmlEscrow} from "../../../contracts/escrow/interfaces/IAmlEscrow.sol";
+import {IAmlEscrow} from "../../../contracts/interfaces/protocol/IAmlEscrow.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 

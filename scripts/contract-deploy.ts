@@ -2,7 +2,8 @@ import dotenv from "dotenv";
 import hre, { ethers } from "hardhat";
 import { upgrades } from "hardhat";
 import * as readline from "readline";
-import { readJsonFile, writeJsonFile } from "./helpers";
+import { readJsonFile, writeJsonFile } from "./utils/helpers";
+import { requireRealNetwork } from "./utils/network-guard";
 
 dotenv.config();
 
@@ -181,13 +182,6 @@ const DEPLOY_DESCRIPTORS: Record<string, DeployDescriptor> = {
     },
     configKey: "AdaptiveCurveIrm",
   },
-  MockERC20: {
-    useProxy: true,
-    initializer: "initialize",
-    getProxyArgs: (_config, owner) => [owner, "Test usdt", "TUSDT"],
-    configKey: "USDC",
-    configKeyImpl: "USDC_impl",
-  },
   FlashLiquidator: {
     useProxy: true,
     initializer: "initialize",
@@ -251,22 +245,68 @@ const DEPLOY_DESCRIPTORS: Record<string, DeployDescriptor> = {
     configKey: "MaclearBonus",
     configKeyImpl: "MaclearBonus_impl",
   },
-  CryptoCourceBonus: {
+  CryptoCourseBonus: {
+    useProxy: true,
+    initializer: "initialize",
+    // Amounts are per course now and are set after deploy with setCourseAmount / setCourseAmounts —
+    // there is no global bonus amount, so initialize takes two arguments.
+    getProxyArgs: (config) => {
+      if (!config.USDC || !config.CryptoCourseTrustedSigner) {
+        throw new Error("USDC, CryptoCourseTrustedSigner required in config");
+      }
+      return [config.USDC, config.CryptoCourseTrustedSigner];
+    },
+    configKey: "CryptoCourseBonus",
+    configKeyImpl: "CryptoCourseBonus_impl",
+  },
+  CustomBonus: {
     useProxy: true,
     initializer: "initialize",
     getProxyArgs: (config) => {
-      if (!config.USDC || !config.CryptoCourceTrustedSigner) {
-        throw new Error("USDC, CryptoCourceTrustedSigner required in config");
+      if (!config.ManagerRegistry || !config.USDC) {
+        throw new Error("ManagerRegistry, USDC required in config");
       }
-      const bonusAmount = process.env.CRYPTO_COURCE_BONUS_AMOUNT ?? "30000000"; // 30 USDC (6 decimals)
-      return [config.USDC, config.CryptoCourceTrustedSigner, bonusAmount];
+      return [config.ManagerRegistry, config.USDC];
     },
-    configKey: "CryptoCourceBonus",
-    configKeyImpl: "CryptoCourceBonus_impl",
+    configKey: "CustomBonus",
+    configKeyImpl: "CustomBonus_impl",
+  },
+  LeagueBonus: {
+    useProxy: true,
+    initializer: "initialize",
+    getProxyArgs: (config) => {
+      if (!config.ManagerRegistry || !config.USDC) {
+        throw new Error("ManagerRegistry, USDC required in config");
+      }
+      // [Bronze, Silver, Gold, Diamond] in 6 decimals — the League enum reserves None at 0, so real
+      // leagues start at 1 and Bronze is configurable like the rest. Every amount must be passed
+      // explicitly: there are no defaults, because the payout sizes are a business decision and a
+      // placeholder here would become a real on-chain obligation. Use 0 for a league that is not
+      // paid. Changeable after deploy via setBonusAmount.
+      const bonusAmounts = ["BRONZE", "SILVER", "GOLD", "DIAMOND"].map((league) => {
+        const envKey = `LEAGUE_BONUS_${league}`;
+        const raw = process.env[envKey]?.trim();
+        if (!raw) {
+          throw new Error(
+            `${envKey} not set. Set the confirmed amount in 6 decimals for every league ` +
+              `(LEAGUE_BONUS_BRONZE, _SILVER, _GOLD, _DIAMOND); use 0 for a league that is not paid.`
+          );
+        }
+        if (!/^\d+$/.test(raw)) {
+          throw new Error(`${envKey}="${raw}" is not a non-negative integer in 6 decimals (e.g. 30000000 for 30 USDC).`);
+        }
+        return raw;
+      });
+      console.log("LeagueBonus amounts [Bronze, Silver, Gold, Diamond]:", bonusAmounts.join(", "));
+      return [config.ManagerRegistry, config.USDC, bonusAmounts];
+    },
+    configKey: "LeagueBonus",
+    configKeyImpl: "LeagueBonus_impl",
   },
 };
 
 async function main(): Promise<void> {
+  await requireRealNetwork();
   const contractName = process.env.CONTRACT;
   if (!contractName) {
     throw new Error("Set CONTRACT env (e.g. CONTRACT=TreasuryLending)");

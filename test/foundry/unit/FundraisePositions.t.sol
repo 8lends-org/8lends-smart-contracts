@@ -2,7 +2,7 @@
 pragma solidity ^0.8.23;
 
 import "../Setup.sol";
-import {Market} from "../../../contracts/market/Market.sol";
+import {Market} from "../../../contracts/core/market/Market.sol";
 import "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 
 contract FundraisePositionsTest is Setup {

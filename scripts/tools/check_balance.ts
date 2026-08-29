@@ -1,9 +1,11 @@
 import dotenv from "dotenv";
 import hre, { ethers } from "hardhat";
-import { readJsonFile } from "../helpers";
+import { readJsonFile } from "../utils/helpers";
+import { requireRealNetwork } from "../utils/network-guard";
 dotenv.config();
 
 async function main() {
+  await requireRealNetwork();
   const net = await ethers.provider.getNetwork();
   console.log(`\nNetwork name: ${net.name}\n`);
 
@@ -14,10 +16,10 @@ async function main() {
 
   if (!walletAddress) {
     console.log(
-      "Usage: WALLET_ADDRESS=0x123... npx hardhat run scripts/check_balance.ts --network <network>"
+      "Usage: WALLET_ADDRESS=0x123... npx hardhat run scripts/tools/check_balance.ts --network <network>"
     );
     console.log(
-      "Example: WALLET_ADDRESS=0x123... npx hardhat run scripts/check_balance.ts --network base_sepolia"
+      "Example: WALLET_ADDRESS=0x123... npx hardhat run scripts/tools/check_balance.ts --network sepolia"
     );
     process.exit(1);
   }
@@ -33,21 +35,6 @@ async function main() {
   const nativeBalance = await ethers.provider.getBalance(walletAddress);
   console.log(`Native balance: ${ethers.formatEther(nativeBalance)} "ETH"`);
 
-  // Check testToken balance (USDC)
-  if (config.testUsdt) {
-    try {
-      const testToken = await ethers.getContractAt("MockERC20", config.testUsdt);
-      const testTokenBalance = await testToken.balanceOf(walletAddress);
-      const testTokenSymbol = await testToken.symbol();
-      const testTokenDecimals = await testToken.decimals();
-      console.log(
-        `${testTokenSymbol} balance: ${ethers.formatUnits(testTokenBalance, testTokenDecimals)}`
-      );
-    } catch (error: any) {
-      console.log("Could not check testToken balance:", error.message);
-    }
-  }
-
   // Check Token balance
   if (config.token) {
     try {
@@ -61,10 +48,10 @@ async function main() {
     }
   }
 
-  // Check USDC balance (if different from testUsdt)
-  if (config.usdc && config.usdc !== config.testUsdt) {
+  // USDC: real on Base, the mintable stand-in on Sepolia — same config key either way
+  if (config.USDC) {
     try {
-      const usdcToken = await ethers.getContractAt("MockERC20", config.usdc);
+      const usdcToken = await ethers.getContractAt("@openzeppelin/contracts/token/ERC20/extensions/IERC20Metadata.sol:IERC20Metadata", config.USDC as string);
       const usdcBalance = await usdcToken.balanceOf(walletAddress);
       const usdcSymbol = await usdcToken.symbol();
       const usdcDecimals = await usdcToken.decimals();

@@ -1,10 +1,12 @@
 import fs from "fs";
 import dotenv from "dotenv";
 import hre, { ethers } from "hardhat";
-import { readJsonFile } from "../helpers";
+import { readJsonFile } from "../utils/helpers";
+import { requireRealNetwork } from "../utils/network-guard";
 dotenv.config();
 
 async function main() {
+  await requireRealNetwork();
   const net = await ethers.provider.getNetwork();
   console.log("\nNetwork name:", net.name, "\n");
 

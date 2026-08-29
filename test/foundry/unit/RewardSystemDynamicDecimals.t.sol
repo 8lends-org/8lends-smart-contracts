@@ -2,9 +2,9 @@
 pragma solidity ^0.8.23;
 
 import "forge-std/Test.sol";
-import {RewardSystem} from "../../../contracts/reward-system/RewardSystem.sol";
-import {ManagerRegistry} from "../../../contracts/manager-registry/ManagerRegistry.sol";
-import {Token} from "../../../contracts/8lnds/Token.sol";
+import {RewardSystem} from "../../../contracts/core/RewardSystem.sol";
+import {ManagerRegistry} from "../../../contracts/core/ManagerRegistry.sol";
+import {Token} from "../../../contracts/token/8lnds/Token.sol";
 import "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 import "../mocks/MockUSDC.sol";
 import "../mocks/MockUSDC18.sol";
