@@ -1,11 +1,13 @@
 import fs from "fs";
 import dotenv from "dotenv";
 import hre, { ethers } from "hardhat";
-import { readJsonFile } from "../helpers";
+import { readJsonFile } from "../utils/helpers";
 import { HDNodeWallet, Mnemonic } from "ethers";
+import { requireRealNetwork } from "../utils/network-guard";
 dotenv.config();
 
 async function main() {
+  await requireRealNetwork();
   const net = await ethers.provider.getNetwork();
   console.log("\nNetwork name:", net.name, "\n");
 
@@ -42,14 +44,14 @@ async function main() {
   let filePath = `./scripts/config/${net.chainId}-config.json`;
   let config = await readJsonFile(filePath);
 
-  if (!config.usdc) {
+  if (!config.USDC) {
     throw new Error("USDC address not found in config");
   }
 
-  console.log("USDC address:", config.usdc);
+  console.log("USDC address:", config.USDC);
 
   // Get USDC contract
-  const usdcContract = await ethers.getContractAt("MockERC20", config.usdc);
+  const usdcContract = await ethers.getContractAt("@openzeppelin/contracts/token/ERC20/IERC20.sol:IERC20", config.USDC);
   const usdcBalance = await usdcContract.balanceOf(currentAddress);
   console.log("USDC balance:", ethers.formatUnits(usdcBalance, 6));
 

@@ -1,10 +1,13 @@
 import fs from "fs";
 import dotenv from "dotenv";
 import hre, { ethers } from "hardhat";
-import { readJsonFile, writeJsonFile } from "../helpers";
+import { readJsonFile, writeJsonFile } from "../utils/helpers";
+import { requireOwner } from "../utils/owner-guard";
+import { requireRealNetwork } from "../utils/network-guard";
 dotenv.config();
 
 async function main() {
+  await requireRealNetwork();
   const net = await ethers.provider.getNetwork();
   console.log("\nNetwork name:", net.name, "\n");
   let filePath = `./scripts/config/${net.chainId}-config.json`;
@@ -23,6 +26,7 @@ async function main() {
     "ManagerRegistry",
     config.ManagerRegistry
   );
+  await requireOwner(config.ManagerRegistry, "ManagerRegistry");
   const addPoolToManagerRegistryTx = await managerRegistryContract.setPoolStatus(
     await signer.getAddress(),
     true
@@ -35,7 +39,7 @@ async function main() {
   if (!config.token) {
     throw new Error("Token address not found in config");
   }
-  if (!config.usdc) {
+  if (!config.USDC) {
     throw new Error("USDC address not found in config");
   }
   if (!config.uniswapV2Router) {
@@ -49,20 +53,20 @@ async function main() {
   }
 
   console.log("Token address:", config.token);
-  console.log("USDC address:", config.usdc);
+  console.log("USDC address:", config.USDC);
   console.log("Router:", config.uniswapV2Router);
   console.log("Factory:", config.uniswapV2Factory);
   console.log("Pool:", config.pool);
 
   // Get contract instances
   const tokenContract = await ethers.getContractAt("Token", config.token);
-  const usdcContract = await ethers.getContractAt("MockERC20", config.usdc);
+  const usdcContract = await ethers.getContractAt("@openzeppelin/contracts/token/ERC20/IERC20.sol:IERC20", config.USDC);
   const routerContract = await ethers.getContractAt("IUniswapV2Router02", config.uniswapV2Router);
   const factoryContract = await ethers.getContractAt("IUniswapV2Factory", config.uniswapV2Factory);
   const poolContract = await ethers.getContractAt("IUniswapV2Pair", config.pool);
 
   // LP token is also an ERC20 token
-  const lpTokenContract = await ethers.getContractAt("MockERC20", config.pool);
+  const lpTokenContract = await ethers.getContractAt("@openzeppelin/contracts/token/ERC20/IERC20.sol:IERC20", config.pool);
 
   // Check LP token balance
   const lpBalance = await lpTokenContract.balanceOf(await signer.getAddress());
@@ -105,7 +109,7 @@ async function main() {
 
   const removeLiquidityTx = await (routerContract as any).removeLiquidity(
     config.token,
-    config.usdc,
+    config.USDC,
     lpBalance,
     tokenAmount, // 5% slippage tolerance
     usdcAmount, // 5% slippage tolerance

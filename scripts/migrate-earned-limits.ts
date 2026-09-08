@@ -49,14 +49,16 @@ import { Contract } from "ethers";
 import { readFileSync, writeFileSync } from "fs";
 import { ethers } from "hardhat";
 import { join } from "path";
+import { requireOwner } from "./utils/owner-guard";
+import { requireRealNetwork } from "./utils/network-guard";
 
 const BASIS_POINTS = 1_000_000n;
 const BATCH_SIZE = 200;
-/** investorInfo через Multicall3 за один aggregate3. */
+/** investorInfo for many addresses in a single Multicall3 aggregate3. */
 const INVESTOR_INFO_MULTICALL_BATCH = 100;
-/** Пауза перед повтором при ошибке RPC. */
+/** Delay before retrying after an RPC error. */
 const RPC_RETRY_MS = 1000;
-/** eth_getLogs: freetier «ranges over 10000 blocks» — держим чанк строго ниже лимита. */
+/** eth_getLogs: the free tier rejects "ranges over 10000 blocks", so keep the chunk strictly below the limit. */
 const SCAN_BLOCKS_PER_QUERY = 10_000;
 
 /** Fundraise.Stage enum values */
@@ -65,6 +67,7 @@ const STAGE_REPAID = 5;
 const DELAY = 1000;
 
 async function main() {
+  await requireRealNetwork();
   const net = await ethers.provider.getNetwork();
   console.log("network: ", net.name);
 
@@ -81,6 +84,7 @@ async function main() {
 
   const fundraise = await ethers.getContractAt("Fundraise", config.Fundraise);
   const limitedSeller = await ethers.getContractAt("LimitedSeller", config.LimitedSeller);
+  await requireOwner(config.LimitedSeller, "LimitedSeller");
   const multicall = new Contract(config.multicall3, Multicall3Abi, ethers.provider);
 
   const percent = await limitedSeller.percent();
@@ -136,7 +140,7 @@ async function main() {
   const fundraiseAddress = await fundraise.getAddress();
 
   // Step 2: Collect investor addresses from Invest + InvestmentTransferred in one eth_getLogs call per chunk
-  // topics[0] = [hashA, hashB] → OR-match: оба события за один запрос
+  // topics[0] = [hashA, hashB] → OR-match: both events in one request
   console.log("Fetching Invest & InvestmentTransferred events (combined)...");
   const investorsByProject: Map<number, Set<string>> = new Map();
   let investCount = 0;

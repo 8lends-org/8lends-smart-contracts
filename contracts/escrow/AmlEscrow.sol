@@ -5,8 +5,8 @@ import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
-import {IAmlEscrow} from "./interfaces/IAmlEscrow.sol";
-import {IEscrowFactory} from "./interfaces/IEscrowFactory.sol";
+import {IAmlEscrow} from "../interfaces/protocol/IAmlEscrow.sol";
+import {IEscrowFactory} from "../interfaces/protocol/IEscrowFactory.sol";
 
 // ---------------------------------------------------------------------------
 // Inline external interfaces

@@ -1,12 +1,6 @@
 {
-  "filter_paths": "node_modules,lib,test,forge-out",
-  "solc_remaps": [
-    "@openzeppelin/contracts/=node_modules/@openzeppelin/contracts/",
-    "@openzeppelin/contracts-upgradeable/=node_modules/@openzeppelin/contracts-upgradeable/"
-  ],
-  "solc_args": "--optimize --optimize-runs 200",
-  "exclude_informational": false,
+  "filter_paths": "node_modules,lib,test,forge-out,contracts/mocks,contracts/test-tokens",
+  "exclude_informational": true,
   "exclude_low": false,
-  "detectors_to_exclude": "",
   "compile_force_framework": "foundry"
 }

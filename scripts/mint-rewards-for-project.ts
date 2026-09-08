@@ -3,6 +3,8 @@ import { ethers } from "hardhat";
 import { readFileSync } from "fs";
 import { join } from "path";
 import { formatUnits } from "ethers";
+import { requireOwner } from "./utils/owner-guard";
+import { requireRealNetwork } from "./utils/network-guard";
 
 dotenv.config();
 
@@ -14,6 +16,7 @@ const BLOCKCHAIN_PROJECT_ID = process.env.BLOCKCHAIN_PROJECT_ID;
  * Script for minting rewards for a project.
  */
 async function main(): Promise<void> {
+  await requireRealNetwork();
     const net = await ethers.provider.getNetwork();
     console.log("network: ", net.name);
 
@@ -36,6 +39,7 @@ async function main(): Promise<void> {
 
         const RewardSystemABI = readFileSync(join(__dirname, `../abis/RewardSystem.json`), "utf8");
         const rewardSystem = new ethers.Contract(config.RewardSystem, RewardSystemABI, signer);
+        await requireOwner(config.RewardSystem, "RewardSystem");
         const mintTx = await rewardSystem.mintRewardsForProject(BLOCKCHAIN_PROJECT_ID);
         console.log(`   ⏳ Mint transaction sent: ${mintTx.hash}`);
         await mintTx.wait();

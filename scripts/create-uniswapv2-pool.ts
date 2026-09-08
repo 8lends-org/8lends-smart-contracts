@@ -1,10 +1,13 @@
 import fs from "fs";
 import dotenv from "dotenv";
 import hre, { ethers } from "hardhat";
-import { readJsonFile, writeJsonFile } from "./helpers";
+import { readJsonFile, writeJsonFile } from "./utils/helpers";
+import { requireOwner } from "./utils/owner-guard";
+import { requireRealNetwork } from "./utils/network-guard";
 dotenv.config();
 
 async function main() {
+  await requireRealNetwork();
   const net = await ethers.provider.getNetwork();
   console.log("\nNetwork name:", net.name, "\n");
   let filePath = `./scripts/config/${net.chainId}-config.json`;
@@ -29,7 +32,7 @@ async function main() {
   if (!config.token) {
     throw new Error("Token address not found in config");
   }
-  if (!config.usdc) {
+  if (!config.USDC) {
     throw new Error("USDC address not found in config");
   }
   if (!config.ManagerRegistry) {
@@ -43,31 +46,33 @@ async function main() {
   }
 
   console.log("Token address:", config.token);
-  console.log("USDC address:", config.usdc);
+  console.log("USDC address:", config.USDC);
   console.log("Router", config.uniswapV2Router);
   console.log("Factory", config.uniswapV2Factory);
 
   // Connect to Uniswap contracts
   const factory = await ethers.getContractAt(
-    "contracts/interfaces/IUniswapV2Factory.sol:IUniswapV2Factory",
+    "contracts/interfaces/external/IUniswapV2Factory.sol:IUniswapV2Factory",
     config.uniswapV2Factory
   );
   const router = await ethers.getContractAt(
-    "contracts/interfaces/IUniswapV2Router02.sol:IUniswapV2Router02",
+    "contracts/interfaces/external/IUniswapV2Router02.sol:IUniswapV2Router02",
     config.uniswapV2Router
   );
 
   // Connect to tokens
   const token = await ethers.getContractAt("Token", config.token);
-  const usdcToken = await ethers.getContractAt("MockERC20", config.usdc);
+  const usdcToken = await ethers.getContractAt("@openzeppelin/contracts/token/ERC20/IERC20.sol:IERC20", config.USDC);
 
   // Connect to ManagerRegistry
   const managerRegistry = await ethers.getContractAt("ManagerRegistry", config.ManagerRegistry);
+  await requireOwner(config.ManagerRegistry, "ManagerRegistry");
+  await requireOwner(config.token, "Token"); // minted below
 
   console.log("🦄 Setting up Uniswap liquidity...");
 
   // Check if pair already exists
-  const existingPair = await factory.getPair(config.token, config.usdc);
+  const existingPair = await factory.getPair(config.token, config.USDC);
   if (existingPair !== "0x0000000000000000000000000000000000000000") {
     console.log("⚠️  Pair already exists at:", existingPair);
     config.pool = existingPair;
@@ -76,11 +81,11 @@ async function main() {
   } else {
     // Create TOKEN/USDC pair
     console.log("📝 Creating Token/USDC pair...");
-    const createPairTx = await factory.createPair(config.token, config.usdc);
+    const createPairTx = await factory.createPair(config.token, config.USDC);
     await createPairTx.wait(5);
   }
 
-  const pairAddress = await factory.getPair(config.token, config.usdc);
+  const pairAddress = await factory.getPair(config.token, config.USDC);
   console.log("✅ Pair created at:", pairAddress);
   if (pairAddress === "0x0000000000000000000000000000000000000000") {
     throw new Error("Pair not created");
@@ -127,7 +132,7 @@ async function main() {
     const WETH = await router.WETH();
     const buyUSDCTx = await router.swapETHForExactTokens(
       liquidityAmountUSDC - balanceUSDC,
-      [WETH, config.usdc],
+      [WETH, config.USDC],
       signer.address,
       deadline,
       { value: balanceETH - gasFee * 2n }
@@ -157,7 +162,7 @@ async function main() {
 
   const addLiquidityTx = await router.addLiquidity(
     config.token,
-    config.usdc,
+    config.USDC,
     liquidityAmountToken,
     liquidityAmountUSDC,
     0, // amountAMin
@@ -176,7 +181,7 @@ async function main() {
 
   // Check price
   const amounts = await router.getAmountsOut(ethers.parseUnits("100", 6), [
-    config.usdc,
+    config.USDC,
     config.token,
   ]);
   const price = 100 / Number(ethers.formatEther(amounts[1]));

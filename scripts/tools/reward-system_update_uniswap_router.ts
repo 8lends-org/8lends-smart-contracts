@@ -1,9 +1,12 @@
 import dotenv from "dotenv";
 import hre, { ethers } from "hardhat";
-import { readJsonFile, writeJsonFile } from "../helpers";
+import { readJsonFile, writeJsonFile } from "../utils/helpers";
+import { requireOwner } from "../utils/owner-guard";
+import { requireRealNetwork } from "../utils/network-guard";
 dotenv.config();
 
 async function main() {
+  await requireRealNetwork();
   const net = await ethers.provider.getNetwork();
   const filePath = `./scripts/config/${net.chainId}-config.json`;
   const config = await readJsonFile(filePath);
@@ -32,10 +35,7 @@ async function main() {
   const rewardSystem = await ethers.getContractAt("RewardSystem", config.RewardSystem);
 
   // Check owner rights
-  const owner = await rewardSystem.owner();
-  if (owner.toLowerCase() !== (await signer.getAddress()).toLowerCase()) {
-    throw new Error("Not the owner of RewardSystem");
-  }
+  await requireOwner(config.RewardSystem as string, "RewardSystem");
 
   // Update Uniswap router
   console.log("Updating Uniswap router...");

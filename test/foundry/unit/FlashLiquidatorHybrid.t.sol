@@ -363,6 +363,32 @@ contract FlashLiquidatorHybridTest is Test {
         liq.liquidate(_marketId(), borrowerAddr, 1_000e6);
     }
 
+    function test_revert_slippageUnset_withPair() public {
+        _enablePair();
+        _seedPool(10_000e6);
+        _seedLiquidator(1_000e6);
+        vm.prank(ownerAddr);
+        liq.setMaxSlippage(0);
+
+        // Zero slippage makes every swap-based path unusable. The flash branch's failure is
+        // swallowed by _tryFlashLiquidate's catch, but the direct fallback needs a minOut too and
+        // that one propagates — so the call reverts rather than silently doing nothing.
+        vm.expectRevert("FlashLiq: slippage not set");
+        liq.liquidate(_marketId(), borrowerAddr, 1_000e6);
+    }
+
+    function test_routerUnset_treatedAsNoPair() public {
+        _enablePair();
+        _seedPool(10_000e6);
+        vm.prank(ownerAddr);
+        liq.setUniswapV2Router(address(0));
+
+        // hasUniswapV2Pair returns false on an unset router without ever reaching the factory, so
+        // the registered pair is ignored and the pool's liquidity is not counted as available.
+        vm.expectRevert("FlashLiq: no funds available");
+        liq.liquidate(_marketId(), borrowerAddr, 1_000e6);
+    }
+
     // ── Cap: requested exceeds the borrower's actual debt ───────────────────
 
     function test_cap_toBorrowerDebt() public {

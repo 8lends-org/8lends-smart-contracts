@@ -2,7 +2,7 @@
 pragma solidity ^0.8.23;
 
 import "../Setup.sol";
-import {LimitedSeller} from "../../../contracts/limited-seller/LimitedSeller.sol";
+import {LimitedSeller} from "../../../contracts/core/LimitedSeller.sol";
 import {MockOracle} from "../../../contracts/mocks/MockOracle.sol";
 
 /// @title Backward-Compatibility Tests

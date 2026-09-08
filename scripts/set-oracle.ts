@@ -2,6 +2,8 @@ import dotenv from "dotenv";
 import { ethers } from "hardhat";
 import { readFileSync } from "fs";
 import { join } from "path";
+import { requireOwner } from "./utils/owner-guard";
+import { requireRealNetwork } from "./utils/network-guard";
 
 dotenv.config();
 
@@ -13,6 +15,7 @@ const CONTRACT: OracleTarget = process.env.CONTRACT as OracleTarget;
  * Script for setting the oracle in the contract.
  */
 async function main(): Promise<void> {
+  await requireRealNetwork();
     const net = await ethers.provider.getNetwork();
     console.log("network: ", net.name);
 
@@ -36,6 +39,7 @@ async function main(): Promise<void> {
 
     const CONTRACT_ABI = readFileSync(join(__dirname, `../abis/${CONTRACT}.json`), "utf8");
     const contract = new ethers.Contract(config[CONTRACT], CONTRACT_ABI, signer);
+    await requireOwner(config[CONTRACT], CONTRACT);
     const updateOracleTx = await contract.setOracle(config.Oracle);
     console.log(`   ⏳ Update Oracle transaction sent: ${updateOracleTx.hash}`);
     await updateOracleTx.wait();

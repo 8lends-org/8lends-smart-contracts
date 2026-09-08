@@ -5,10 +5,10 @@ import "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 import "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
 import "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
 import "@openzeppelin/contracts/token/ERC20/extensions/IERC20Metadata.sol";
-import "./interfaces/IAggregatorV3Interface.sol";
-import "./interfaces/IPyth.sol";
-import "./interfaces/IUniswapV3Pool.sol";
-import "./interfaces/IUniswapV2Pair.sol";
+import "../interfaces/external/IAggregatorV3Interface.sol";
+import "../interfaces/external/IPyth.sol";
+import "../interfaces/external/IUniswapV3Pool.sol";
+import "../interfaces/external/IUniswapV2Pair.sol";
 import "./lib/TickMath.sol";
 import "./lib/FullMath.sol";
 

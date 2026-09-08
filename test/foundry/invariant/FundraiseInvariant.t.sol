@@ -74,10 +74,4 @@ contract FundraiseInvariantTest is Setup {
             "INVARIANT VIOLATED: investment accounting mismatch"
         );
     }
-
-    /// @notice Log call distribution for debugging
-    function invariant_callSummary() public view {
-        // This invariant always passes — it's here for logging
-        // Run with -vvv to see call counts in output
-    }
 }

@@ -2,7 +2,8 @@ import dotenv from "dotenv";
 import hre, { ethers } from "hardhat";
 import { upgrades } from "hardhat";
 import * as readline from "readline";
-import { readJsonFile, writeJsonFile } from "./helpers";
+import { readJsonFile, writeJsonFile } from "./utils/helpers";
+import { requireRealNetwork } from "./utils/network-guard";
 
 dotenv.config();
 
@@ -181,13 +182,6 @@ const DEPLOY_DESCRIPTORS: Record<string, DeployDescriptor> = {
     },
     configKey: "AdaptiveCurveIrm",
   },
-  MockERC20: {
-    useProxy: true,
-    initializer: "initialize",
-    getProxyArgs: (_config, owner) => [owner, "Test usdt", "TUSDT"],
-    configKey: "USDC",
-    configKeyImpl: "USDC_impl",
-  },
   FlashLiquidator: {
     useProxy: true,
     initializer: "initialize",
@@ -251,18 +245,19 @@ const DEPLOY_DESCRIPTORS: Record<string, DeployDescriptor> = {
     configKey: "MaclearBonus",
     configKeyImpl: "MaclearBonus_impl",
   },
-  CryptoCourceBonus: {
+  CryptoCourseBonus: {
     useProxy: true,
     initializer: "initialize",
+    // Amounts are per course now and are set after deploy with setCourseAmount / setCourseAmounts —
+    // there is no global bonus amount, so initialize takes two arguments.
     getProxyArgs: (config) => {
-      if (!config.USDC || !config.CryptoCourceTrustedSigner) {
-        throw new Error("USDC, CryptoCourceTrustedSigner required in config");
+      if (!config.USDC || !config.CryptoCourseTrustedSigner) {
+        throw new Error("USDC, CryptoCourseTrustedSigner required in config");
       }
-      const bonusAmount = process.env.CRYPTO_COURCE_BONUS_AMOUNT ?? "30000000"; // 30 USDC (6 decimals)
-      return [config.USDC, config.CryptoCourceTrustedSigner, bonusAmount];
+      return [config.USDC, config.CryptoCourseTrustedSigner];
     },
-    configKey: "CryptoCourceBonus",
-    configKeyImpl: "CryptoCourceBonus_impl",
+    configKey: "CryptoCourseBonus",
+    configKeyImpl: "CryptoCourseBonus_impl",
   },
   CustomBonus: {
     useProxy: true,
@@ -311,6 +306,7 @@ const DEPLOY_DESCRIPTORS: Record<string, DeployDescriptor> = {
 };
 
 async function main(): Promise<void> {
+  await requireRealNetwork();
   const contractName = process.env.CONTRACT;
   if (!contractName) {
     throw new Error("Set CONTRACT env (e.g. CONTRACT=TreasuryLending)");

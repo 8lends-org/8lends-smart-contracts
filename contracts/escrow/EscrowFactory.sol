@@ -6,8 +6,8 @@ import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/U
 import {OwnableUpgradeable} from "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
 import {Clones} from "@openzeppelin/contracts/proxy/Clones.sol";
 
-import {IEscrowFactory} from "./interfaces/IEscrowFactory.sol";
-import {IAmlEscrow} from "./interfaces/IAmlEscrow.sol";
+import {IEscrowFactory} from "../interfaces/protocol/IEscrowFactory.sol";
+import {IAmlEscrow} from "../interfaces/protocol/IAmlEscrow.sol";
 
 /// @title EscrowFactory
 /// @notice UUPS upgradeable factory that deploys per-user AmlEscrow minimal proxies via CREATE2.

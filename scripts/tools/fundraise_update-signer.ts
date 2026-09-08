@@ -1,11 +1,14 @@
 import fs from "fs";
 import dotenv from "dotenv";
 import hre, { ethers } from "hardhat";
-import { readJsonFile, writeJsonFile } from "../helpers";
+import { readJsonFile, writeJsonFile } from "../utils/helpers";
+import { requireOwner } from "../utils/owner-guard";
+import { requireRealNetwork } from "../utils/network-guard";
 
 dotenv.config();
 
 async function main() {
+  await requireRealNetwork();
   const net = await ethers.provider.getNetwork();
   console.log("\nNetwork name:", net.name, "\n");
 
@@ -35,6 +38,7 @@ async function main() {
   }
 
   const Fundraise = await ethers.getContractAt("Fundraise", config.Fundraise);
+  await requireOwner(config.Fundraise, "Fundraise");
   console.log("Fundraise contract address:", config.Fundraise);
 
   // Check current trusted signer

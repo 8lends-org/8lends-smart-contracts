@@ -235,4 +235,138 @@ contract RewardSystemTest is Setup {
         vm.expectRevert("Project rewards not activated");
         rewardSystem.claimTokensForProject(pid);
     }
+
+    // ═══════════════════════════════════════════════════════════════
+    //                  distributeVestingTokens
+    // ═══════════════════════════════════════════════════════════════
+
+    function _oneUser(address user, uint256 amount, uint256 projectId)
+        internal
+        pure
+        returns (address[] memory users, uint256[] memory amounts, uint256[] memory projectIds)
+    {
+        users = new address[](1);
+        amounts = new uint256[](1);
+        projectIds = new uint256[](1);
+        users[0] = user;
+        amounts[0] = amount;
+        projectIds[0] = projectId;
+    }
+
+    function test_distributeVestingTokens_addsToExistingRewards() public {
+        _investAs(investor, pid, 25_000e6, inviter);
+        (, uint256 before,,,) = rewardSystem.getProjectRewards(investor, pid);
+        uint256 poolBefore = rewardSystem.rewardTokensAmount(pid);
+
+        (address[] memory u, uint256[] memory a, uint256[] memory p) = _oneUser(investor, 1_000e18, pid);
+        vm.prank(owner);
+        rewardSystem.distributeVestingTokens(u, a, p);
+
+        // Credited on top of what the investment already earned, not replacing it
+        (, uint256 afterTotal,,,) = rewardSystem.getProjectRewards(investor, pid);
+        assertEq(afterTotal, before + 1_000e18, "reward not added to the user");
+        // The project's claimable pool grows by the same amount, so activation mints for it
+        assertEq(rewardSystem.rewardTokensAmount(pid), poolBefore + 1_000e18, "project pool not updated");
+    }
+
+    function test_distributeVestingTokens_worksWithoutPriorInvestment() public {
+        // No investment: the grant stands on its own, which is the point of a manual distribution
+        (address[] memory u, uint256[] memory a, uint256[] memory p) = _oneUser(investor2, 500e18, pid);
+        vm.prank(owner);
+        rewardSystem.distributeVestingTokens(u, a, p);
+
+        (, uint256 total,,,) = rewardSystem.getProjectRewards(investor2, pid);
+        assertEq(total, 500e18, "grant not recorded");
+    }
+
+    function test_distributeVestingTokens_creditsEachEntrySeparately() public {
+        uint256 otherPid = _createProject(1_000e6, 10_000e6);
+
+        address[] memory u = new address[](3);
+        uint256[] memory a = new uint256[](3);
+        uint256[] memory p = new uint256[](3);
+        // Same user twice on one project, to prove the amounts accumulate rather than overwrite
+        u[0] = investor;  a[0] = 100e18; p[0] = pid;
+        u[1] = investor;  a[1] = 200e18; p[1] = pid;
+        u[2] = investor2; a[2] = 300e18; p[2] = otherPid;
+
+        vm.prank(owner);
+        rewardSystem.distributeVestingTokens(u, a, p);
+
+        (, uint256 firstUser,,,) = rewardSystem.getProjectRewards(investor, pid);
+        (, uint256 secondUser,,,) = rewardSystem.getProjectRewards(investor2, otherPid);
+        assertEq(firstUser, 300e18, "repeated entries must accumulate");
+        assertEq(secondUser, 300e18, "second user credited on the wrong project");
+        assertEq(rewardSystem.rewardTokensAmount(pid), 300e18, "first project pool wrong");
+        assertEq(rewardSystem.rewardTokensAmount(otherPid), 300e18, "second project pool wrong");
+    }
+
+    function test_distributeVestingTokens_revert_notOwner() public {
+        (address[] memory u, uint256[] memory a, uint256[] memory p) = _oneUser(investor, 1e18, pid);
+        vm.prank(attacker);
+        vm.expectRevert();
+        rewardSystem.distributeVestingTokens(u, a, p);
+    }
+
+    function test_distributeVestingTokens_revert_amountsLengthMismatch() public {
+        address[] memory u = new address[](2);
+        uint256[] memory a = new uint256[](1);
+        uint256[] memory p = new uint256[](2);
+        u[0] = investor; u[1] = investor2;
+        a[0] = 1e18;
+        p[0] = pid; p[1] = pid;
+
+        vm.prank(owner);
+        vm.expectRevert("Users and amounts length mismatch");
+        rewardSystem.distributeVestingTokens(u, a, p);
+    }
+
+    function test_distributeVestingTokens_revert_projectIdsLengthMismatch() public {
+        address[] memory u = new address[](2);
+        uint256[] memory a = new uint256[](2);
+        uint256[] memory p = new uint256[](1);
+        u[0] = investor; u[1] = investor2;
+        a[0] = 1e18; a[1] = 2e18;
+        p[0] = pid;
+
+        vm.prank(owner);
+        vm.expectRevert("Users and projectIds length mismatch");
+        rewardSystem.distributeVestingTokens(u, a, p);
+    }
+
+    function test_distributeVestingTokens_revert_emptyArrays() public {
+        vm.prank(owner);
+        vm.expectRevert("Empty arrays");
+        rewardSystem.distributeVestingTokens(new address[](0), new uint256[](0), new uint256[](0));
+    }
+
+    function test_distributeVestingTokens_revert_zeroUser() public {
+        (address[] memory u, uint256[] memory a, uint256[] memory p) = _oneUser(address(0), 1e18, pid);
+        vm.prank(owner);
+        vm.expectRevert("Invalid user address");
+        rewardSystem.distributeVestingTokens(u, a, p);
+    }
+
+    function test_distributeVestingTokens_revert_zeroAmount() public {
+        (address[] memory u, uint256[] memory a, uint256[] memory p) = _oneUser(investor, 0, pid);
+        vm.prank(owner);
+        vm.expectRevert("Invalid amount");
+        rewardSystem.distributeVestingTokens(u, a, p);
+    }
+
+    function test_distributeVestingTokens_revert_partialBatchRollsBack() public {
+        // Second entry is invalid, so the first must not stick either
+        address[] memory u = new address[](2);
+        uint256[] memory a = new uint256[](2);
+        uint256[] memory p = new uint256[](2);
+        u[0] = investor;  a[0] = 100e18; p[0] = pid;
+        u[1] = address(0); a[1] = 200e18; p[1] = pid;
+
+        vm.prank(owner);
+        vm.expectRevert("Invalid user address");
+        rewardSystem.distributeVestingTokens(u, a, p);
+
+        (, uint256 total,,,) = rewardSystem.getProjectRewards(investor, pid);
+        assertEq(total, 0, "a rejected batch must not credit anyone");
+    }
 }
