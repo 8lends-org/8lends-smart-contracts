@@ -1,8 +1,8 @@
 import { Contract } from "ethers";
-import { readFileSync } from "fs";
 import { ethers } from "hardhat";
-import { join } from "path";
 import { requireRealNetwork } from "./utils/network-guard";
+
+import { loadConfig } from "./utils/config";
 
 /**
  * Backfill individual investment positions for existing investors.
@@ -58,7 +58,7 @@ async function main() {
     Fundraise: string;
     multicall3: string;
     fundraiseDeployBlock: number;
-  } = JSON.parse(readFileSync(join(__dirname, `./config/${net.chainId}-config.json`), "utf8"));
+  } = loadConfig(net.chainId);
 
   const fundraiseAddress = process.env.FUNDRAISE_ADDRESS ?? config.Fundraise;
   if (!fundraiseAddress) {

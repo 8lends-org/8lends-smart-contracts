@@ -2,7 +2,8 @@ import dotenv from "dotenv";
 import hre, { ethers } from "hardhat";
 import { upgrades } from "hardhat";
 import * as readline from "readline";
-import { readJsonFile, writeJsonFile } from "./utils/helpers";
+import { loadConfig, saveConfig } from "./utils/config";
+
 import { requireRealNetwork } from "./utils/network-guard";
 
 dotenv.config();
@@ -319,8 +320,7 @@ async function main(): Promise<void> {
 
   const net = await ethers.provider.getNetwork();
   console.log("\nNetwork name:", net.name, "\n");
-  const filePath = `./scripts/config/${net.chainId}-config.json`;
-  const config = (await readJsonFile(filePath)) as Config;
+  const config = loadConfig<Config>(net.chainId);
 
   const [signer] = await ethers.getSigners();
   const owner = await signer.getAddress();
@@ -373,7 +373,7 @@ async function main(): Promise<void> {
     }
   }
 
-  await writeJsonFile(filePath, config);
+  saveConfig(net.chainId, config);
   console.log("Config updated:", descriptor.configKey, "=", proxyOrContractAddress);
 }
 

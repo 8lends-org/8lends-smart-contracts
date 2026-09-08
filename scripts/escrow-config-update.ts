@@ -1,8 +1,9 @@
 import dotenv from "dotenv";
 import { ethers } from "hardhat";
-import { readJsonFile } from "./utils/helpers";
 import { requireOwner } from "./utils/owner-guard";
 import { requireRealNetwork } from "./utils/network-guard";
+
+import { loadConfig } from "./utils/config";
 
 dotenv.config();
 
@@ -48,8 +49,7 @@ async function sendIfChanged(
 async function main(): Promise<void> {
   await requireRealNetwork();
     const net = await ethers.provider.getNetwork();
-    const filePath = `./scripts/config/${net.chainId}-config.json`;
-    const config = (await readJsonFile(filePath)) as Cfg;
+    const config = (loadConfig(net.chainId)) as Cfg;
 
     console.log(`\nReconciling escrow config on chain ${net.chainId} (${net.name})\n`);
 

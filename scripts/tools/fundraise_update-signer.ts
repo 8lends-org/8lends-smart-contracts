@@ -1,9 +1,10 @@
 import fs from "fs";
 import dotenv from "dotenv";
 import hre, { ethers } from "hardhat";
-import { readJsonFile, writeJsonFile } from "../utils/helpers";
 import { requireOwner } from "../utils/owner-guard";
 import { requireRealNetwork } from "../utils/network-guard";
+
+import { loadConfig, saveConfig } from "../utils/config";
 
 dotenv.config();
 
@@ -12,8 +13,7 @@ async function main() {
   const net = await ethers.provider.getNetwork();
   console.log("\nNetwork name:", net.name, "\n");
 
-  let filePath = `./scripts/config/${net.chainId}-config.json`;
-  let config = await readJsonFile(filePath);
+  let config = loadConfig(net.chainId);
 
   // Get wallet address from environment variable
   const trustSignerPrivateKey = process.env.TRUSTED_SIGNER_PRIVATE_KEY;
@@ -65,7 +65,7 @@ async function main() {
 
     // Update config
     config.trustedSigner = trustedSigner.address;
-    await writeJsonFile(filePath, config);
+    saveConfig(net.chainId, config);
     console.log("✅ Config updated with new trusted signer address");
   } catch (error) {
     console.error("❌ Error setting trusted signer:", error);

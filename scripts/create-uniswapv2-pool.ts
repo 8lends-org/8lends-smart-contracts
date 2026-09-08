@@ -1,17 +1,17 @@
 import fs from "fs";
 import dotenv from "dotenv";
 import hre, { ethers } from "hardhat";
-import { readJsonFile, writeJsonFile } from "./utils/helpers";
 import { requireOwner } from "./utils/owner-guard";
 import { requireRealNetwork } from "./utils/network-guard";
+import { loadConfig, saveConfig } from "./utils/config";
+
 dotenv.config();
 
 async function main() {
   await requireRealNetwork();
   const net = await ethers.provider.getNetwork();
   console.log("\nNetwork name:", net.name, "\n");
-  let filePath = `./scripts/config/${net.chainId}-config.json`;
-  let config = await readJsonFile(filePath);
+  let config = loadConfig(net.chainId);
 
   const USDC_AMOUNT = process.env.USDC_AMOUNT;
   const TOKEN_AMOUNT = process.env.TOKEN_AMOUNT;
@@ -76,7 +76,7 @@ async function main() {
   if (existingPair !== "0x0000000000000000000000000000000000000000") {
     console.log("⚠️  Pair already exists at:", existingPair);
     config.pool = existingPair;
-    await writeJsonFile(filePath, config);
+    saveConfig(net.chainId, config);
     //    return;
   } else {
     // Create TOKEN/USDC pair
@@ -189,7 +189,7 @@ async function main() {
 
   // Save pool address to config
   config.pool = pairAddress;
-  await writeJsonFile(filePath, config);
+  saveConfig(net.chainId, config);
 
   console.log("\n✅ Uniswap pool created successfully!");
   console.log("Pool address:", pairAddress);

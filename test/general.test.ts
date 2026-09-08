@@ -18,9 +18,6 @@ import { formatEther, formatUnits, parseEther, parseUnits } from "ethers";
 import { BalanceTable, BalanceEntry } from "./utils/balance-table";
 
 
-
-
-
 describe("🚀 8lends Protocol - General Flow Tests", function () {
   // 🔧 Configuration
   // Flip to true for the step-by-step trace and the balance tables while debugging.
@@ -227,6 +224,7 @@ describe("🚀 8lends Protocol - General Flow Tests", function () {
     };
 
     const projectId = await fundraise.projectCount();
+    // @ts-expect-error overloaded in Fundraise: typechain types it only by full signature
     await fundraise.connect(manager).createProject(projectData, 1);
     return fundraise.projects(projectId);
   }
@@ -335,6 +333,7 @@ describe("🚀 8lends Protocol - General Flow Tests", function () {
 
 
     it("💸 Transfer funds to borrower (minus platform fee)", async function () {
+        // @ts-expect-error overloaded in Fundraise: typechain types it only by full signature
         await fundraise.connect(manager).transferFundsToBorrower(0); // Transfer funds to borrower
         expect((await fundraise.projects(0)).innerStruct.stage).to.equal(Stage.Funded); // Funded
         const project = await fundraise.projects(0);
@@ -692,6 +691,7 @@ describe("🚀 8lends Protocol - General Flow Tests", function () {
       };
 
       const projectId = await fundraise.projectCount();
+      // @ts-expect-error overloaded in Fundraise: typechain types it only by full signature
       await fundraise.connect(manager).createProject(newProjectData, 1);
       
       let newProject = await fundraise.projects(projectId);
@@ -721,6 +721,7 @@ describe("🚀 8lends Protocol - General Flow Tests", function () {
           stage: 0 // ComingSoon
         }
       };
+      // @ts-expect-error overloaded in Fundraise: typechain types it only by full signature
       await fundraise.connect(manager).createProject(newProjectData, 2);
 
       const projectId = await fundraise.projectCount() - 1n;
@@ -868,6 +869,7 @@ describe("🚀 8lends Protocol - General Flow Tests", function () {
       const rsTokensBefore = await token.balanceOf(rewardSystemAddr);
 
       // Reaching Funded activates the project's rewards, which is what runs the buy-back
+      // @ts-expect-error overloaded in Fundraise: typechain types it only by full signature
       await fundraise.connect(manager).transferFundsToBorrower(burnTestProjectId);
 
       // The mint and the burn are deliberately paired, so supply does not move at all
@@ -896,6 +898,7 @@ describe("🚀 8lends Protocol - General Flow Tests", function () {
       const investmentAmount = ethers.parseUnits("1000", 6);
       await usdcToken.mint(await investor.getAddress(), investmentAmount);
       await invest(vestingProjectId, investmentAmount);
+      // @ts-expect-error overloaded in Fundraise: typechain types it only by full signature
       await fundraise.connect(manager).transferFundsToBorrower(vestingProjectId);
 
       vestingTotalTokens = (
@@ -1140,6 +1143,7 @@ describe("🚀 8lends Protocol - General Flow Tests", function () {
         const supplyBefore = await token.totalSupply();
         const poolTokensBefore = await token.balanceOf(poolAddress);
 
+        // @ts-expect-error overloaded in Fundraise: typechain types it only by full signature
         await fundraise.connect(manager).transferFundsToBorrower(projectId);
 
         const poolDrop = poolTokensBefore - (await token.balanceOf(poolAddress));

@@ -1,9 +1,10 @@
 import fs from "fs";
 import dotenv from "dotenv";
 import hre, { ethers } from "hardhat";
-import { readJsonFile } from "../utils/helpers";
 import { HDNodeWallet, Mnemonic } from "ethers";
 import { requireRealNetwork } from "../utils/network-guard";
+import { loadConfig } from "../utils/config";
+
 dotenv.config();
 
 async function main() {
@@ -41,8 +42,7 @@ async function main() {
   console.log("ETH balance:", ethers.formatEther(ethBalance));
 
   // Load config to get USDC address
-  let filePath = `./scripts/config/${net.chainId}-config.json`;
-  let config = await readJsonFile(filePath);
+  let config = loadConfig(net.chainId);
 
   if (!config.USDC) {
     throw new Error("USDC address not found in config");

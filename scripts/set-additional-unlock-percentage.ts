@@ -4,6 +4,8 @@ import { readFileSync } from "fs";
 import { join } from "path";
 import { requireRealNetwork } from "./utils/network-guard";
 
+import { loadConfig } from "./utils/config";
+
 dotenv.config();
 
 // Read percentage from environment variable
@@ -28,7 +30,7 @@ async function main(): Promise<void> {
         token: string;
         RewardSystem: string;
         Rewards2: string;
-    } = JSON.parse(readFileSync(join(__dirname, `./config/${net.chainId}-config.json`), "utf8"));
+    } = loadConfig(net.chainId);
 
     if (!PERCENT) {
         throw new Error("❌ PERCENT is not set. Usage: PERCENT=26 npx hardhat run scripts/set-additional-unlock-percentage.ts");

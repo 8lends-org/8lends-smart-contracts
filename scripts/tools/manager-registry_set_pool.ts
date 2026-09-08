@@ -1,15 +1,15 @@
 import dotenv from "dotenv";
 import hre, { ethers } from "hardhat";
-import { readJsonFile } from "../utils/helpers";
 import { requireOwner } from "../utils/owner-guard";
 import { requireRealNetwork } from "../utils/network-guard";
+import { loadConfig } from "../utils/config";
+
 dotenv.config();
 
 async function main() {
   await requireRealNetwork();
   const net = await ethers.provider.getNetwork();
-  const filePath = `./scripts/config/${net.chainId}-config.json`;
-  const config = await readJsonFile(filePath);
+  const config = loadConfig(net.chainId);
 
   console.log(`\nSetting pool status in ManagerRegistry...`);
   console.log(`Network: ${net.name} (Chain ID: ${net.chainId})`);

@@ -1,17 +1,17 @@
 import fs from "fs";
 import dotenv from "dotenv";
 import hre, { ethers } from "hardhat";
-import { readJsonFile, writeJsonFile } from "../utils/helpers";
 import { requireOwner } from "../utils/owner-guard";
 import { requireRealNetwork } from "../utils/network-guard";
+import { loadConfig } from "../utils/config";
+
 dotenv.config();
 
 async function main() {
   await requireRealNetwork();
   const net = await ethers.provider.getNetwork();
   console.log("\nNetwork name:", net.name, "\n");
-  let filePath = `./scripts/config/${net.chainId}-config.json`;
-  let config = await readJsonFile(filePath);
+  let config = loadConfig(net.chainId);
 
   console.log("\nRemoving liquidity from Token/USDC pool");
 

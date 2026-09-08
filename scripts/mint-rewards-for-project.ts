@@ -6,6 +6,8 @@ import { formatUnits } from "ethers";
 import { requireOwner } from "./utils/owner-guard";
 import { requireRealNetwork } from "./utils/network-guard";
 
+import { loadConfig } from "./utils/config";
+
 dotenv.config();
 
 // Swap parameters (can be changed)
@@ -25,7 +27,7 @@ async function main(): Promise<void> {
         usdc: string;
         token: string;
         RewardSystem: string;
-    } = JSON.parse(readFileSync(join(__dirname, `./config/${net.chainId}-config.json`), "utf8"));
+    } = loadConfig(net.chainId);
 
     if(!BLOCKCHAIN_PROJECT_ID) {
         throw new Error("❌ BLOCKCHAIN_PROJECT_ID is not set");

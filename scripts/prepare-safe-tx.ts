@@ -1,8 +1,9 @@
 import dotenv from "dotenv";
 import hre, { ethers } from "hardhat";
-import { readJsonFile } from "./utils/helpers";
 import { buildTransaction, findAbiFunction, isDryRun, signatureOf, tryReadOwner, writeBatch } from "./utils/safe-batch";
 import { requireRealNetwork } from "./utils/network-guard";
+import { configPath, loadConfig } from "./utils/config";
+
 dotenv.config();
 
 /**
@@ -67,8 +68,8 @@ async function main() {
   if (!Array.isArray(args)) usage("ARGS must be a JSON array.");
 
   const net = await ethers.provider.getNetwork();
-  const filePath = `./scripts/config/${net.chainId}-config.json`;
-  const config = (await readJsonFile(filePath)) as Record<string, unknown>;
+  const filePath = configPath(net.chainId);
+  const config = (loadConfig(net.chainId)) as Record<string, unknown>;
 
   const override = process.env.ADDRESS;
   const target = override ?? config[contractName];

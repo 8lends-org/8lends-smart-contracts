@@ -1,6 +1,7 @@
 import dotenv from "dotenv";
 import { ethers, upgrades } from "hardhat";
-import { readJsonFile, writeJsonFile } from "./utils/helpers";
+import { loadConfig, saveConfig } from "./utils/config";
+
 import { requireRealNetwork } from "./utils/network-guard";
 dotenv.config();
 
@@ -25,8 +26,7 @@ async function main() {
   console.log(`🌐 Network: ${net.name} (chainId: ${net.chainId})`);
   console.log("=".repeat(80));
 
-  const filePath = `./scripts/config/${net.chainId}-config.json`;
-  const config = await readJsonFile(filePath);
+  const config = loadConfig(net.chainId);
 
   const contractKey = contractName;
   const proxyAddress = config[contractKey];
@@ -56,7 +56,7 @@ async function main() {
         // Update config
         config[oldImplKey] = currentImpl;
         delete config[pendingImplKey];
-        await writeJsonFile(filePath, config);
+        saveConfig(net.chainId, config);
         console.log("💾 Config updated");
       } else {
         console.log("\n⚠️  Implementation NOT updated. Upgrade not yet executed or an error occurred.");

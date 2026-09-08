@@ -2,10 +2,11 @@ import dotenv from "dotenv";
 import { ethers } from "hardhat";
 import fs from "fs";
 import path from "path";
-import { readJsonFile } from "../utils/helpers";
 import { requireOwner } from "../utils/owner-guard";
 import { inputFingerprint, openProgress } from "../utils/batch-progress";
 import { requireRealNetwork } from "../utils/network-guard";
+
+import { loadConfig } from "../utils/config";
 
 dotenv.config();
 
@@ -41,8 +42,7 @@ interface WalletDistribution {
 async function main(): Promise<void> {
   await requireRealNetwork();
     const net = await ethers.provider.getNetwork();
-    const filePath = `./scripts/config/${net.chainId}-config.json`;
-    const config = await readJsonFile(filePath);
+    const config = loadConfig(net.chainId);
 
     if (!config.RewardSystem) {
         throw new Error("RewardSystem address not found in config");

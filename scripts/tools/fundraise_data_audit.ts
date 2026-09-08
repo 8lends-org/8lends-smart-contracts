@@ -26,6 +26,8 @@ import { ethers } from "ethers";
 import * as fs from "fs";
 import * as path from "path";
 import { requireRealNetwork } from "../utils/network-guard";
+import { configPath, loadConfig } from "../utils/config";
+
 dotenv.config();
 
 // Fundraise Stage enum (see Fundraise.sol)
@@ -184,12 +186,12 @@ async function main() {
   const provider = new ethers.JsonRpcProvider(rpcUrl);
   const chainId = netCfg.chainId;
 
-  const configPath = path.join(__dirname, "..", "config", `${chainId}-config.json`);
-  const config: any = JSON.parse(fs.readFileSync(configPath, "utf8"));
+  const cfgPath = configPath(chainId);
+  const config: any = loadConfig(chainId);
   const fundraiseAddr: string = config.Fundraise;
 
   if (!fundraiseAddr) {
-    throw new Error(`No Fundraise address in ${configPath}`);
+    throw new Error(`No Fundraise address in ${cfgPath}`);
   }
 
   const tipBlock = await provider.getBlockNumber();
