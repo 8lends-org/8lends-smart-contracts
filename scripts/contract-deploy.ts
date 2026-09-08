@@ -276,6 +276,38 @@ const DEPLOY_DESCRIPTORS: Record<string, DeployDescriptor> = {
     configKey: "CustomBonus",
     configKeyImpl: "CustomBonus_impl",
   },
+  LeagueBonus: {
+    useProxy: true,
+    initializer: "initialize",
+    getProxyArgs: (config) => {
+      if (!config.ManagerRegistry || !config.USDC) {
+        throw new Error("ManagerRegistry, USDC required in config");
+      }
+      // [Bronze, Silver, Gold, Diamond] in 6 decimals — the League enum reserves None at 0, so real
+      // leagues start at 1 and Bronze is configurable like the rest. Every amount must be passed
+      // explicitly: there are no defaults, because the payout sizes are a business decision and a
+      // placeholder here would become a real on-chain obligation. Use 0 for a league that is not
+      // paid. Changeable after deploy via setBonusAmount.
+      const bonusAmounts = ["BRONZE", "SILVER", "GOLD", "DIAMOND"].map((league) => {
+        const envKey = `LEAGUE_BONUS_${league}`;
+        const raw = process.env[envKey]?.trim();
+        if (!raw) {
+          throw new Error(
+            `${envKey} not set. Set the confirmed amount in 6 decimals for every league ` +
+              `(LEAGUE_BONUS_BRONZE, _SILVER, _GOLD, _DIAMOND); use 0 for a league that is not paid.`
+          );
+        }
+        if (!/^\d+$/.test(raw)) {
+          throw new Error(`${envKey}="${raw}" is not a non-negative integer in 6 decimals (e.g. 30000000 for 30 USDC).`);
+        }
+        return raw;
+      });
+      console.log("LeagueBonus amounts [Bronze, Silver, Gold, Diamond]:", bonusAmounts.join(", "));
+      return [config.ManagerRegistry, config.USDC, bonusAmounts];
+    },
+    configKey: "LeagueBonus",
+    configKeyImpl: "LeagueBonus_impl",
+  },
 };
 
 async function main(): Promise<void> {
