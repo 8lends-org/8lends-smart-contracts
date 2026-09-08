@@ -66,7 +66,11 @@ contract TokenTransferFuzzTest is Setup {
         vm.prank(investor);
         token.transfer(recipient, amount);
 
-        assertEq(token.balanceOf(recipient) - balBefore, amount);
+        // The sender is `investor`, so a self-transfer debits and credits the same account and nets
+        // to zero. Kept inside the fuzz domain rather than excluded with vm.assume: "a self-transfer
+        // is allowed and does not revert" is part of what this test claims.
+        uint256 expectedDelta = recipient == investor ? 0 : amount;
+        assertEq(token.balanceOf(recipient) - balBefore, expectedDelta);
     }
 
     /// @notice Mint to any address always works (mint bypasses canTransfer)

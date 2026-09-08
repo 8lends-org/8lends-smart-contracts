@@ -42,6 +42,9 @@ abstract contract Setup is Test {
     address public investor2;
     address public inviter;
     address public attacker;
+    /// @dev Operator role only — deliberately NOT a manager, so tests can prove the
+    ///      two roles are separate and a manager cannot call operator methods.
+    address public operator;
 
     // backend = trusted signer (we need its private key for vm.sign)
     uint256 public backendPk;
@@ -61,6 +64,7 @@ abstract contract Setup is Test {
         investor2 = makeAddr("investor2");
         inviter = makeAddr("inviter");
         attacker = makeAddr("attacker");
+        operator = makeAddr("operator");
         (backend, backendPk) = makeAddrAndKey("backend");
 
         // Foundry starts at timestamp=1. Set a realistic timestamp.
@@ -145,6 +149,12 @@ abstract contract Setup is Test {
         statuses[0] = true;
         statuses[1] = true;
         managerRegistry.setManagerStatusBatch(managers, statuses);
+
+        // Operator role: routine automated actions (bonus payouts). Granted to `operator`
+        // and to nobody else — not to `owner`, not to `manager`. The whole point of the role
+        // is that a hot backend key cannot also create projects, so the test fixture must not
+        // blur the two sets.
+        managerRegistry.setOperatorStatus(operator, true);
 
         managerRegistry.setContractAddresses(
             address(rewardSystem),

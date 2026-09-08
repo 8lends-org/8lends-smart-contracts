@@ -17,8 +17,10 @@ contract ManagerRegistry is Initializable, OwnableUpgradeable, UUPSUpgradeable {
     address public rewards2Address;
     address public marketAddress;
     address public limitedSellerAddress;
+    mapping(address => bool) public operators;
 
     event ManagerUpdated(address manager, bool status);
+    event OperatorUpdated(address operator, bool status);
     event PoolUpdated(address pool, bool status);
     event InvestorClaimAddressSet(address indexed investor, address indexed claimAddress);
     event Rewards2AddressSet(address indexed rewards2Address);
@@ -56,6 +58,11 @@ contract ManagerRegistry is Initializable, OwnableUpgradeable, UUPSUpgradeable {
         require(managers[msg.sender] || msg.sender == owner(), "ManagerRegistry: Not authorized");
         managers[_manager] = _status;
         emit ManagerUpdated(_manager, _status);
+    }
+
+    function setOperatorStatus(address _operator, bool _status) external onlyOwner {
+        operators[_operator] = _status;
+        emit OperatorUpdated(_operator, _status);
     }
 
     /// @notice Update pool status
@@ -127,6 +134,10 @@ contract ManagerRegistry is Initializable, OwnableUpgradeable, UUPSUpgradeable {
     /// @param _sender Manager addr
     function isManager(address _sender) public view returns (bool) {
         return managers[_sender] || _sender == rewardSystemAddress;
+    }
+
+    function isOperator(address _sender) public view returns (bool) {
+        return operators[_sender];
     }
 
     /// @notice View function for checking eligibility to call
