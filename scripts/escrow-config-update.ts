@@ -9,7 +9,7 @@ dotenv.config();
 
 /**
  * Idempotent reconciliation of EscrowFactory + Fundraise settings against
- * scripts/config/<chainId>-config.json.
+ * the network config (config/<chainId>.json plus deployments/<chainId>.json).
  *
  * For every settable field the script reads on-chain state, compares to the
  * desired value from the config file, and only sends a transaction when they
