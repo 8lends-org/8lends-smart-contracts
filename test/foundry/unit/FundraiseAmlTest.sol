@@ -303,41 +303,4 @@ contract FundraiseAmlTest is Setup {
         assertEq(fundraise.userNonces(investor), 1, "userNonce should be 1");
     }
 
-    // ─────────────────────────────────────────────────────────────────────────
-    // Test 12 — legacy investUpdate still works
-    // ─────────────────────────────────────────────────────────────────────────
-
-    function test_InvestUpdate_StillWorks() public {
-        uint256 pid = _createProject(100e6, 1000e6);
-
-        // Mint USDC to investor and approve Fundraise
-        uint256 amount = 200e6;
-        vm.prank(owner);
-        usdc.mint(investor, amount);
-        vm.prank(investor);
-        usdc.approve(address(fundraise), amount);
-
-        // Legacy signature: keccak256(abi.encodePacked(msg.sender, pid, amount, rootHash, nonce, inviter))
-        // Global nonce is used; starts at 0, so next expected is 1
-        uint256 legacyNonce = fundraise.nonce() + 1;
-        bytes32 rootHash = bytes32(0);
-
-        bytes32 innerHash = keccak256(
-            abi.encodePacked(investor, pid, amount, rootHash, legacyNonce, inviter)
-        );
-        bytes32 ethSignedHash = keccak256(
-            abi.encodePacked("\x19Ethereum Signed Message:\n32", innerHash)
-        );
-        (uint8 v, bytes32 r, bytes32 s) = vm.sign(backendPk, ethSignedHash);
-        bytes memory sig = abi.encodePacked(r, s, v);
-
-        uint256 nonceBefore = fundraise.nonce();
-
-        vm.prank(investor);
-        fundraise.investUpdate(pid, amount, rootHash, legacyNonce, sig, inviter);
-
-        (uint256 investedAmount,) = fundraise.investorInfo(investor, pid);
-        assertEq(investedAmount, amount, "investedAmount should be recorded via investUpdate");
-        assertEq(fundraise.nonce(), nonceBefore + 1, "global nonce should increment");
-    }
 }

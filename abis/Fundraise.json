@@ -1003,109 +1003,6 @@
         "type": "tuple"
       },
       {
-        "internalType": "bytes32",
-        "name": "",
-        "type": "bytes32"
-      },
-      {
-        "internalType": "uint256",
-        "name": "_projectHash",
-        "type": "uint256"
-      }
-    ],
-    "name": "createProject",
-    "outputs": [
-      {
-        "internalType": "uint256",
-        "name": "",
-        "type": "uint256"
-      }
-    ],
-    "stateMutability": "nonpayable",
-    "type": "function"
-  },
-  {
-    "inputs": [
-      {
-        "components": [
-          {
-            "internalType": "uint256",
-            "name": "hardCap",
-            "type": "uint256"
-          },
-          {
-            "internalType": "uint256",
-            "name": "softCap",
-            "type": "uint256"
-          },
-          {
-            "internalType": "uint256",
-            "name": "totalInvested",
-            "type": "uint256"
-          },
-          {
-            "internalType": "uint256",
-            "name": "startAt",
-            "type": "uint256"
-          },
-          {
-            "internalType": "uint256",
-            "name": "preFundDuration",
-            "type": "uint256"
-          },
-          {
-            "internalType": "uint256",
-            "name": "investorInterestRate",
-            "type": "uint256"
-          },
-          {
-            "internalType": "uint256",
-            "name": "openStageEndAt",
-            "type": "uint256"
-          },
-          {
-            "components": [
-              {
-                "internalType": "uint256",
-                "name": "platformInterestRate",
-                "type": "uint256"
-              },
-              {
-                "internalType": "uint256",
-                "name": "totalRepaid",
-                "type": "uint256"
-              },
-              {
-                "internalType": "address",
-                "name": "borrower",
-                "type": "address"
-              },
-              {
-                "internalType": "uint256",
-                "name": "fundedTime",
-                "type": "uint256"
-              },
-              {
-                "internalType": "contract IERC20",
-                "name": "loanToken",
-                "type": "address"
-              },
-              {
-                "internalType": "enum Fundraise.Stage",
-                "name": "stage",
-                "type": "uint8"
-              }
-            ],
-            "internalType": "struct Fundraise.InnerProjectStruct",
-            "name": "innerStruct",
-            "type": "tuple"
-          }
-        ],
-        "internalType": "struct Fundraise.Project",
-        "name": "_project",
-        "type": "tuple"
-      },
-      {
         "internalType": "uint256",
         "name": "_projectHash",
         "type": "uint256"
@@ -1234,44 +1131,6 @@
       }
     ],
     "name": "investFromEscrow",
-    "outputs": [],
-    "stateMutability": "nonpayable",
-    "type": "function"
-  },
-  {
-    "inputs": [
-      {
-        "internalType": "uint256",
-        "name": "_pid",
-        "type": "uint256"
-      },
-      {
-        "internalType": "uint256",
-        "name": "_amount",
-        "type": "uint256"
-      },
-      {
-        "internalType": "bytes32",
-        "name": "_rootHash",
-        "type": "bytes32"
-      },
-      {
-        "internalType": "uint256",
-        "name": "_nonce",
-        "type": "uint256"
-      },
-      {
-        "internalType": "bytes",
-        "name": "_sig",
-        "type": "bytes"
-      },
-      {
-        "internalType": "address",
-        "name": "_inviter",
-        "type": "address"
-      }
-    ],
-    "name": "investUpdate",
     "outputs": [],
     "stateMutability": "nonpayable",
     "type": "function"
@@ -1453,19 +1312,6 @@
     "name": "moveProjectStage",
     "outputs": [],
     "stateMutability": "nonpayable",
-    "type": "function"
-  },
-  {
-    "inputs": [],
-    "name": "nonce",
-    "outputs": [
-      {
-        "internalType": "uint256",
-        "name": "",
-        "type": "uint256"
-      }
-    ],
-    "stateMutability": "view",
     "type": "function"
   },
   {
@@ -2038,25 +1884,6 @@
         "internalType": "uint256",
         "name": "",
         "type": "uint256"
-      }
-    ],
-    "stateMutability": "view",
-    "type": "function"
-  },
-  {
-    "inputs": [
-      {
-        "internalType": "uint256",
-        "name": "_pid",
-        "type": "uint256"
-      }
-    ],
-    "name": "whitelistRoots",
-    "outputs": [
-      {
-        "internalType": "bytes32",
-        "name": "",
-        "type": "bytes32"
       }
     ],
     "stateMutability": "view",

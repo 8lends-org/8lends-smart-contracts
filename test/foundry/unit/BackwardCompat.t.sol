@@ -40,56 +40,8 @@ contract BackwardCompatTest is Setup {
     }
 
     // ═══════════════════════════════════════════════════════════════════
-    //  SECTION 1: Fundraise — investUpdate (old) vs investUpdateV2 (new)
+    //  SECTION 1: Fundraise — investUpdateV2
     // ═══════════════════════════════════════════════════════════════════
-
-    /// @notice Build old-style signature (includes rootHash)
-    function _signInvestOld(
-        address _investor,
-        uint256 _pid,
-        uint256 _amount,
-        bytes32 _rootHash,
-        uint256 _nonce,
-        address _inviter
-    ) internal view returns (bytes memory sig) {
-        bytes32 innerHash = keccak256(abi.encodePacked(_investor, _pid, _amount, _rootHash, _nonce, _inviter));
-        bytes32 ethSignedHash = keccak256(abi.encodePacked("\x19Ethereum Signed Message:\n32", innerHash));
-        (uint8 v, bytes32 r, bytes32 s) = vm.sign(backendPk, ethSignedHash);
-        sig = abi.encodePacked(r, s, v);
-    }
-
-    /// @notice Invest using old investUpdate (rootHash in signature, global nonce).
-    function _investOldAs(address _investor, uint256 _pid, uint256 _amount, address _inviter) internal {
-        vm.prank(owner);
-        usdc.mint(_investor, _amount);
-
-        vm.prank(_investor);
-        usdc.approve(address(fundraise), _amount);
-
-        uint256 currentGlobalNonce = fundraise.nonce();
-        uint256 nonceForSig = currentGlobalNonce + 1;
-        bytes32 rootHash = bytes32(0); // dummy rootHash
-        bytes memory sig = _signInvestOld(_investor, _pid, _amount, rootHash, nonceForSig, _inviter);
-
-        vm.prank(_investor);
-        fundraise.investUpdate(_pid, _amount, rootHash, nonceForSig, sig, _inviter);
-    }
-
-    function test_investUpdate_old_works() public {
-        uint256 amount = 5_000e6;
-        uint256 globalNonceBefore = fundraise.nonce();
-        uint256 userNonceBefore = fundraise.userNonces(investor);
-
-        _investOldAs(investor, pid, amount, inviter);
-
-        // Verify investment recorded
-        (uint256 invested,) = fundraise.investorInfo(investor, pid);
-        assertEq(invested, amount, "Old investUpdate: investment not recorded");
-
-        // Old investUpdate still uses the legacy global nonce.
-        assertEq(fundraise.nonce(), globalNonceBefore + 1, "Old investUpdate: global nonce not incremented");
-        assertEq(fundraise.userNonces(investor), userNonceBefore, "Old investUpdate: user nonce should stay unchanged");
-    }
 
     function test_investUpdateV2_new_works() public {
         uint256 amount = 5_000e6;
@@ -105,78 +57,23 @@ contract BackwardCompatTest is Setup {
         assertEq(fundraise.userNonces(investor), userNonceBefore + 1, "V2 investUpdate: user nonce not incremented");
     }
 
-    function test_old_and_new_invest_do_not_conflict() public {
-        // First: invest via old method (rootHash signature)
-        _investOldAs(investor, pid, 3_000e6, inviter);
-
-        // Second: invest via new method (no rootHash) — same investor
-        _investAs(investor, pid, 2_000e6, address(0));
-
-        // Third: different investor uses old method
-        _investOldAs(investor2, pid, 4_000e6, inviter);
-
-        // Fourth: different investor uses new method
-        _investAs(investor2, pid, 1_000e6, address(0));
-
-        // Verify both accumulated correctly
-        (uint256 inv1,) = fundraise.investorInfo(investor, pid);
-        assertEq(inv1, 5_000e6, "Investor1 total should be 3000+2000");
-
-        (uint256 inv2,) = fundraise.investorInfo(investor2, pid);
-        assertEq(inv2, 5_000e6, "Investor2 total should be 4000+1000");
-
-        // Old invests use the legacy global nonce; new invests use per-user nonce.
-        assertEq(fundraise.nonce(), 2, "Global nonce should count the two old invests");
-        assertEq(fundraise.userNonces(investor), 1, "Investor1 user nonce should count only the new invest");
-        assertEq(fundraise.userNonces(investor2), 1, "Investor2 user nonce should count only the new invest");
-    }
-
-    function test_old_investUpdate_wrong_nonce_reverts() public {
+    function test_investUpdateV2_wrong_nonce_reverts() public {
         vm.prank(owner);
         usdc.mint(investor, 5_000e6);
         vm.prank(investor);
         usdc.approve(address(fundraise), 5_000e6);
 
         uint256 wrongNonce = fundraise.userNonces(investor) + 2; // skip one
-        bytes32 rootHash = bytes32(0);
-        bytes memory sig = _signInvestOld(investor, pid, 5_000e6, rootHash, wrongNonce, inviter);
+        bytes memory sig = _signInvest(investor, pid, 5_000e6, wrongNonce, inviter);
 
         vm.prank(investor);
         vm.expectRevert(Fundraise.IncorrectNonce.selector);
-        fundraise.investUpdate(pid, 5_000e6, rootHash, wrongNonce, sig, inviter);
+        fundraise.investUpdateV2(pid, 5_000e6, wrongNonce, sig, inviter);
     }
 
     // ═══════════════════════════════════════════════════════════════════
-    //  SECTION 2: Fundraise — createProject overloads
+    //  SECTION 2: Fundraise — createProject
     // ═══════════════════════════════════════════════════════════════════
-
-    function test_createProject_old_with_whitelistRoot() public {
-        Fundraise.Project memory proj = Fundraise.Project({
-            hardCap: 20_000e6,
-            softCap: 10_000e6,
-            totalInvested: 0,
-            startAt: block.timestamp - 10,
-            preFundDuration: 7 days,
-            investorInterestRate: INVESTOR_INTEREST,
-            openStageEndAt: block.timestamp + 7 days,
-            innerStruct: Fundraise.InnerProjectStruct({
-                platformInterestRate: PLATFORM_FEE,
-                totalRepaid: 0,
-                borrower: borrower,
-                fundedTime: 0,
-                loanToken: IERC20(address(usdc)),
-                stage: Fundraise.Stage.ComingSoon
-            })
-        });
-
-        bytes32 fakeRoot = bytes32(uint256(0xdead));
-        vm.prank(manager);
-        uint256 newPid = fundraise.createProject(proj, fakeRoot, 42);
-
-        // Verify project was created
-        (uint256 hardCap,,,,,,, ) = fundraise.projects(newPid);
-        assertEq(hardCap, 20_000e6, "Old createProject: hardCap mismatch");
-    }
 
     function test_createProject_new_without_whitelistRoot() public {
         Fundraise.Project memory proj = Fundraise.Project({
@@ -202,37 +99,6 @@ contract BackwardCompatTest is Setup {
 
         (uint256 hardCap,,,,,,, ) = fundraise.projects(newPid);
         assertEq(hardCap, 30_000e6, "New createProject: hardCap mismatch");
-    }
-
-    function test_createProject_both_overloads_sequential() public {
-        uint256 countBefore = fundraise.projectCount();
-
-        Fundraise.Project memory proj = Fundraise.Project({
-            hardCap: 10_000e6,
-            softCap: 5_000e6,
-            totalInvested: 0,
-            startAt: block.timestamp - 10,
-            preFundDuration: 7 days,
-            investorInterestRate: INVESTOR_INTEREST,
-            openStageEndAt: block.timestamp + 7 days,
-            innerStruct: Fundraise.InnerProjectStruct({
-                platformInterestRate: PLATFORM_FEE,
-                totalRepaid: 0,
-                borrower: borrower,
-                fundedTime: 0,
-                loanToken: IERC20(address(usdc)),
-                stage: Fundraise.Stage.ComingSoon
-            })
-        });
-
-        vm.startPrank(manager);
-        uint256 pid1 = fundraise.createProject(proj, bytes32(uint256(1)), 100); // old
-        uint256 pid2 = fundraise.createProject(proj, 200); // new
-        vm.stopPrank();
-
-        assertEq(pid1, countBefore, "Old overload: wrong pid");
-        assertEq(pid2, countBefore + 1, "New overload: wrong pid");
-        assertEq(fundraise.projectCount(), countBefore + 2, "Project count should increase by 2");
     }
 
     // ═══════════════════════════════════════════════════════════════════
@@ -261,15 +127,6 @@ contract BackwardCompatTest is Setup {
 
         (,,,,,,, Fundraise.InnerProjectStruct memory inner) = fundraise.projects(newPid);
         assertEq(uint8(inner.stage), uint8(Fundraise.Stage.Funded), "New transferFunds: not Funded");
-    }
-
-    // ═══════════════════════════════════════════════════════════════════
-    //  SECTION 4: Fundraise — deprecated whitelistRoots
-    // ═══════════════════════════════════════════════════════════════════
-
-    function test_whitelistRoots_returns_zero() public view {
-        bytes32 root = fundraise.whitelistRoots(pid);
-        assertEq(root, bytes32(0), "whitelistRoots should return 0 for new projects");
     }
 
     // ═══════════════════════════════════════════════════════════════════
@@ -587,11 +444,11 @@ contract BackwardCompatTest is Setup {
     }
 
     // ═══════════════════════════════════════════════════════════════════
-    //  SECTION 9: End-to-end — full lifecycle with both old and new paths
+    //  SECTION 9: End-to-end — full lifecycle
     // ═══════════════════════════════════════════════════════════════════
 
-    function test_e2e_mixed_old_new_full_lifecycle() public {
-        // 1. Create project via old method (with whitelistRoot)
+    function test_e2e_full_lifecycle() public {
+        // 1. Create project
         Fundraise.Project memory proj = Fundraise.Project({
             hardCap: 20_000e6,
             softCap: 10_000e6,
@@ -610,10 +467,10 @@ contract BackwardCompatTest is Setup {
             })
         });
         vm.prank(manager);
-        uint256 e2ePid = fundraise.createProject(proj, bytes32(0), 777);
+        uint256 e2ePid = fundraise.createProject(proj, 777);
 
-        // 2. Investor1 invests via OLD investUpdate
-        _investOldAs(investor, e2ePid, 6_000e6, inviter);
+        // 2. Investor1 invests
+        _investAs(investor, e2ePid, 6_000e6, inviter);
 
         // 3. Investor2 invests via NEW investUpdateV2
         _investAs(investor2, e2ePid, 6_000e6, inviter);

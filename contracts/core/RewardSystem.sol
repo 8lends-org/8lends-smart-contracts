@@ -156,7 +156,7 @@ contract RewardSystem is Initializable, UUPSUpgradeable, OwnableUpgradeable, Ree
     }
 
     /// @notice Backward-compatible overload for old Fundraise contract (before upgrade).
-    /// @dev TODO: remove after Fundraise upgrade deploys. Assumes loanToken = USDC.
+    /// @dev TODO: remove with the next upgrade. Assumes loanToken = USDC.
     function recordInvestment(address _user, uint256 _amount, address _inviter, uint256 _projectId)
         external
         onlyFundraise

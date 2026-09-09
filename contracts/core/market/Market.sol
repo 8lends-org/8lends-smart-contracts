@@ -121,15 +121,6 @@ contract Market is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentranc
         return Math.mulDiv(agg.totalClaimed, posInvested, agg.investedAmount, Math.Rounding.Ceil);
     }
 
-    /// @notice Sell first investment position (backward-compatible overload)
-    /// @dev TODO: remove after frontend migrates to sell(uint256,uint256,uint256)
-    /// @param _projectId Project ID
-    /// @param _price Price in loan tokens
-    /// @return saleId Created sale ID
-    function sell(uint256 _projectId, uint256 _price) external nonReentrant returns (uint256 saleId) {
-        return _executeSell(_projectId, _price, 0);
-    }
-
     /// @notice Sell a specific investment position on the secondary market
     /// @param _projectId Project ID
     /// @param _price Price in loan tokens

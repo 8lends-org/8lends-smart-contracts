@@ -211,7 +211,7 @@ abstract contract Setup is Test {
         projectId = fundraise.createProject(proj, 1);
     }
 
-    /// @notice Build the EIP-191 signature for investUpdate
+    /// @notice Build the EIP-191 signature for investUpdateV2
     function _signInvest(
         address _investor,
         uint256 _pid,
@@ -225,7 +225,7 @@ abstract contract Setup is Test {
         sig = abi.encodePacked(r, s, v);
     }
 
-    /// @notice Full invest flow: mint USDC → approve → sign → investUpdate
+    /// @notice Full invest flow: mint USDC → approve → sign → investUpdateV2
     function _investAs(address _investor, uint256 _pid, uint256 _amount, address _inviter) internal {
         // Mint USDC to investor
         vm.prank(owner);

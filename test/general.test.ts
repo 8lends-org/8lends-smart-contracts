@@ -224,7 +224,6 @@ describe("🚀 8lends Protocol - General Flow Tests", function () {
     };
 
     const projectId = await fundraise.projectCount();
-    // @ts-expect-error overloaded in Fundraise: typechain types it only by full signature
     await fundraise.connect(manager).createProject(projectData, 1);
     return fundraise.projects(projectId);
   }
@@ -691,7 +690,6 @@ describe("🚀 8lends Protocol - General Flow Tests", function () {
       };
 
       const projectId = await fundraise.projectCount();
-      // @ts-expect-error overloaded in Fundraise: typechain types it only by full signature
       await fundraise.connect(manager).createProject(newProjectData, 1);
       
       let newProject = await fundraise.projects(projectId);
@@ -721,7 +719,6 @@ describe("🚀 8lends Protocol - General Flow Tests", function () {
           stage: 0 // ComingSoon
         }
       };
-      // @ts-expect-error overloaded in Fundraise: typechain types it only by full signature
       await fundraise.connect(manager).createProject(newProjectData, 2);
 
       const projectId = await fundraise.projectCount() - 1n;

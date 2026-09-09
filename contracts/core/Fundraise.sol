@@ -158,9 +158,9 @@ contract Fundraise is Initializable, UUPSUpgradeable, OwnableUpgradeable {
     address public treasury;
     address public managerRegistry;
 
-    /// @dev Deprecated: global nonce replaced by per-user userNonces. Slot preserved for upgrade safety.
-    /// TODO: remove after frontend migrates to investUpdateV2 (read userNonces instead of nonce).
-    uint256 public nonce;
+    /// @dev Deprecated: global nonce replaced by per-user userNonces. The variable must stay
+    /// declared to keep the storage layout — only its public getter is gone.
+    uint256 private __deprecated_nonce;
 
     address public trustedSigner;
 
@@ -215,37 +215,6 @@ contract Fundraise is Initializable, UUPSUpgradeable, OwnableUpgradeable {
     }
 
     function _authorizeUpgrade(address) internal override onlyOwner {}
-
-    /// @notice LEGACY — old frontend/backend use global nonce + rootHash in signature.
-    /// @dev TODO: remove after frontend migrates to investUpdateV2.
-    /// @param _pid Project Id
-    /// @param _amount Amount of loan token for invest
-    /// @param _rootHash Included in signature verification for backward compat
-    /// @param _nonce Global nonce for replay protection (legacy)
-    /// @param _sig Signature of a trusted signer
-    /// @param _inviter Inviter address
-    function investUpdate(
-        uint256 _pid,
-        uint256 _amount,
-        bytes32 _rootHash,
-        uint256 _nonce,
-        bytes memory _sig,
-        address _inviter
-    ) external {
-        if (_nonce != nonce + 1) revert IncorrectNonce();
-
-        bytes32 ethSignedMessageHash = keccak256(
-            abi.encodePacked(
-                "\x19Ethereum Signed Message:\n32",
-                keccak256(abi.encodePacked(msg.sender, _pid, _amount, _rootHash, _nonce, _inviter))
-            )
-        );
-        _verifySignature(ethSignedMessageHash, _sig);
-        bool success = _invest(msg.sender, _pid, _amount, _inviter);
-        if (success) {
-            nonce++;
-        }
-    }
 
     /// @notice New invest with per-user nonce and no rootHash in signature.
     /// @dev Migrate frontend/backend to use this function after upgrade.
@@ -633,12 +602,6 @@ contract Fundraise is Initializable, UUPSUpgradeable, OwnableUpgradeable {
         emit Claimed(_projectId, _investor, claimable);
     }
 
-    /// @notice Backward-compatible: create project with whitelistRoot (ignored).
-    /// @dev TODO: remove after admin frontend stops passing whitelistRoot.
-    function createProject(Project memory _project, bytes32, uint256 _projectHash) external returns (uint256) {
-        return _createProjectInternal(_project, _projectHash);
-    }
-
     /// @notice Create new project (clean version without whitelistRoot)
     /// @dev Only standard ERC20 tokens are supported as loanToken.
     /// Fee-on-transfer, rebasing, and deflationary tokens will cause accounting errors.
@@ -723,12 +686,6 @@ contract Fundraise is Initializable, UUPSUpgradeable, OwnableUpgradeable {
             }
             emit ProjectUpdated(_projectId);
         }
-    }
-
-    /// @notice Read-only backward-compatible getter for deprecated whitelist roots
-    /// @dev Preserved so that off-chain indexers / subgraphs that call whitelistRoots(pid) continue to work after upgrade
-    function whitelistRoots(uint256 _pid) external view returns (bytes32) {
-        return __deprecated_whitelistRoots[_pid];
     }
 
     /// @notice Update address of trusted signer
