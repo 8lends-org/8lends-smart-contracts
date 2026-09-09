@@ -1,0 +1,401 @@
+{
+  "_meta": {
+    "purpose": "Contracts this repository deploys, and the commit each deployment was built from. Machine-checkable on purpose: a check on every pull request can rebuild each record from deployedFrom with the settings in build and compare the result against buildHash.",
+    "proxy": "Proxy address, or the contract itself when it is not behind a proxy (AmlEscrow is the clone template, AdaptiveCurveIrm is deployed once).",
+    "impl": "Implementation currently behind the proxy, read from the ERC-1967 slot; null when there is no proxy.",
+    "pendingImpl": "Optional, and absent whenever nothing is queued: an implementation already deployed on chain but not yet live, because the Safe has still to execute the upgrade batch. Written by prepare-upgrade-for-multisig, dropped by verify-upgrade once the proxy actually points at it. While the key is present the record describes two implementations: impl is what is live, pendingImpl is what is queued — and buildHash, build and matchesDeployed all still describe impl, never the pending one.",
+    "buildHash": "keccak256 of the runtime code read from chain, with the metadata tail removed and immutables masked. Immutables are masked by VALUE, not by build-info offsets: offsets belong to the current build and need not match a deployment that has drifted. For a UUPS implementation the masked value is its own address (3 sites), for AdaptiveCurveIrm the Lending8 address (2 sites), for AmlEscrow there is nothing to mask.",
+    "matchesDeployed": "Whether building HEAD with the settings in build reproduces buildHash, i.e. whether the code as it stands still compiles to what is on chain. Always recomputed, never edited by hand. False when build is null — there is no recipe to build with — so false covers two cases: the source has drifted away from the deployment, and the settings were never recovered in the first place.",
+    "deployedFrom": "Commit the deployed bytecode is attributed to. The commit may be dated either side of deployedAt — code is sometimes committed after the deploy it went out as, so the date proves nothing either way; only the bytecode does. Null where no commit could be attributed.",
+    "deployedAt": "Date the code went LIVE — the block where the proxy started pointing at impl, not the date impl was created. The two differ when an upgrade goes through a Safe.",
+    "build": "Settings under which the source reproduces buildHash: a reproduction recipe, not a transcript of what was typed at deploy time. Where the block explorer holds a verification these are the deploy-time settings, and each one was confirmed to sit inside the set that reproduces. Where they were recovered by sweeping the optimizer instead, one value known to reproduce is recorded — identical bytecode comes out of a whole range of runs, so this pins the source and not the optimizer. Null where nothing reproduced. Filled going forward by verify-upgrade in the same order of trust: the explorer verification first, because that one was checked against the address itself, and the local artifact's build info only behind it — and left empty when the artifact is the only source and its settings do not reproduce the deployed code, since then they describe the working tree rather than the deployment."
+  },
+  "AdaptiveCurveIrm": {
+    "proxy": "0xbc2ccF2b72E921D5399FF508B5e76cD8CF9c3CFa",
+    "impl": null,
+    "buildHash": "0x7c5266bde0d33a1dee6610bf2014fd3aa4441073a13cdb82c0815e9bd89cb4fd",
+    "matchesDeployed": true,
+    "deployedFrom": "17f1328",
+    "deployedAt": "Feb-20-2026",
+    "build": {
+      "solc": "v0.8.23+commit.f704f362",
+      "optimizer": {
+        "enabled": true,
+        "runs": 200,
+        "details": {
+          "yul": false
+        }
+      },
+      "evmVersion": "paris"
+    }
+  },
+  "AmlEscrow": {
+    "proxy": "0x945C56c3277B16101f9Dc47F5946300fF0A914BB",
+    "impl": null,
+    "buildHash": "0x3df0b61dad5f4df1be0a453ffea4a3ce161eb6e9327486ebbf67905275c86ab5",
+    "matchesDeployed": true,
+    "deployedFrom": "45612fd",
+    "deployedAt": "May-25-2026",
+    "build": {
+      "solc": "v0.8.23+commit.f704f362",
+      "optimizer": {
+        "enabled": true,
+        "runs": 50,
+        "details": {
+          "yul": false
+        }
+      },
+      "evmVersion": "paris"
+    }
+  },
+  "BTC8L": {
+    "proxy": "0x33708f3757FfE263F8d28DaFe75574fE8C78ea28",
+    "impl": "0xc4ad95874b76622D238642B583C9262f87fa6a21",
+    "buildHash": "0x2d4315fe4ee720fd64748b28abe84e3a3f89d6438b1e514ba058314fb9fc4596",
+    "matchesDeployed": true,
+    "deployedFrom": "04920d4",
+    "deployedAt": "Jun-25-2026",
+    "build": {
+      "solc": "v0.8.23+commit.f704f362",
+      "optimizer": {
+        "enabled": true,
+        "runs": 50,
+        "details": {
+          "yul": false
+        }
+      },
+      "evmVersion": "paris"
+    }
+  },
+  "CustomBonus": {
+    "proxy": "0xc9Ae418773F9bf56A7048b6e7827aA6858382ea1",
+    "impl": "0xCE6320D9942EF583F5b38B826C541844166a1629",
+    "buildHash": "0x1326116936d028e76f8cd80f4be3d90750e3e7cb7afe64c0fc22cbc46879ed98",
+    "matchesDeployed": true,
+    "deployedFrom": "0a41179",
+    "deployedAt": "Aug-27-2026",
+    "build": {
+      "solc": "v0.8.23+commit.f704f362",
+      "optimizer": {
+        "enabled": true,
+        "runs": 50,
+        "details": {
+          "yul": true
+        }
+      },
+      "evmVersion": "paris"
+    }
+  },
+  "EscrowFactory": {
+    "proxy": "0xeE281a8De7bd4c48b59c3A95279AD6273DF4a950",
+    "impl": "0xBf18C4c94A576936354381d9564Fce71b32F2CdF",
+    "buildHash": "0xdc173513c6410eb637a7e2a81a23bfb11f596cf458b30bd0ee540152bd79855a",
+    "matchesDeployed": true,
+    "deployedFrom": "45612fd",
+    "deployedAt": "May-27-2026",
+    "build": {
+      "solc": "v0.8.23+commit.f704f362",
+      "optimizer": {
+        "enabled": true,
+        "runs": 50,
+        "details": {
+          "yul": false
+        }
+      },
+      "evmVersion": "paris"
+    }
+  },
+  "FlashLiquidator": {
+    "proxy": "0x8c18104AD5E453A7eF9F4ADDBa8c2222cbd61Cd3",
+    "impl": "0x5D728a4258e7c812A2E7D21daB63Da2567ff276e",
+    "buildHash": "0xfad6bec1b3415b0117c695f300b632f74c8d757e8a9293c2122bc75663219777",
+    "matchesDeployed": true,
+    "deployedFrom": "63a4f60",
+    "deployedAt": "Jul-07-2026",
+    "build": {
+      "solc": "v0.8.23+commit.f704f362",
+      "optimizer": {
+        "enabled": true,
+        "runs": 50,
+        "details": {
+          "yul": false
+        }
+      },
+      "evmVersion": "paris"
+    }
+  },
+  "Fundraise": {
+    "proxy": "0x0De7B7E83F53cc0d0C30b9c3E7489c7daCc75718",
+    "impl": "0x81d8307d7575c66F9395f198Affe2DC01feaCF2e",
+    "buildHash": "0x574dd19a3ba0d9dad08b0c997375b260f59ff672cc9038426b1c04bce0d2a098",
+    "matchesDeployed": true,
+    "deployedFrom": "ca4db50",
+    "deployedAt": "Jun-09-2026",
+    "build": {
+      "solc": "v0.8.23+commit.f704f362",
+      "optimizer": {
+        "enabled": true,
+        "runs": 50,
+        "details": {
+          "yul": false
+        }
+      },
+      "evmVersion": "paris"
+    }
+  },
+  "LeagueBonus": {
+    "proxy": "0x471042A4A6F135a7bb53BcE62766D314E08bd8fF",
+    "impl": "0x40C64dF6b79E43B91aDE52FAA022C47aF4530309",
+    "buildHash": "0xd8b4719ce6b7900a0ed9993972c0a517539dc2b58ae3d75da52ea30a74f3cd06",
+    "matchesDeployed": true,
+    "deployedFrom": "c0e7e49",
+    "deployedAt": "Aug-24-2026",
+    "build": {
+      "solc": "v0.8.23+commit.f704f362",
+      "optimizer": {
+        "enabled": true,
+        "runs": 50,
+        "details": {
+          "yul": true
+        }
+      },
+      "evmVersion": "paris"
+    }
+  },
+  "Lending8": {
+    "proxy": "0x4077dd59d0Af7E2506F7C7819D71F72dfD9f5f9f",
+    "impl": "0x683Db286582c53949905eE1F16ff169611209227",
+    "buildHash": "0x323e85d0dae2dcfd3b95e7138598153ed1fd1f3213d731281989c86b05b76e58",
+    "matchesDeployed": true,
+    "deployedFrom": "17f1328",
+    "deployedAt": "Mar-12-2026",
+    "build": {
+      "solc": "v0.8.23+commit.f704f362",
+      "optimizer": {
+        "enabled": true,
+        "runs": 200,
+        "details": {
+          "yul": false
+        }
+      },
+      "evmVersion": "paris"
+    }
+  },
+  "LimitedSeller": {
+    "proxy": "0x3Fb9DA832cFA5134E58E395B441648F4dFd30E14",
+    "impl": "0x784479942f10ce1Cc3131b9942ccd9E607342cC9",
+    "buildHash": "0xf8cc501fb2559bce4183e77be029f5ff1c9f5f54ca7eb9d3ae6b22eb9cd4cae2",
+    "matchesDeployed": true,
+    "deployedFrom": "24be9bc",
+    "deployedAt": "Apr-24-2026",
+    "build": {
+      "solc": "v0.8.23+commit.f704f362",
+      "optimizer": {
+        "enabled": true,
+        "runs": 50,
+        "details": {
+          "yul": false
+        }
+      },
+      "evmVersion": "paris"
+    }
+  },
+  "MaclearBonus": {
+    "proxy": "0x634f09D764ecEA5137777BcB4FbEB3B9bFB57cD2",
+    "impl": "0xEbB2fe8aD02b3745e31cdf92f2a222b887811b29",
+    "buildHash": "0x46626b660b127792a57d28ca43fc8cd1ab6043c2a8fdf40272ca1bb2d7af65f2",
+    "matchesDeployed": true,
+    "deployedFrom": "9fc3499",
+    "deployedAt": "Jun-26-2026",
+    "build": {
+      "solc": "v0.8.23+commit.f704f362",
+      "optimizer": {
+        "enabled": true,
+        "runs": 50,
+        "details": {
+          "yul": false
+        }
+      },
+      "evmVersion": "paris"
+    }
+  },
+  "ManagerRegistry": {
+    "proxy": "0x4A9DAE0F1C76BbD837e31f75FC27425d9aBe1114",
+    "impl": "0x02fAc2389559297Dc9E0df14760a0Cfa65d75B1F",
+    "buildHash": "0x4b39aef1dfcd359fc9f71f98e11a6c98e6074432f0b4d81ff42900e048b1778e",
+    "matchesDeployed": true,
+    "deployedFrom": "81e2a3a",
+    "deployedAt": "Aug-21-2026",
+    "build": {
+      "solc": "v0.8.23+commit.f704f362",
+      "optimizer": {
+        "enabled": true,
+        "runs": 50,
+        "details": {
+          "yul": true
+        }
+      },
+      "evmVersion": "paris"
+    }
+  },
+  "Market": {
+    "proxy": "0x3f9c2a656db6b93481f9A30add7910c1a6421B0C",
+    "impl": "0x9944d84526C9199A32E4DB2648B9C993967Dd8fb",
+    "buildHash": "0xc0abdc3c822dfbcd1c345e3cd532c3528faa36776e760afee14243e355ddece1",
+    "matchesDeployed": true,
+    "deployedFrom": "ca4db50",
+    "deployedAt": "Jun-06-2026",
+    "build": {
+      "solc": "v0.8.23+commit.f704f362",
+      "optimizer": {
+        "enabled": true,
+        "runs": 50,
+        "details": {
+          "yul": false
+        }
+      },
+      "evmVersion": "paris"
+    }
+  },
+  "Oracle": {
+    "proxy": "0x5773e008ED1becd7655aD75ee7F2Fc7a1439731D",
+    "impl": "0x551387DB48B6DE0B011651F4471ACd0F107C33a6",
+    "buildHash": "0xe927b0b9fb576529a0dca88267c0f74321814acbfad6fc839087dfdd04268ce0",
+    "matchesDeployed": true,
+    "deployedFrom": "bbdde4e",
+    "deployedAt": "Jun-24-2026",
+    "build": {
+      "solc": "v0.8.23+commit.f704f362",
+      "optimizer": {
+        "enabled": true,
+        "runs": 50,
+        "details": {
+          "yul": false
+        }
+      },
+      "evmVersion": "paris"
+    }
+  },
+  "RewardSystem": {
+    "proxy": "0xabB7dbA52083981C46d7c5999236E8fe4D111b16",
+    "impl": "0xA6ACE44C2617f92186923992d7A4EaDBCb9Ab78F",
+    "buildHash": "0xef56c58a5bef10e475f9c40a3d2324512c81ba42b39b760ce0b0c952c884a2af",
+    "matchesDeployed": true,
+    "deployedFrom": "366b53b",
+    "deployedAt": "Aug-13-2026",
+    "build": {
+      "solc": "v0.8.23+commit.f704f362",
+      "optimizer": {
+        "enabled": true,
+        "runs": 50,
+        "details": {
+          "yul": true
+        }
+      },
+      "evmVersion": "paris"
+    }
+  },
+  "Rewards2": {
+    "proxy": "0x65ebCa6023385340a3732F25d2C6b60874D55b61",
+    "impl": "0x729B121e2E6788DBead8ACd069F5FAba98E356C9",
+    "buildHash": "0x65637b5656af3ae01a4b2a03daa727159632dd1ade04e0a792040246ad529de3",
+    "matchesDeployed": true,
+    "deployedFrom": "17f1328",
+    "deployedAt": "Jun-03-2026",
+    "build": {
+      "solc": "v0.8.23+commit.f704f362",
+      "optimizer": {
+        "enabled": true,
+        "runs": 50,
+        "details": {
+          "yul": false
+        }
+      },
+      "evmVersion": "paris"
+    }
+  },
+  "Treasury": {
+    "proxy": "0xeC44C621c952e6253197a4F56bcfd2B0047e22Fb",
+    "impl": "0xC2b986b3888966D762514995281fE03035608924",
+    "buildHash": "0x5a6016d891473425f4153cf2659e685566cac1a2e9dfbf94d291c0e63bee50ee",
+    "matchesDeployed": true,
+    "deployedFrom": "17f1328",
+    "deployedAt": "Sep-30-2025",
+    "build": {
+      "solc": "v0.8.23+commit.f704f362",
+      "optimizer": {
+        "enabled": true,
+        "runs": 1000,
+        "details": {
+          "yul": false
+        }
+      },
+      "evmVersion": "paris"
+    }
+  },
+  "TreasuryLending": {
+    "proxy": "0xFe44C76F4026d7b7A1Ea2740c85373230C8e0F16",
+    "impl": "0x0928C4cb1d16E125a66fb30FFC5fE24083B010BB",
+    "buildHash": "0x641001f075d583eed433fa4c8cfd2b8d1471f14fe39daad64d33286f2a24824b",
+    "matchesDeployed": true,
+    "deployedFrom": "17f1328",
+    "deployedAt": "Feb-19-2026",
+    "build": {
+      "solc": "v0.8.23+commit.f704f362",
+      "optimizer": {
+        "enabled": true,
+        "runs": 200,
+        "details": {
+          "yul": false
+        }
+      },
+      "evmVersion": "paris"
+    }
+  },
+  "USDC": {
+    "proxy": "0x0CeE9126637aCA908e0d8e21274C933C1d492671",
+    "impl": "0x2747b5A8a42A34E78a21b12a4f98834cA950893c",
+    "buildHash": "0x5ae540cb66e090af021871b15003f57c379bd01927655cf7a0952dab36658c5c",
+    "matchesDeployed": true,
+    "deployedFrom": "17f1328",
+    "deployedAt": "Feb-20-2026",
+    "build": {
+      "solc": "v0.8.23+commit.f704f362",
+      "optimizer": {
+        "enabled": true,
+        "runs": 200,
+        "details": {
+          "yul": false
+        }
+      },
+      "evmVersion": "paris"
+    }
+  },
+  "WBTC": {
+    "proxy": "0x9FAA2f27401A94410dC88af1aa61038BF6313AC7",
+    "impl": "0x5746f4Ee7EB803207f4A7f259Cf4d347834ea6f9",
+    "buildHash": "0x0f8c2d36c2a29a09e99c3da3e765e5af5b27a061ccc98b4f48175766452a4c81",
+    "matchesDeployed": false,
+    "deployedFrom": null,
+    "deployedAt": "Feb-20-2026",
+    "build": null
+  },
+  "WETH": {
+    "proxy": "0x597b6BaC1EFF68da549eb98232e942788a9EDb54",
+    "impl": "0x5746f4Ee7EB803207f4A7f259Cf4d347834ea6f9",
+    "buildHash": "0x0f8c2d36c2a29a09e99c3da3e765e5af5b27a061ccc98b4f48175766452a4c81",
+    "matchesDeployed": false,
+    "deployedFrom": null,
+    "deployedAt": "Feb-20-2026",
+    "build": null
+  },
+  "WelcomeBonus": {
+    "proxy": "0x96d2bbFB112e926116C81552e2A0c577bA5683D6",
+    "impl": "0xD72de843C2779a9a32e268C48faB326f07E61147",
+    "buildHash": "0x6fc011a59c09c01609f2718d554404fce5f1ec708d6df68d3fd9caf20354cc90",
+    "matchesDeployed": false,
+    "deployedFrom": "7812e1d",
+    "deployedAt": "Jun-26-2026",
+    "build": null
+  }
+}

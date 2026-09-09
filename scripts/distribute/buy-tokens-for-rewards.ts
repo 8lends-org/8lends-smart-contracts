@@ -1,9 +1,9 @@
 import dotenv from "dotenv";
 import { ethers } from "hardhat";
-import { readFileSync } from "fs";
-import { join } from "path";
 import { formatUnits } from "ethers";
 import { requireRealNetwork } from "../utils/network-guard";
+
+import { loadConfig } from "../utils/config";
 
 dotenv.config();
 
@@ -42,7 +42,7 @@ async function main(): Promise<void> {
         USDC: string;
         token: string;
         RewardSystem: string;
-    } = JSON.parse(readFileSync(join(__dirname, `../config/${net.chainId}-config.json`), "utf8"));
+    } = loadConfig(net.chainId);
 
     if (!config.uniswapV2Router) {
         throw new Error("❌ Uniswap V2 Router address not found in config");

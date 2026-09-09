@@ -9,6 +9,8 @@ import dotenv from "dotenv";
 import { ethers } from "hardhat";
 import { readJsonFile, writeJsonFile } from "../utils/helpers";
 import { requireRealNetwork } from "../utils/network-guard";
+import { loadConfig } from "../utils/config";
+
 dotenv.config();
 
 interface InvestorStats {
@@ -54,7 +56,7 @@ async function main(): Promise<void> {
   const net = await ethers.provider.getNetwork();
   console.log(`Network: ${net.name} (${net.chainId})\n`);
 
-  const config = await readJsonFile(`./scripts/config/${net.chainId}-config.json`);
+  const config = loadConfig(net.chainId);
 
   const fundraiseAddress = config.Fundraise || config.fundraise;
   if (!fundraiseAddress) {

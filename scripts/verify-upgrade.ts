@@ -1,12 +1,45 @@
 import dotenv from "dotenv";
-import { ethers, upgrades } from "hardhat";
-import { readJsonFile, writeJsonFile } from "./utils/helpers";
+import hre, { ethers, upgrades } from "hardhat";
+import { loadConfig, saveDeployment, type Deployment } from "./utils/config";
+import { describeDeployment } from "./utils/provenance";
+
 import { requireRealNetwork } from "./utils/network-guard";
 dotenv.config();
 
 /**
+ * Publishes the implementation's source on the block explorer.
+ *
+ * Never fatal: an implementation that is already verified, a missing API key or an explorer having
+ * a bad day must not stop the record from being written, and the record is the part that is hard
+ * to reconstruct later.
+ */
+async function verifyOnExplorer(address: string): Promise<void> {
+  console.log(`\n🔎 Verifying ${address} on the explorer...`);
+  try {
+    await hre.run("verify:verify", { address, constructorArguments: [] });
+    console.log("✅ Verified");
+  } catch (error: any) {
+    const message = String(error?.message ?? error);
+    const already = /already verified/i.test(message);
+    console.log(already ? "✅ Already verified" : `⚠️  Verification skipped: ${message.split("\n")[0]}`);
+  }
+}
+
+/**
+ * Build settings for the console. `yul` prints as unknown rather than as off when the settings
+ * carry no `optimizer.details`: a flattened verification does not publish them, and that is not
+ * the same claim as the yul optimizer having been disabled.
+ */
+function describeBuild(build: Deployment["build"]): string {
+  if (!build) return "—";
+  const { solc, optimizer, evmVersion } = build;
+  const yul = optimizer.details ? String(optimizer.details.yul) : "unknown";
+  return `${solc}, runs=${optimizer.runs ?? "unknown"}, yul=${yul}, ${evmVersion ?? "unknown"}`;
+}
+
+/**
  * Verify contract upgrade success
- * 
+ *
  * Usage: CONTRACT=Fundraise npx hardhat run scripts/verify-upgrade.ts --network base
  */
 
@@ -25,11 +58,9 @@ async function main() {
   console.log(`🌐 Network: ${net.name} (chainId: ${net.chainId})`);
   console.log("=".repeat(80));
 
-  const filePath = `./scripts/config/${net.chainId}-config.json`;
-  const config = await readJsonFile(filePath);
+  const config = loadConfig(net.chainId);
 
-  const contractKey = contractName;
-  const proxyAddress = config[contractKey];
+  const proxyAddress = config[contractName];
 
   if (!proxyAddress) {
     throw new Error(`❌ ${contractName} not found in config`);
@@ -53,11 +84,24 @@ async function main() {
       if (currentImpl.toLowerCase() === config[pendingImplKey].toLowerCase()) {
         console.log("\n✅ UPGRADE SUCCESSFUL! Implementation updated.");
         
-        // Update config
-        config[oldImplKey] = currentImpl;
-        delete config[pendingImplKey];
-        await writeJsonFile(filePath, config);
-        console.log("💾 Config updated");
+        // Verify on the explorer before recording anything. It is the one public copy of the
+        // settings this was built with, and it is cheapest to publish now, while the tree that
+        // produced the implementation is still the tree in hand.
+        await verifyOnExplorer(currentImpl);
+
+        // Everything else in the record described the implementation that has just been replaced,
+        // so it is recomputed rather than carried over: a buildHash left from the old code together
+        // with matchesDeployed=true would assert a verification that nothing has performed.
+        const { notes, ...record } = await describeDeployment(hre, contractName, proxyAddress, currentImpl);
+        saveDeployment(net.chainId, contractName, record);
+
+        console.log("\n💾 deployments updated:");
+        console.log(`   buildHash       ${record.buildHash ?? "—"}`);
+        console.log(`   matchesDeployed ${record.matchesDeployed}`);
+        console.log(`   deployedFrom    ${record.deployedFrom ?? "—"}`);
+        console.log(`   deployedAt      ${record.deployedAt ?? "—"}`);
+        console.log(`   build           ${describeBuild(record.build)}`);
+        for (const note of notes) console.log(`   · ${note}`);
       } else {
         console.log("\n⚠️  Implementation NOT updated. Upgrade not yet executed or an error occurred.");
       }

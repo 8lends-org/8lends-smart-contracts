@@ -1,8 +1,9 @@
 import fs from "fs";
 import dotenv from "dotenv";
 import hre, { ethers } from "hardhat";
-import { readJsonFile } from "../utils/helpers";
 import { requireRealNetwork } from "../utils/network-guard";
+import { loadConfig } from "../utils/config";
+
 dotenv.config();
 
 async function main() {
@@ -21,8 +22,7 @@ async function main() {
   }
 
   // Load network configuration
-  let configPath = `./scripts/config/${net.chainId}-config.json`;
-  let config = await readJsonFile(configPath);
+  let config = loadConfig(net.chainId);
 
   const [signer] = await ethers.getSigners();
   console.log("Signer:", await signer.getAddress());

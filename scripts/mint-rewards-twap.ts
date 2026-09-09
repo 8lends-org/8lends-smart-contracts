@@ -6,6 +6,8 @@ import { formatUnits, parseUnits } from "ethers";
 import { requireOwner } from "./utils/owner-guard";
 import { requireRealNetwork } from "./utils/network-guard";
 
+import { loadConfig } from "./utils/config";
+
 dotenv.config();
 
 // Swap parameters (can be changed)
@@ -27,7 +29,7 @@ async function main(): Promise<void> {
         token: string;
         RewardSystem: string;
         Rewards2: string;
-    } = JSON.parse(readFileSync(join(__dirname, `./config/${net.chainId}-config.json`), "utf8"));
+    } = loadConfig(net.chainId);
 
     if(!AMOUNT_TO_MINT) {
         throw new Error("❌ AMOUNT_TO_MINT is not set");

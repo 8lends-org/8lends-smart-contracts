@@ -1,8 +1,9 @@
 import dotenv from "dotenv";
 import hre, { ethers } from "hardhat";
-import { readJsonFile } from "../utils/helpers";
 import { requireOwner } from "../utils/owner-guard";
 import { requireRealNetwork } from "../utils/network-guard";
+import { loadConfig } from "../utils/config";
+
 dotenv.config();
 
 async function main() {
@@ -13,7 +14,7 @@ async function main() {
   const TO_WALLET_ADDRESS = process.env.TO_WALLET_ADDRESS;
   const AMOUNT = process.env.AMOUNT;
 
-  const config = await readJsonFile(`./scripts/config/${net.chainId}-config.json`);
+  const config = loadConfig(net.chainId);
 
   const [signer] = await ethers.getSigners();
   console.log("Signer:", await signer.getAddress());

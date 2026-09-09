@@ -4,8 +4,7 @@ import { upgrades } from "hardhat";
 import { loadFixture, time } from "@nomicfoundation/hardhat-network-helpers";
 import { Oracle } from "../typechain-types";
 import { HardhatEthersSigner } from "@nomicfoundation/hardhat-ethers/signers";
-import { readFileSync } from "fs";
-import { join } from "path";
+import { loadConfig } from "../scripts/utils/config";
 
 /** Cast over JSON.parse with no validation: a declared field may be absent from the file. */
 const config:{
@@ -31,7 +30,7 @@ const config:{
     "PYTH_SOL_USD_ID": string;
     "PYTH_AUD_USD_ID"?: string;
   }
-} = JSON.parse(readFileSync(join(__dirname, `../scripts/config/8453-config.json`), "utf8"));
+} = loadConfig(8453);
 
 /** Mirrors Oracle.PriceSource; the index is the enum value returned by getPrice. */
 const PRICE_SOURCE_NAMES = [

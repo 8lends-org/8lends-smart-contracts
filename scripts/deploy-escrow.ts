@@ -13,8 +13,9 @@
 
 import dotenv from "dotenv";
 import hre, { ethers, upgrades } from "hardhat";
-import { readJsonFile, writeJsonFile } from "./utils/helpers";
 import { requireRealNetwork } from "./utils/network-guard";
+
+import { configPath, loadConfig, saveConfig } from "./utils/config";
 
 dotenv.config();
 
@@ -44,8 +45,8 @@ async function main(): Promise<void> {
   console.log(`Network: ${net.name} (chainId: ${net.chainId})`);
   console.log("=".repeat(80));
 
-  const filePath = `./scripts/config/${net.chainId}-config.json`;
-  const config = (await readJsonFile(filePath)) as Config;
+  const filePath = configPath(net.chainId);
+  const config = (loadConfig(net.chainId)) as Config;
 
   if (!config.Fundraise) {
     console.error(`\nERROR: 'Fundraise' not found in config: ${filePath}`);
@@ -103,7 +104,7 @@ async function main(): Promise<void> {
   config.EscrowFactory_impl = escrowFactoryImplAddr;
   config.EscrowFactory = escrowFactoryAddr;
 
-  await writeJsonFile(filePath, config);
+  saveConfig(net.chainId, config);
 
   // ── optional verification ───────────────────────────────────────────────────
   if (verify) {

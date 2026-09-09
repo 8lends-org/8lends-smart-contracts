@@ -1,7 +1,8 @@
 import dotenv from "dotenv";
 import hre, { ethers } from "hardhat";
-import { readJsonFile } from "../utils/helpers";
 import { requireRealNetwork } from "../utils/network-guard";
+import { loadConfig } from "../utils/config";
+
 dotenv.config();
 
 async function main() {
@@ -9,7 +10,7 @@ async function main() {
   const net = await ethers.provider.getNetwork();
   console.log(`\nNetwork name: ${net.name}\n`);
 
-  const config = await readJsonFile(`./scripts/config/${net.chainId}-config.json`);
+  const config = loadConfig(net.chainId);
 
   // Get wallet address from environment variable or use default
   const walletAddress = process.env.WALLET_ADDRESS || (await ethers.getSigners())[0].address;

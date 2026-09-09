@@ -15,6 +15,8 @@ import type { Log } from "ethers";
 import { Interface, type InterfaceAbi } from "ethers";
 import { requireRealNetwork } from "./utils/network-guard";
 
+import { configPath, loadConfig } from "./utils/config";
+
 const CHUNK_SIZE = 10000;
 const MAX_BLOCKS_COUNT = 200000;
 
@@ -129,12 +131,12 @@ async function main(): Promise<void> {
   const net = await ethers.provider.getNetwork();
   console.log(`Network: ${net.name} (chainId: ${net.chainId})\n`);
 
-  const configPath = `./scripts/config/${net.chainId}-config.json`;
+  const cfgPath = configPath(net.chainId);
   let config: Record<string, string> = {};
   try {
-    config = await readJsonFile(configPath);
+    config = loadConfig(net.chainId);
   } catch {
-    throw new Error(`Config not found: ${configPath}`);
+    throw new Error(`Config not found: ${cfgPath}`);
   }
 
   const addresses: string[] = [];

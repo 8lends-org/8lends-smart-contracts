@@ -1,11 +1,11 @@
 // get pool info from uniswap v2 router
 
 import { ethers } from "hardhat";
-import { readFileSync } from "fs";
-import { join } from "path";
 import dotenv from "dotenv";
 import { requireRealNetwork } from "../utils/network-guard";
 import { formatUnits, parseUnits } from "ethers";
+
+import { loadConfig } from "../utils/config";
 
 dotenv.config();
 
@@ -33,7 +33,7 @@ const main = async () => {
     const net = await ethers.provider.getNetwork();
     console.log("network: ", net.name);
 
-    const config = JSON.parse(readFileSync(join(__dirname, `../config/${net.chainId}-config.json`), "utf8"));
+    const config = loadConfig(net.chainId);
 
     if (!config.uniswapV2Router) {
         throw new Error("❌ Uniswap V2 Router address not found in config");

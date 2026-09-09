@@ -5,6 +5,8 @@ import { join } from "path";
 import { requireOwner } from "./utils/owner-guard";
 import { requireRealNetwork } from "./utils/network-guard";
 
+import { loadConfig } from "./utils/config";
+
 dotenv.config();
 
 // Target contract for setOracle(address) is selected via CONTRACT env var.
@@ -25,7 +27,7 @@ async function main(): Promise<void> {
         Oracle: string;
         Lending8: string;
         Fundraise: string;
-    } = JSON.parse(readFileSync(join(__dirname, `./config/${net.chainId}-config.json`), "utf8"));
+    } = loadConfig(net.chainId);
 
     if(!CONTRACT) {
         throw new Error("❌ CONTRACT is not set");

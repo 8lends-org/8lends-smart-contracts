@@ -1,15 +1,15 @@
 import dotenv from "dotenv";
 import hre, { ethers } from "hardhat";
-import { readJsonFile, writeJsonFile } from "../utils/helpers";
 import { requireOwner } from "../utils/owner-guard";
 import { requireRealNetwork } from "../utils/network-guard";
+import { loadConfig, saveConfig } from "../utils/config";
+
 dotenv.config();
 
 async function main() {
   await requireRealNetwork();
   const net = await ethers.provider.getNetwork();
-  const filePath = `./scripts/config/${net.chainId}-config.json`;
-  const config = await readJsonFile(filePath);
+  const config = loadConfig(net.chainId);
 
   console.log("\nUpdating Token address in RewardSystem...");
 
@@ -47,7 +47,7 @@ async function main() {
 
   // Update config
   config.token = newToken;
-  await writeJsonFile(filePath, config);
+  saveConfig(net.chainId, config);
 
   console.log("✅ Config updated with new Token address");
 }

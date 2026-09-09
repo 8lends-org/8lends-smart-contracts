@@ -1,14 +1,13 @@
 import dotenv from "dotenv";
 import hre, { ethers } from "hardhat";
-import { readJsonFile } from "./utils/helpers";
 import { requireRealNetwork } from "./utils/network-guard";
+import { loadConfig } from "./utils/config";
+
 dotenv.config();
 
 async function main() {
   await requireRealNetwork();
-  const config = await readJsonFile(
-    `./scripts/config/${(await ethers.provider.getNetwork()).chainId}-config.json`
-  );
+  const config = loadConfig((await ethers.provider.getNetwork()).chainId);
   console.log(`\n🔍 Verifying contracts on ${(await ethers.provider.getNetwork()).name}\n`);
 
   const verify = async (name: string, address: string, args: any[] = []) => {
