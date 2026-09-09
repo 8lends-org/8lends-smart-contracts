@@ -20,7 +20,7 @@ implementation address in a field, not an opaque calldata blob.
 CONTRACT=Fundraise npx hardhat run scripts/prepare-upgrade-for-multisig.ts --network base
 ```
 
-`CONTRACT` is the config key of the proxy in `scripts/config/<chainId>-config.json`. The script
+`CONTRACT` is the config key of the proxy in `deployments/<chainId>.json`. The script
 recompiles from a clean state first, so the deployed bytecode matches the working tree, then
 prints the old and new implementation addresses and writes
 `safe-upgrade-<Contract>-<chainId>.json`.
