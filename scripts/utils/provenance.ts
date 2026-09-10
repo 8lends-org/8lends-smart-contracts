@@ -250,10 +250,14 @@ export function printDeploymentRecord(record: Deployment, notes: string[] = []):
  * day must not stop the record from being written — the record is the part that is hard to
  * reconstruct later.
  */
-export async function verifyOnExplorer(hre: HardhatRuntimeEnvironment, address: string): Promise<void> {
+export async function verifyOnExplorer(
+  hre: HardhatRuntimeEnvironment,
+  address: string,
+  constructorArguments: unknown[] = []
+): Promise<void> {
   console.log(`\n\uD83D\uDD0E Verifying ${address} on the explorer...`);
   try {
-    await hre.run("verify:verify", { address, constructorArguments: [] });
+    await hre.run("verify:verify", { address, constructorArguments });
     console.log("\u2705 Verified");
   } catch (error: any) {
     const message = String(error?.message ?? error);
