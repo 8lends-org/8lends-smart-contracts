@@ -19,6 +19,17 @@ contract ManagerRegistry is Initializable, OwnableUpgradeable, UUPSUpgradeable {
     address public limitedSellerAddress;
     mapping(address => bool) public operators;
 
+    /// @notice Reverse index of a recovery chain: every address ever used as a payout target maps
+    ///         back to the canonical one, the key of the forward mapping.
+    /// @dev Flat, not a linked list: one hop from anywhere, no cycle possible. The payout path runs
+    ///      this on every transfer, where a walk would be unbounded.
+    ///      Invariant: canonicalOf[canonicalOf[x]] == 0.
+    mapping(address => address) public canonicalOf;
+
+    /// @notice MandateFactory, read for the derived ownership check. Written after the factory is
+    ///         deployed; while it is zero the mandate paths revert.
+    address public mandateFactory;
+
     event ManagerUpdated(address manager, bool status);
     event OperatorUpdated(address operator, bool status);
     event PoolUpdated(address pool, bool status);
@@ -27,6 +38,8 @@ contract ManagerRegistry is Initializable, OwnableUpgradeable, UUPSUpgradeable {
     event MarketAddressSet(address indexed market);
     event LimitedSellerAddressSet(address indexed limitedSeller);
     event ContractAddressesUpdated(address rewardSystem, address fundraise, address treasury);
+    event MandateFactorySet(address mandateFactory);
+
     /// @custom:oz-upgrades-unsafe-allow constructor
     constructor() {
         _disableInitializers();
@@ -102,12 +115,32 @@ contract ManagerRegistry is Initializable, OwnableUpgradeable, UUPSUpgradeable {
         /// @notice Set investor claim address for payouts
     /// @param _investor Investor address
     /// @param _claimAddress New address for receiving payouts
+    /// @dev `_investor` may be any address of the chain — support knows the stolen wallet, not
+    ///      where the chain started. (A, D), (B, D) and (C, D) all write the same entry.
+    /// @dev The previous target keeps its canonicalOf entry: dropping it would pay out to the
+    ///      attacker and clear their isCompromised flag.
     function setInvestorClaimAddress(address _investor, address _claimAddress) external onlyOwner {
         require(_investor != address(0), "Invalid investor address");
         require(_claimAddress != address(0), "Invalid claim address");
-        
-        investorClaimAddresses[_investor] = _claimAddress;
-        emit InvestorClaimAddressSet(_investor, _claimAddress);
+
+        address canonical = _canonical(_investor);
+        require(_claimAddress != canonical, "Claim address is the investor");
+        // Unknown in both directions: a canonicalOf entry means it is superseded, a forward entry
+        // means it heads another chain. Grafting onto either would cost a second hop.
+        require(canonicalOf[_claimAddress] == address(0), "Claim address already in a chain");
+        require(investorClaimAddresses[_claimAddress] == address(0), "Claim address already in a chain");
+
+        investorClaimAddresses[canonical] = _claimAddress;
+        canonicalOf[_claimAddress] = canonical;
+
+        emit InvestorClaimAddressSet(canonical, _claimAddress);
+    }
+
+    /// @notice Sets the MandateFactory address. Separate transaction, after the factory is deployed.
+    function setMandateFactory(address _mandateFactory) external onlyOwner {
+        require(_mandateFactory != address(0), "Invalid mandateFactory");
+        mandateFactory = _mandateFactory;
+        emit MandateFactorySet(_mandateFactory);
     }
 
     /// @notice Set rewards2 address
@@ -125,6 +158,27 @@ contract ManagerRegistry is Initializable, OwnableUpgradeable, UUPSUpgradeable {
         return claimAddress != address(0) ? claimAddress : _investor;
     }
 
+    /// @notice Where payouts for this user must go; the user's own address if nothing was overridden.
+    /// @dev Unlike getInvestorClaimAddress it accepts any address of a chain: A -> B -> C returns C
+    ///      for all three. The old getter is untouched — deployed call sites read it.
+    function recipientOf(address _user) public view returns (address) {
+        address canonical = _canonical(_user);
+        address claimAddress = investorClaimAddresses[canonical];
+        return claimAddress != address(0) ? claimAddress : canonical;
+    }
+
+    /// @notice Whether this address was superseded, not merely whether it belongs to a chain.
+    /// @dev A -> B -> C: true for A and B, false for C. "Has a canonicalOf entry" would flag C and
+    ///      lock the user out of the market.
+    function isCompromised(address _user) public view returns (bool) {
+        return recipientOf(_user) != _user;
+    }
+
+    /// @dev The key of the forward mapping. One hop, never a walk.
+    function _canonical(address _user) private view returns (address) {
+        address canonical = canonicalOf[_user];
+        return canonical != address(0) ? canonical : _user;
+    }
 
     /**
      * GETTERS

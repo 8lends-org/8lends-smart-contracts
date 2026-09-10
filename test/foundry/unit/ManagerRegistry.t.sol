@@ -125,24 +125,147 @@ contract ManagerRegistryTest is Setup {
     //                 INVESTOR CLAIM ADDRESS
     // ═══════════════════════════════════════════════════════════════
 
-    function test_claimAddress_defaultsToInvestor() public view {
-        address result = managerRegistry.getInvestorClaimAddress(investor);
-        assertEq(result, investor);
-    }
-
-    function test_claimAddress_returnsOverride_whenSet() public {
-        address alt = makeAddr("altClaim");
-
-        vm.prank(owner);
-        managerRegistry.setInvestorClaimAddress(investor, alt);
-
-        assertEq(managerRegistry.getInvestorClaimAddress(investor), alt);
-    }
-
     function test_setClaimAddress_onlyOwner() public {
         vm.prank(attacker);
         vm.expectRevert();
         managerRegistry.setInvestorClaimAddress(investor, attacker);
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    //                 RECOVERY CHAINS
+    // ═══════════════════════════════════════════════════════════════
+
+    /// Three successive incidents on one user: A stolen -> B, B stolen -> C, C stolen -> D. Support
+    /// reports each one by whichever address it knows, so the calls come in as (A,B), (B,C), (C,D).
+    function _chain() internal returns (address b, address c, address d) {
+        b = makeAddr("walletB");
+        c = makeAddr("walletC");
+        d = makeAddr("walletD");
+
+        vm.startPrank(owner);
+        managerRegistry.setInvestorClaimAddress(investor, b);
+        managerRegistry.setInvestorClaimAddress(b, c);
+        managerRegistry.setInvestorClaimAddress(c, d);
+        vm.stopPrank();
+    }
+
+    function test_recipientOf_resolvesFromAnyAddressOfTheChain() public {
+        (address b, address c, address d) = _chain();
+
+        assertEq(managerRegistry.recipientOf(investor), d);
+        assertEq(managerRegistry.recipientOf(b), d);
+        assertEq(managerRegistry.recipientOf(c), d);
+        assertEq(managerRegistry.recipientOf(d), d);
+        // No chain at all: the caller needs no fallback of its own.
+        assertEq(managerRegistry.recipientOf(attacker), attacker);
+    }
+
+    /// The forward mapping stays keyed by the first address, so the chain never needs a walk.
+    function test_chain_staysFlat() public {
+        (address b, address c, address d) = _chain();
+
+        assertEq(managerRegistry.canonicalOf(b), investor);
+        assertEq(managerRegistry.canonicalOf(c), investor);
+        assertEq(managerRegistry.canonicalOf(d), investor);
+        assertEq(managerRegistry.canonicalOf(investor), address(0));
+    }
+
+    function test_isCompromised_trueForSupersededOnly() public {
+        (address b, address c, address d) = _chain();
+
+        assertTrue(managerRegistry.isCompromised(investor));
+        assertTrue(managerRegistry.isCompromised(b));
+        assertTrue(managerRegistry.isCompromised(c));
+        // The live address is NOT compromised — flagging it would lock the user out of the market.
+        assertFalse(managerRegistry.isCompromised(d));
+        assertFalse(managerRegistry.isCompromised(attacker));
+    }
+
+    /// getInvestorClaimAddress has deployed call sites; the chain must not change what they read.
+    function test_getInvestorClaimAddress_unchangedByChain() public {
+        (address b, address c, address d) = _chain();
+
+        assertEq(managerRegistry.getInvestorClaimAddress(investor), d);
+        assertEq(managerRegistry.getInvestorClaimAddress(d), d);
+        assertEq(managerRegistry.getInvestorClaimAddress(attacker), attacker);
+        // b and c never became keys, so they fall back to themselves — exactly as before the chain
+        // existed. That is why the new resolver is a separate function.
+        assertEq(managerRegistry.getInvestorClaimAddress(b), b);
+        assertEq(managerRegistry.getInvestorClaimAddress(c), c);
+    }
+
+    function test_setClaimAddress_rejectsAddressAlreadyInAChain() public {
+        (address b,, address d) = _chain();
+
+        vm.startPrank(owner);
+        // Superseded address of this chain.
+        vm.expectRevert("Claim address already in a chain");
+        managerRegistry.setInvestorClaimAddress(d, b);
+
+        // Head of another user's chain.
+        address other = makeAddr("otherUser");
+        address otherNew = makeAddr("otherUserNew");
+        managerRegistry.setInvestorClaimAddress(other, otherNew);
+        vm.expectRevert("Claim address already in a chain");
+        managerRegistry.setInvestorClaimAddress(d, other);
+        vm.stopPrank();
+    }
+
+    function test_setClaimAddress_rejectsSelf() public {
+        (address b,,) = _chain();
+
+        vm.startPrank(owner);
+        vm.expectRevert("Claim address is the investor");
+        managerRegistry.setInvestorClaimAddress(investor, investor);
+
+        // Same guard, reached through the chain: b resolves to investor.
+        vm.expectRevert("Claim address is the investor");
+        managerRegistry.setInvestorClaimAddress(b, investor);
+        vm.stopPrank();
+    }
+
+    function test_setClaimAddress_emitsCanonicalNotTheAddressPassedIn() public {
+        address b = makeAddr("walletB");
+        address c = makeAddr("walletC");
+
+        vm.startPrank(owner);
+        managerRegistry.setInvestorClaimAddress(investor, b);
+
+        // Reported as (b, c), but indexers must see the canonical key.
+        vm.expectEmit(true, true, false, false, address(managerRegistry));
+        emit ManagerRegistry.InvestorClaimAddressSet(investor, c);
+        managerRegistry.setInvestorClaimAddress(b, c);
+        vm.stopPrank();
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    //                 MANDATE FACTORY
+    // ═══════════════════════════════════════════════════════════════
+
+    function test_mandateFactory_unsetUntilWritten() public {
+        assertEq(managerRegistry.mandateFactory(), address(0));
+
+        vm.prank(owner);
+        vm.expectRevert("Invalid mandateFactory");
+        managerRegistry.setMandateFactory(address(0));
+
+        address factory = makeAddr("mandateFactory");
+        vm.prank(owner);
+        managerRegistry.setMandateFactory(factory);
+        assertEq(managerRegistry.mandateFactory(), factory);
+    }
+
+    function test_setMandateFactory_onlyOwner() public {
+        address factory = makeAddr("mandateFactory");
+
+        vm.prank(attacker);
+        vm.expectRevert();
+        managerRegistry.setMandateFactory(factory);
+
+        // Not even a manager.
+        vm.prank(manager);
+        vm.expectRevert();
+        managerRegistry.setMandateFactory(factory);
     }
 
     // ═══════════════════════════════════════════════════════════════
