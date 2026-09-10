@@ -215,6 +215,58 @@ async function resolveBuild(
 }
 
 /**
+ * Prints a record to the console, and prints what could not be established alongside it.
+ *
+ * Shared by both deploy paths so the two report the same fields the same way. `yul` prints as
+ * unknown rather than as off when the settings carry no `optimizer.details`: a flattened
+ * verification does not publish them, and that is not the same claim as the yul optimizer having
+ * been disabled.
+ */
+export function printDeploymentRecord(record: Deployment, notes: string[] = []): void {
+  const build = record.build;
+  const settings = build
+    ? `${build.solc}, runs=${build.optimizer.runs ?? "unknown"}, ` +
+      `yul=${build.optimizer.details ? String(build.optimizer.details.yul) : "unknown"}, ` +
+      `${build.evmVersion ?? "unknown"}`
+    : "\u2014";
+
+  console.log("\n\uD83D\uDCBE deployments updated:");
+  console.log(`   impl            ${record.impl ?? "\u2014 (not behind a proxy)"}`);
+  console.log(`   buildHash       ${record.buildHash ?? "\u2014"}`);
+  console.log(`   matchesDeployed ${record.matchesDeployed}`);
+  console.log(`   deployedFrom    ${record.deployedFrom ?? "\u2014"}`);
+  console.log(`   deployedAt      ${record.deployedAt ?? "\u2014"}`);
+  console.log(`   build           ${settings}`);
+  for (const note of notes) console.log(`   \u00B7 ${note}`);
+}
+
+/**
+ * Publishes an implementation's source on the block explorer.
+ *
+ * Lives here rather than in a deploy script because both deploy paths need it, and because the
+ * record's `build` prefers the explorer: publishing is what makes that preference produce anything.
+ *
+ * Never fatal. An address that is already verified, a missing API key or an explorer having a bad
+ * day must not stop the record from being written — the record is the part that is hard to
+ * reconstruct later.
+ */
+export async function verifyOnExplorer(
+  hre: HardhatRuntimeEnvironment,
+  address: string,
+  constructorArguments: unknown[] = []
+): Promise<void> {
+  console.log(`\n\uD83D\uDD0E Verifying ${address} on the explorer...`);
+  try {
+    await hre.run("verify:verify", { address, constructorArguments });
+    console.log("\u2705 Verified");
+  } catch (error: any) {
+    const message = String(error?.message ?? error);
+    const already = /already verified/i.test(message);
+    console.log(already ? "\u2705 Already verified" : `\u26A0\uFE0F  Verification skipped: ${message.split("\n")[0]}`);
+  }
+}
+
+/**
  * Current commit, plus whether anything the bytecode depends on is uncommitted.
  *
  * Deliberately narrower than `git status`: an unrelated new document in the working tree would
@@ -286,17 +338,28 @@ export async function describeDeployment(
   hre: HardhatRuntimeEnvironment,
   contractName: string,
   proxy: string,
-  impl: string
+  impl: string | null,
+  opts: {
+    /**
+     * Block the code went live in, when the caller performed the upgrade itself and therefore
+     * knows it. Skips the bisection below — exact instead of inferred, and it removes the
+     * dependency on archive depth on the one path where that dependency is avoidable.
+     */
+    deployedAtBlock?: number;
+  } = {}
 ): Promise<Deployment & { notes: string[] }> {
   const notes: string[] = [];
   const provider = hre.ethers.provider;
   const artifact = await hre.artifacts.readArtifact(contractName);
   const fqn = `${artifact.sourceName}:${artifact.contractName}`;
 
-  const buildHash = await chainRuntimeHash(provider, impl, [impl]);
+  // A null impl means there is no proxy: the address holds the code itself, as with the AmlEscrow
+  // clone template. Then the code to hash is the address in `proxy`.
+  const target = impl ?? proxy;
+  const buildHash = await chainRuntimeHash(provider, target, [target]);
   const matchesDeployed = buildHash !== null && artifactRuntimeHash(artifact.deployedBytecode) === buildHash;
   if (buildHash === null) {
-    notes.push(`no code at ${impl} — buildHash left empty`);
+    notes.push(`no code at ${target} — buildHash left empty`);
   } else if (!matchesDeployed) {
     notes.push(
       "the current build does not reproduce the deployed code, so deployedFrom is left empty; " +
@@ -306,7 +369,7 @@ export async function describeDeployment(
 
   // From the provider rather than from network.config, where chainId is optional and often unset.
   const { chainId } = await provider.getNetwork();
-  const resolved = await resolveBuild(hre, fqn, chainId, impl);
+  const resolved = await resolveBuild(hre, fqn, chainId, target);
 
   // The field promises settings that reproduce buildHash. A verified source on the explorer is
   // that by construction — it was checked against this very address. The local artifact is only
@@ -340,10 +403,13 @@ export async function describeDeployment(
     }
   }
 
+  // Given by the caller when it performed the upgrade itself; bisected otherwise. A non-proxy has
+  // no implementation slot to bisect, so for one of those the caller must supply the block.
   let deployedAt: string | null = null;
-  const block = await findWentLiveBlock(provider, proxy, impl);
+  const block =
+    opts.deployedAtBlock ?? (impl === null ? null : await findWentLiveBlock(provider, proxy, impl));
   if (block === null) {
-    notes.push("could not locate the block where the proxy started pointing here — deployedAt left empty");
+    notes.push("could not locate the block the code went live in — deployedAt left empty");
   } else {
     const header = await provider.getBlock(block);
     if (header) deployedAt = formatDeployedAt(header.timestamp);

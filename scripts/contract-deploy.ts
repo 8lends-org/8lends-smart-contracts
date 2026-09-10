@@ -2,7 +2,8 @@ import dotenv from "dotenv";
 import hre, { ethers } from "hardhat";
 import { upgrades } from "hardhat";
 import * as readline from "readline";
-import { loadConfig, saveConfig } from "./utils/config";
+import { loadConfig, saveConfig, saveDeployment } from "./utils/config";
+import { describeDeployment, printDeploymentRecord, verifyOnExplorer } from "./utils/provenance";
 
 import { requireRealNetwork } from "./utils/network-guard";
 
@@ -339,6 +340,10 @@ async function main(): Promise<void> {
 
   const Factory = await hre.ethers.getContractFactory(contractName);
   let proxyOrContractAddress: string;
+  // Hoisted: the record below needs both, and the impl stays null for a non-proxy deployment.
+  let implAddress: string | null = null;
+  let deployedAtBlock: number | undefined;
+  let constructorArgs: unknown[] = [];
 
   if (descriptor.useProxy) {
     const args = descriptor.getProxyArgs!(config, owner);
@@ -348,19 +353,23 @@ async function main(): Promise<void> {
     });
     await Proxy.waitForDeployment();
     proxyOrContractAddress = await Proxy.getAddress();
+    // The proxy's own creation is the moment the code went live; the implementation was deployed
+    // in an earlier transaction and pointed at nothing until this one.
+    deployedAtBlock = (await Proxy.deploymentTransaction()?.wait())?.blockNumber;
     console.log(contractName, "(proxy) deployed to:", proxyOrContractAddress);
     (config as Record<string, string>)[descriptor.configKey] = proxyOrContractAddress;
     if (descriptor.configKeyImpl) {
       await new Promise((resolve) => setTimeout(resolve, 12000));
-      const implAddress = await upgrades.erc1967.getImplementationAddress(proxyOrContractAddress);
+      implAddress = await upgrades.erc1967.getImplementationAddress(proxyOrContractAddress);
       console.log(contractName, "implementation:", implAddress);
       (config as Record<string, string>)[descriptor.configKeyImpl!] = implAddress;
     }
   } else {
-    const args = descriptor.getConstructorArgs!(config);
-    const Contract = await Factory.deploy(...args);
+    constructorArgs = descriptor.getConstructorArgs!(config);
+    const Contract = await Factory.deploy(...constructorArgs);
     await Contract.waitForDeployment();
     proxyOrContractAddress = await Contract.getAddress();
+    deployedAtBlock = (await Contract.deploymentTransaction()?.wait())?.blockNumber;
     console.log(contractName, "deployed to:", proxyOrContractAddress);
     (config as Record<string, string>)[descriptor.configKey] = proxyOrContractAddress;
   }
@@ -375,6 +384,19 @@ async function main(): Promise<void> {
 
   saveConfig(net.chainId, config);
   console.log("Config updated:", descriptor.configKey, "=", proxyOrContractAddress);
+
+  // A fresh deployment is the one case where every field is known for certain: it was built from
+  // this tree and went live in a block we just watched. Leaving them empty would throw that away.
+  await verifyOnExplorer(hre, implAddress ?? proxyOrContractAddress, constructorArgs);
+  const { notes, ...deploymentRecord } = await describeDeployment(
+    hre,
+    contractName,
+    proxyOrContractAddress,
+    implAddress,
+    { deployedAtBlock }
+  );
+  saveDeployment(net.chainId, descriptor.configKey, deploymentRecord);
+  printDeploymentRecord(deploymentRecord, notes);
 }
 
 main().catch((error: unknown) => {

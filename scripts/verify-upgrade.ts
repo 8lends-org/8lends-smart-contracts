@@ -1,29 +1,10 @@
 import dotenv from "dotenv";
 import hre, { ethers, upgrades } from "hardhat";
 import { loadConfig, saveDeployment, type Deployment } from "./utils/config";
-import { describeDeployment } from "./utils/provenance";
+import { describeDeployment, verifyOnExplorer } from "./utils/provenance";
 
 import { requireRealNetwork } from "./utils/network-guard";
 dotenv.config();
-
-/**
- * Publishes the implementation's source on the block explorer.
- *
- * Never fatal: an implementation that is already verified, a missing API key or an explorer having
- * a bad day must not stop the record from being written, and the record is the part that is hard
- * to reconstruct later.
- */
-async function verifyOnExplorer(address: string): Promise<void> {
-  console.log(`\n🔎 Verifying ${address} on the explorer...`);
-  try {
-    await hre.run("verify:verify", { address, constructorArguments: [] });
-    console.log("✅ Verified");
-  } catch (error: any) {
-    const message = String(error?.message ?? error);
-    const already = /already verified/i.test(message);
-    console.log(already ? "✅ Already verified" : `⚠️  Verification skipped: ${message.split("\n")[0]}`);
-  }
-}
 
 /**
  * Build settings for the console. `yul` prints as unknown rather than as off when the settings
@@ -87,7 +68,7 @@ async function main() {
         // Verify on the explorer before recording anything. It is the one public copy of the
         // settings this was built with, and it is cheapest to publish now, while the tree that
         // produced the implementation is still the tree in hand.
-        await verifyOnExplorer(currentImpl);
+        await verifyOnExplorer(hre, currentImpl);
 
         // Everything else in the record described the implementation that has just been replaced,
         // so it is recomputed rather than carried over: a buildHash left from the old code together

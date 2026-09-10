@@ -1,7 +1,8 @@
 import dotenv from "dotenv";
 import hre, { ethers } from "hardhat";
-import { loadConfig, saveConfig } from "./utils/config";
+import { loadConfig, saveDeployment } from "./utils/config";
 
+import { describeDeployment, printDeploymentRecord, verifyOnExplorer } from "./utils/provenance";
 import { requireOwner } from "./utils/owner-guard";
 import { requireRealNetwork } from "./utils/network-guard";
 dotenv.config();
@@ -18,15 +19,27 @@ if (!contractName) {
   process.exit(1);
 }
 
+/**
+ * Writes the whole deployment record, not just the address.
+ *
+ * This path has no pending state — the implementation is deployed and pointed at in the same run,
+ * so unlike the Safe path there is nothing to clear. What there is to do is fill every field: a new
+ * implementation invalidates buildHash, build, deployedFrom and deployedAt at once, and saveConfig
+ * deliberately cannot touch them.
+ */
+async function record(name: string, proxy: string, impl: string | null, block?: number): Promise<void> {
+  const net = await ethers.provider.getNetwork();
+  const { notes, ...rec } = await describeDeployment(hre, name, proxy, impl, { deployedAtBlock: block });
+  saveDeployment(net.chainId, name, rec);
+  printDeploymentRecord(rec, notes);
+}
+
 async function main() {
   await requireRealNetwork();
   const net = await ethers.provider.getNetwork();
   const config = loadConfig(net.chainId);
 
   console.log(`\nUpdating ${contractName} contract...`);
-
-  const [signer] = await ethers.getSigners();
-  const me = (await signer.getAddress()).toLowerCase();
 
   // Special case: AmlEscrow is NOT a proxy. It's the implementation for EIP-1167
   // clones created by EscrowFactory. "Updating" means deploying a new impl and
@@ -53,10 +66,12 @@ async function main() {
     await new Promise((resolve) => setTimeout(resolve, 2000));
 
     const tx = await factory.setImplementation(newImplAddress);
-    await tx.wait();
+    const receipt = await tx.wait();
 
-    config.AmlEscrow = newImplAddress;
-    saveConfig(net.chainId, config);
+    // AmlEscrow is not behind a proxy, so the record's address IS the implementation and `impl`
+    // stays null. The block is passed in because there is no ERC-1967 slot to bisect for it.
+    await verifyOnExplorer(hre, newImplAddress);
+    await record("AmlEscrow", newImplAddress, null, receipt?.blockNumber);
 
     console.log(`✅ AmlEscrow implementation updated to ${newImplAddress}`);
     console.log("   ⚠️  Existing escrow clones still point to the OLD implementation (EIP-1167 immutability).");
@@ -65,14 +80,10 @@ async function main() {
   }
 
   const contractKey = contractName!;
-  const implKey = `${contractName}_impl`;
 
   if (!config[contractKey]) {
     throw new Error(`${contractName} contract not found in config`);
   }
-
-  // Check owner rights
-  const contract = await ethers.getContractAt(contractName!, config[contractKey] as string);
 
   await requireOwner(config[contractKey] as string, contractName!);
 
@@ -94,10 +105,13 @@ async function main() {
   await new Promise(resolve => setTimeout(resolve, 2000));
 
   const proxy = await ethers.getContractAt(contractName!, config[contractKey] as string);
-  await proxy.upgradeToAndCall(newImplAddress, initData);
+  // Waited for on purpose: the record below is written from chain state, and the block number of
+  // this receipt is what deployedAt is taken from.
+  const upgradeTx = await proxy.upgradeToAndCall(newImplAddress, initData);
+  const upgradeReceipt = await upgradeTx.wait();
 
-  config[implKey] = newImplAddress;
-  saveConfig(net.chainId, config);
+  await verifyOnExplorer(hre, newImplAddress);
+  await record(contractName!, config[contractKey] as string, newImplAddress, upgradeReceipt?.blockNumber);
 
   console.log(`✅ ${contractName} updated! New impl: ${newImplAddress}`);
 }
