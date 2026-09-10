@@ -95,6 +95,11 @@ through the repository.
 
 - Rehearse on Sepolia first. There the owner is the deploy key, so scripts send transactions
   directly and you find out immediately whether the call does what you meant.
+- **Between preparing an upgrade and running `verify-upgrade`, leave the working tree alone.**
+  `hardhat verify` compiles what is checked out now and asks the explorer to match it against the
+  bytecode on chain, so a tree that moved while the signers were collecting produces a different
+  build and verification is refused. The implementation then stays unverified and the deployment
+  record loses its `build` settings — the explorer is where they are read from.
 - The Safe needs ETH for gas on execution.
 - Long calldata is normal for an upgrade.
 - "Not owner" on execution means the Safe is not the contract's owner — read `owner()` on the
