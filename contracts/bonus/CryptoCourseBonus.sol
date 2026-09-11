@@ -10,10 +10,12 @@ import "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
 import "../interfaces/protocol/IManagerRegistry.sol";
 
 /// @title CryptoCourseBonus
-/// @notice USDC bonus per completed course. Two rewards with their own amounts and entry points:
+/// @notice USDC bonus per completed course. Two rewards with their own ceilings and entry points:
 /// cash, paid straight away, and voucher, paid at maturity. Whichever comes first, a wallet is paid
 /// once per course and never again.
 /// @dev Pushed by an operator, so the user pays no gas and there is no user-facing entry point.
+/// @dev The operator sends the amount, the contract stores only a per-course ceiling: what a wallet
+///      earned is off-chain data, but a hot backend key must not be able to drain the balance.
 contract CryptoCourseBonus is Initializable, UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuardUpgradeable {
     using SafeERC20 for IERC20;
 
@@ -22,14 +24,14 @@ contract CryptoCourseBonus is Initializable, UUPSUpgradeable, OwnableUpgradeable
 
     bool public killSwitch;
 
-    /// @notice Cash reward per course, e.g. 15e6 for 15 USDC. Zero means this course has no cash
-    ///         reward — which is also how an unknown course behaves, without a separate registry,
-    ///         and how a reward is retired.
-    mapping(uint256 => uint256) public cashAmount;
+    /// @notice Largest cash reward payable for a course, e.g. 15e6 for 15 USDC. Zero means this
+    ///         course has no cash reward — which is also how an unknown course behaves, without a
+    ///         separate registry, and how a reward is retired.
+    mapping(uint256 => uint256) public maxCashAmount;
 
-    /// @notice Voucher reward per course, independent of the cash one: normally larger, and set or
-    ///         retired on its own.
-    mapping(uint256 => uint256) public voucherAmount;
+    /// @notice Largest voucher reward payable for a course, independent of the cash ceiling:
+    ///         normally higher, and set or retired on its own.
+    mapping(uint256 => uint256) public maxVoucherAmount;
 
     /// @notice Whether this wallet was already paid for this course, in either form. Shared by both
     ///         entry points on purpose — the rule is one bonus per course per wallet, so paying the
@@ -43,8 +45,8 @@ contract CryptoCourseBonus is Initializable, UUPSUpgradeable, OwnableUpgradeable
 
     event CashBonusPaid(address indexed user, uint256 indexed courseId, uint256 amount);
     event VoucherBonusPaid(address indexed user, uint256 indexed courseId, uint256 amount);
-    event CashAmountSet(uint256 indexed courseId, uint256 amount);
-    event VoucherAmountSet(uint256 indexed courseId, uint256 amount);
+    event MaxCashAmountSet(uint256 indexed courseId, uint256 maxAmount);
+    event MaxVoucherAmountSet(uint256 indexed courseId, uint256 maxAmount);
     event KillSwitchSet(bool enabled);
     event ContractsUpdated(address managerRegistry, address usdc);
     event Withdrawn(address token, uint256 amount, address recipient);
@@ -53,6 +55,8 @@ contract CryptoCourseBonus is Initializable, UUPSUpgradeable, OwnableUpgradeable
     error PayoutsStopped();
     error AlreadyPaid(address user, uint256 courseId);
     error RewardNotConfigured(uint256 courseId);
+    error ZeroAmount();
+    error AmountExceedsMax(uint256 amount, uint256 maxAmount);
     error InsufficientBalance(uint256 needed, uint256 available);
     error ZeroAddress();
     error LengthMismatch();
@@ -81,42 +85,56 @@ contract CryptoCourseBonus is Initializable, UUPSUpgradeable, OwnableUpgradeable
 
     // --- Payouts ---
 
-    /// @notice Pays the cash reward for one course to `_user`.
-    function sendCashBonus(address _user, uint256 _courseId) external onlyOperator nonReentrant {
-        uint256 amount = cashAmount[_courseId];
-        _pay(_user, _courseId, amount);
-        emit CashBonusPaid(_user, _courseId, amount);
-    }
-
-    /// @notice Pays the voucher reward for one course to `_user`.
-    function sendVoucherBonus(address _user, uint256 _courseId) external onlyOperator nonReentrant {
-        uint256 amount = voucherAmount[_courseId];
-        _pay(_user, _courseId, amount);
-        emit VoucherBonusPaid(_user, _courseId, amount);
-    }
-
-    /// @notice Pays voucher rewards for many (wallet, course) pairs in one transaction — vouchers
-    ///         mature in groups, so this is the shape that flow actually has.
-    function sendVoucherBonusBatch(address[] calldata _users, uint256[] calldata _courseIds)
+    /// @notice Pays `_amount` as the cash reward for one course to `_user`, up to the course ceiling.
+    function sendCashBonus(address _user, uint256 _courseId, uint256 _amount)
         external
         onlyOperator
         nonReentrant
     {
-        if (_users.length != _courseIds.length) revert LengthMismatch();
+        _pay(_user, _courseId, _amount, maxCashAmount[_courseId]);
+        emit CashBonusPaid(_user, _courseId, _amount);
+    }
+
+    /// @notice Pays `_amount` as the voucher reward for one course to `_user`, up to the ceiling.
+    function sendVoucherBonus(address _user, uint256 _courseId, uint256 _amount)
+        external
+        onlyOperator
+        nonReentrant
+    {
+        _pay(_user, _courseId, _amount, maxVoucherAmount[_courseId]);
+        emit VoucherBonusPaid(_user, _courseId, _amount);
+    }
+
+    /// @notice Pays voucher rewards for many (wallet, course, amount) triples in one transaction —
+    ///         vouchers mature in groups, so this is the shape that flow actually has.
+    /// @dev One bad row reverts the whole batch, so the backend never has to guess what landed.
+    function sendVoucherBonusBatch(
+        address[] calldata _users,
+        uint256[] calldata _courseIds,
+        uint256[] calldata _amounts
+    ) external onlyOperator nonReentrant {
+        if (_users.length != _courseIds.length || _users.length != _amounts.length) {
+            revert LengthMismatch();
+        }
         if (_users.length == 0) revert EmptyBatch();
 
         for (uint256 i = 0; i < _users.length; i++) {
-            uint256 amount = voucherAmount[_courseIds[i]];
-            _pay(_users[i], _courseIds[i], amount);
-            emit VoucherBonusPaid(_users[i], _courseIds[i], amount);
+            _pay(_users[i], _courseIds[i], _amounts[i], maxVoucherAmount[_courseIds[i]]);
+            emit VoucherBonusPaid(_users[i], _courseIds[i], _amounts[i]);
         }
     }
 
-    function _pay(address _user, uint256 _courseId, uint256 _amount) private {
+    /// @dev `_maxAmount` is passed in: which ceiling applies is the caller's business, and deciding
+    ///      it here would need a discriminator argument.
+    function _pay(address _user, uint256 _courseId, uint256 _amount, uint256 _maxAmount) private {
         if (killSwitch) revert PayoutsStopped();
         if (_user == address(0)) revert ZeroAddress();
         if (paid[_user][_courseId]) revert AlreadyPaid(_user, _courseId);
-        if (_amount == 0) revert RewardNotConfigured(_courseId);
+        // Separate errors: no reward of this kind is a configuration problem, too much is a
+        // backend problem.
+        if (_maxAmount == 0) revert RewardNotConfigured(_courseId);
+        if (_amount == 0) revert ZeroAmount();
+        if (_amount > _maxAmount) revert AmountExceedsMax(_amount, _maxAmount);
 
         uint256 balance = usdc.balanceOf(address(this));
         if (balance < _amount) revert InsufficientBalance(_amount, balance);
@@ -130,16 +148,17 @@ contract CryptoCourseBonus is Initializable, UUPSUpgradeable, OwnableUpgradeable
 
     // --- Admin functions ---
 
-    /// @notice Sets the cash reward for a course. Zero retires it: payouts start reverting.
-    function setCashAmount(uint256 _courseId, uint256 _amount) external onlyOwner {
-        cashAmount[_courseId] = _amount;
-        emit CashAmountSet(_courseId, _amount);
+    /// @notice Sets the cash ceiling for a course. Zero retires it: payouts start reverting.
+    /// @dev Bounds what comes next only — it cannot claw back what was already paid.
+    function setMaxCashAmount(uint256 _courseId, uint256 _maxAmount) external onlyOwner {
+        maxCashAmount[_courseId] = _maxAmount;
+        emit MaxCashAmountSet(_courseId, _maxAmount);
     }
 
-    /// @notice Sets the voucher reward for a course. Zero retires it.
-    function setVoucherAmount(uint256 _courseId, uint256 _amount) external onlyOwner {
-        voucherAmount[_courseId] = _amount;
-        emit VoucherAmountSet(_courseId, _amount);
+    /// @notice Sets the voucher ceiling for a course. Zero retires it.
+    function setMaxVoucherAmount(uint256 _courseId, uint256 _maxAmount) external onlyOwner {
+        maxVoucherAmount[_courseId] = _maxAmount;
+        emit MaxVoucherAmountSet(_courseId, _maxAmount);
     }
 
     function setKillSwitch(bool _enabled) external onlyOwner {
