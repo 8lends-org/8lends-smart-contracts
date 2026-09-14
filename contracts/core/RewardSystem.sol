@@ -30,8 +30,9 @@ contract RewardSystem is Initializable, UUPSUpgradeable, OwnableUpgradeable, Ree
 
     // Reward system parameters (changeable)
     uint256 public referralPercentage; // 6% USDC for inviter
-    uint256 public welcomeBonusAmount; // 30 USDC for investor (6 decimals)
-    uint256 public minInvestmentForBonus; // Minimum 1000 USDC for bonus
+    /// @dev Zero on Base as of Sep-2026, which disables the bonus branch — initialize seeds 30 USDC.
+    uint256 public welcomeBonusAmount;
+    uint256 public minInvestmentForBonus; // Minimum 1000 USDC for bonus, moot while the bonus is off
     uint256 public tokenPercentage; // 6% tokens for investor
     /// @notice When > 0, enables buy-back-and-burn during reward activation. Value represents the burn percentage in BASIS_POINTS.
     uint256 public burnPercentage;

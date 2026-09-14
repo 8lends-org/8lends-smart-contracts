@@ -21,4 +21,9 @@ interface IManagerRegistry {
     function setPoolStatusForReward(address _pool, bool _status) external;
     function setInvestorClaimAddress(address _investor, address _claimAddress) external;
     function getInvestorClaimAddress(address _investor) external view returns (address);
+
+    function mandateFactory() external view returns (address);
+    function setMandateFactory(address _mandateFactory) external;
+    function recipientOf(address _user) external view returns (address);
+    function isCompromised(address _user) external view returns (bool);
 }
