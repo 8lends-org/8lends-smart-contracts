@@ -2,6 +2,7 @@
 pragma solidity ^0.8.23;
 
 import { Test } from "forge-std/Test.sol";
+import { Vm } from "forge-std/Vm.sol";
 import { Clones } from "@openzeppelin/contracts/proxy/Clones.sol";
 import { ERC1967Proxy } from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 import { IERC20 } from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
@@ -13,6 +14,19 @@ import { IFundraise } from "../../../contracts/interfaces/protocol/IFundraise.so
 import { Id, MarketParams } from "../../../contracts/lending/interfaces/ILending8.sol";
 import { USDC } from "../../../contracts/test-tokens/usdc.sol";
 import { TestERC20 } from "../../../contracts/test-tokens/testerc20.sol";
+
+/// @dev Owner that signs by ERC-1271 rather than with a key: approves one digest and nothing else.
+contract SmartAccountOwner {
+    bytes32 public approved;
+
+    function approve(bytes32 digest) external {
+        approved = digest;
+    }
+
+    function isValidSignature(bytes32 hash, bytes memory) external view returns (bytes4) {
+        return hash == approved ? bytes4(0x1626ba7e) : bytes4(0xffffffff);
+    }
+}
 
 /// @dev Stands in for ManagerRegistry: only the three predicates the escrow reads.
 contract RegistryStub {
@@ -612,6 +626,62 @@ contract MandateEscrowV1Test is Test {
 
         vm.expectRevert("FiatTokenV2: invalid signature");
         other.depositWithAuthorization(100e6, 0, block.timestamp + 1 hours, nonce, sig);
+    }
+
+    /// An expired window does not burn the nonce, so an abandoned signing flow costs the backend
+    /// nothing: the same intent id can be re-signed with a new deadline.
+    function test_deposit_after_expiry_reuses_the_same_nonce() public {
+        usdc.mint(owner, 1_000e6);
+        vm.warp(1_000);
+        bytes32 nonce = keccak256("deposit-1");
+
+        bytes memory stale = _signReceive(100e6, nonce, 0, block.timestamp);
+        vm.expectRevert("FiatTokenV2: authorization is expired");
+        escrow.depositWithAuthorization(100e6, 0, block.timestamp, nonce, stale);
+
+        uint256 fresh = block.timestamp + 1 hours;
+        bytes memory resigned = _signReceive(100e6, nonce, 0, fresh);
+        escrow.depositWithAuthorization(100e6, 0, fresh, nonce, resigned);
+        assertEq(escrow.freeBalance(), 100e6);
+    }
+
+    /// The reason the escrow passes the signature as bytes: an owner may be a smart account, whose
+    /// signature is arbitrary-length and does not fit v/r/s.
+    function test_deposit_from_a_smart_account_owner() public {
+        SmartAccountOwner account = new SmartAccountOwner();
+        MandateEscrowV1 e = MandateEscrowV1(Clones.clone(address(impl)));
+        e.initialize(address(account), ImmutableParamsV1({ interestDirection: 0, projectLimitBps: 1000 }));
+        usdc.mint(address(account), 500e6);
+
+        bytes32 nonce = keccak256("deposit-1");
+        uint256 until_ = block.timestamp + 1 hours;
+        bytes32 structHash = keccak256(abi.encode(
+            usdc.RECEIVE_WITH_AUTHORIZATION_TYPEHASH(),
+            address(account), address(e), uint256(500e6), uint256(0), until_, nonce
+        ));
+        account.approve(keccak256(abi.encodePacked("\x19\x01", usdc.DOMAIN_SEPARATOR(), structHash)));
+
+        e.depositWithAuthorization(500e6, 0, until_, nonce, hex"c0ffee");
+        assertEq(e.freeBalance(), 500e6);
+    }
+
+    /// The fallback nobody can switch off: `transfer` calls no code, so USDC sent straight to the
+    /// escrow simply becomes free balance. No Deposited event — the contract never learns of it.
+    function test_a_plain_transfer_becomes_free_balance_and_is_placed() public {
+        usdc.mint(owner, 2_000e6);
+
+        vm.recordLogs();
+        vm.prank(owner);
+        usdc.transfer(address(escrow), 2_000e6);
+        Vm.Log[] memory logs = vm.getRecordedLogs();   // draining call, take it once
+        for (uint256 i = 0; i < logs.length; i++) {
+            assertTrue(logs[i].emitter != address(escrow), "the escrow emits nothing");
+        }
+        assertEq(escrow.freeBalance(), 2_000e6);
+
+        vm.prank(operator);
+        escrow.allocate(PID, address(0));
+        assertEq(fundraise.lastAmount(), 200e6, "placed under the 10% project limit like any balance");
     }
 
     function test_zero_interest_forwards_nothing_under_any_direction() public {
