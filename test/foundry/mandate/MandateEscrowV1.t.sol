@@ -3,6 +3,7 @@ pragma solidity ^0.8.23;
 
 import { Test } from "forge-std/Test.sol";
 import { Clones } from "@openzeppelin/contracts/proxy/Clones.sol";
+import { ERC1967Proxy } from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 import { IERC20 } from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
 import { MandateEscrowV1 } from "../../../contracts/mandate/MandateEscrowV1.sol";
@@ -10,7 +11,8 @@ import { IMandateEscrowV1 } from "../../../contracts/mandate/interfaces/IMandate
 import { ImmutableParamsV1, MandateState } from "../../../contracts/mandate/interfaces/MandateTypes.sol";
 import { IFundraise } from "../../../contracts/interfaces/protocol/IFundraise.sol";
 import { Id, MarketParams } from "../../../contracts/lending/interfaces/ILending8.sol";
-import { MockUSDC3009 } from "../mocks/MockUSDC3009.sol";
+import { USDC } from "../../../contracts/test-tokens/usdc.sol";
+import { TestERC20 } from "../../../contracts/test-tokens/testerc20.sol";
 
 /// @dev Stands in for ManagerRegistry: only the three predicates the escrow reads.
 contract RegistryStub {
@@ -128,7 +130,7 @@ contract MandateEscrowV1Test is Test {
     uint256 constant MIN = 100e6;
     uint256 constant PID = 7;
 
-    MockUSDC3009 usdc;
+    USDC usdc;
     RegistryStub registry;
     RouterStub router;
     FundraiseStub fundraise;
@@ -142,7 +144,12 @@ contract MandateEscrowV1Test is Test {
 
     function setUp() public {
         owner = vm.addr(ownerKey);
-        usdc = new MockUSDC3009();
+        // The token we actually deploy to Sepolia, not a stand-in: the deposit path is only worth
+        // testing against the real EIP-3009 implementation.
+        usdc = USDC(address(new ERC1967Proxy(
+            address(new USDC()),
+            abi.encodeCall(TestERC20.initialize, (address(this), "USD Coin", "USDC", 6))
+        )));
         registry = new RegistryStub();
         router = new RouterStub();
         fundraise = new FundraiseStub(IERC20(address(usdc)));
@@ -518,18 +525,13 @@ contract MandateEscrowV1Test is Test {
         view
         returns (bytes memory)
     {
-        bytes32 digest = usdc.receiveDigest(owner, address(escrow), value, validAfter, validBefore, nonce);
+        bytes32 structHash = keccak256(abi.encode(
+            usdc.RECEIVE_WITH_AUTHORIZATION_TYPEHASH(),
+            owner, address(escrow), value, validAfter, validBefore, nonce
+        ));
+        bytes32 digest = keccak256(abi.encodePacked("\x19\x01", usdc.DOMAIN_SEPARATOR(), structHash));
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(ownerKey, digest);
         return abi.encodePacked(r, s, v);
-    }
-
-    /// @dev Pins the mock against the deployed FiatTokenV2_2: an encoding drift shows up here and
-    ///      not on a testnet, where it would surface as an unexplained `invalid signature`.
-    function test_typehash_matches_usdc() public view {
-        assertEq(
-            usdc.RECEIVE_WITH_AUTHORIZATION_TYPEHASH(),
-            0xd099cc98ef71107a616c4f0f941f04c322d8e254fe26b3c6668db87aae413de8
-        );
     }
 
     /// Anyone may submit it — `from` and `to` are hardwired and covered by the signature, so a third
