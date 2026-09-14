@@ -22,14 +22,14 @@ const BASE_RPC_URL = process.env.BASE_RPC_URL || "https://mainnet.base.org";
 const SEPOLIA_RPC_URL = process.env.ETHEREUM_SEPOLIA_RPC_URL || "https://rpc.sepolia.org";
 
 /**
- * HD accounts for a network, or none at all when the mnemonic is unset. An accounts object
- * without a mnemonic fails config validation with HH8, which is what breaks `hardhat test` in
- * CI — there are no mnemonics there. A network with no accounts loads fine and simply cannot
- * sign, which is the honest outcome for an environment that has no key.
+ * One signing key for a network, or none at all when it is unset. Returning undefined rather than
+ * an empty list matters: a network with no accounts loads fine and simply cannot sign, which is the
+ * honest outcome for an environment without a key — CI among them.
  */
-function hdAccounts(mnemonic: string | undefined) {
-    if (!mnemonic) return undefined;
-    return { mnemonic, initialIndex: Number(process.env.INITIAL_INDEX) || 0 };
+function signingAccounts(privateKey: string | undefined) {
+    if (!privateKey) return undefined;
+    const trimmed = privateKey.trim();
+    return [trimmed.startsWith("0x") ? trimmed : `0x${trimmed}`];
 }
 
 const config: HardhatUserConfig = {
@@ -53,7 +53,7 @@ const config: HardhatUserConfig = {
         base: {
             chainId: 8453,
             url: BASE_RPC_URL,
-            accounts: hdAccounts(process.env.OWNER_MNEMONIC_PROD),
+            accounts: signingAccounts(process.env.DEPLOYER_PRIVATE_KEY_PROD),
         },
         hardhat: {
             gasPrice: 100000000000,
@@ -70,7 +70,7 @@ const config: HardhatUserConfig = {
         sepolia: {
             chainId: 11155111,
             url: SEPOLIA_RPC_URL,
-            accounts: hdAccounts(process.env.OWNER_MNEMONIC_DEV),
+            accounts: signingAccounts(process.env.DEPLOYER_PRIVATE_KEY_DEV),
         }
     },
     gasReporter: {
