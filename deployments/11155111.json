@@ -354,18 +354,18 @@
   },
   "USDC": {
     "proxy": "0x0CeE9126637aCA908e0d8e21274C933C1d492671",
-    "impl": "0x2747b5A8a42A34E78a21b12a4f98834cA950893c",
-    "buildHash": "0x5ae540cb66e090af021871b15003f57c379bd01927655cf7a0952dab36658c5c",
+    "impl": "0xC3F3C0Dc688474f90426Cda1D2f77430Ba9EBADa",
+    "buildHash": "0x004e229a6f75bed425ca6177114dfcb0d52ff1c5773993f291c4106d898f2dbf",
     "matchesDeployed": true,
-    "deployedFrom": "17f1328",
-    "deployedAt": "Feb-20-2026",
+    "deployedFrom": "4df34ec",
+    "deployedAt": "Sep-14-2026",
     "build": {
       "solc": "v0.8.23+commit.f704f362",
       "optimizer": {
         "enabled": true,
-        "runs": 200,
+        "runs": 50,
         "details": {
-          "yul": false
+          "yul": true
         }
       },
       "evmVersion": "paris"
