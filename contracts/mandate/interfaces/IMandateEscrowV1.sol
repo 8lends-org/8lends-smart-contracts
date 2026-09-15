@@ -38,6 +38,14 @@ interface IMandateEscrowV1 {
     /// @notice Free balance rescued to the claim address after a wallet compromise.
     event SweptToClaimAddress(address indexed to, uint256 amount);
 
+    // ── factory only ────────────────────────────────────────────────────────────
+
+    /// @notice Sets the owner and the two rules, in the same transaction as the clone's deployment.
+    /// @dev Guarded by `owner == 0` rather than by a caller check — the escrow holds no factory
+    ///      address. There is no window: creation and initialisation are one transaction, and the
+    ///      clone's address is reachable only by the factory that salted it.
+    function initialize(address owner_, ImmutableParamsV1 calldata params_) external;
+
     // ── views ───────────────────────────────────────────────────────────────────
 
     function owner() external view returns (address);

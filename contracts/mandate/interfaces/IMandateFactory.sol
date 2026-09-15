@@ -134,5 +134,12 @@ interface IMandateFactory {
     /// @dev createMandate takes no version argument and always uses latestVersion, so this call
     ///      also closes creation on the previous version. Existing clones are immutable and keep
     ///      working regardless.
+    /// @dev Two rules the registry enforces, both because a version number reaches the escrow
+    ///      address through the salt. A version is never re-pointed: the implementation is part of
+    ///      the clone's init code, so overwriting an entry moves the derived address of every
+    ///      escrow already created under it. And the implementation must report the number it is
+    ///      registered under: its version() lives in its code while the salt uses the registry's
+    ///      number, so registering one implementation twice would mint mandates that fail
+    ///      isEscrowOf forever.
     function registerImplementation(uint16 version, address impl) external;
 }
