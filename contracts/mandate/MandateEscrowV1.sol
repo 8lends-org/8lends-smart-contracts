@@ -8,7 +8,7 @@ import { Math } from "@openzeppelin/contracts/utils/math/Math.sol";
 import { IMandateEscrowV1 } from "./interfaces/IMandateEscrowV1.sol";
 import { IMandateFundraise } from "./interfaces/IMandateFundraise.sol";
 import { IMandateRouter } from "./interfaces/IMandateRouter.sol";
-import { ImmutableParamsV1, MandateState } from "./interfaces/MandateTypes.sol";
+import { ImmutableParamsV1, InterestDirection, MandateState } from "./interfaces/MandateTypes.sol";
 import { IERC3009 } from "../interfaces/token/IERC3009.sol";
 import { IFundraise } from "../interfaces/protocol/IFundraise.sol";
 import { IManagerRegistry } from "../interfaces/protocol/IManagerRegistry.sol";
@@ -103,7 +103,9 @@ contract MandateEscrowV1 is IMandateEscrowV1 {
     function initialize(address owner_, ImmutableParamsV1 calldata params_) external {
         if (owner != address(0)) revert AlreadyInitialized();
         if (owner_ == address(0)) revert ZeroAddress();
-        if (params_.interestDirection > 2) revert BadInterestDirection(params_.interestDirection);
+        if (params_.interestDirection > uint8(type(InterestDirection).max)) {
+            revert BadInterestDirection(params_.interestDirection);
+        }
         if (params_.projectLimitBps == 0 || params_.projectLimitBps > BPS) {
             revert BadProjectLimitBps(params_.projectLimitBps);
         }
@@ -307,13 +309,14 @@ contract MandateEscrowV1 is IMandateEscrowV1 {
     /// @dev Principal takes no part here: it is already on the balance and stays there, which is
     ///      what the next allocation places.
     function _forward(uint256 interest, bytes32 marketId) private {
-        if (interest == 0) return; // direction 2 would revert on Lending8's exactlyOneZero
+        if (interest == 0) return; // LEND would revert on Lending8's exactlyOneZero
 
-        uint8 direction = _interestDirection;
-        if (direction == 0) return; // principal and interest share one balance; the split is a no-op
+        InterestDirection direction = InterestDirection(_interestDirection);
+        // principal and interest share one balance; the split is a no-op
+        if (direction == InterestDirection.KEEP) return;
 
         address to;
-        if (direction == 1) {
+        if (direction == InterestDirection.WALLET) {
             to = _recipient();
             IERC20(USDC).safeTransfer(to, interest);
         } else {
@@ -328,7 +331,7 @@ contract MandateEscrowV1 is IMandateEscrowV1 {
             ILending8(LENDING8).supply(marketParams, interest, 0, owner, "");
             IERC20(USDC).forceApprove(LENDING8, 0);
         }
-        emit InterestForwarded(direction, interest, to);
+        emit InterestForwarded(uint8(direction), interest, to);
     }
 
     // ── internals ───────────────────────────────────────────────────────────────

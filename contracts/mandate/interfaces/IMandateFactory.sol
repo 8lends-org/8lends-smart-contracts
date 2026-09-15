@@ -105,13 +105,12 @@ interface IMandateFactory {
     ///      mandate funded purely by routing existing investments is created with no deposit at
     ///      all. The only number in the system is escrow.minAllocation(), and it governs
     ///      placement, not funding.
-    /// @dev Bounds are checked here AND in the escrow's initializer: interestDirection <= 2 and
-    ///      0 < projectLimitBps <= 10000. The escrow's copy is the load-bearing one — a clone is
+    /// @dev Bounds are checked here AND in the escrow's initializer: interestDirection within
+    ///      {InterestDirection}, 0 < projectLimitBps <= 10000. The escrow's copy is the load-bearing one — a clone is
     ///      immutable, and an out-of-range set would yield a working escrow at a derived address
     ///      that passes isEscrowOf.
-    /// @param p Both rules of the mandate, baked into the address. All three interestDirection
-    ///          values are accepted from phase 1: 0 back into the mandate, 1 to the wallet, 2 into
-    ///          lending. The lending pool is not part of these params — it is supplied per call as
+    /// @param p Both rules of the mandate, baked into the address. All three {InterestDirection}
+    ///          values are accepted from phase 1 — KEEP, WALLET and LEND. The lending pool is not part of these params — it is supplied per call as
     ///          the third argument of Fundraise.claimForMandate and forwarded through onPayout; no
     ///          constant is stored on chain. There is no second params argument:
     ///          the mandate has no mutable settings, so paramsHash covers everything the owner

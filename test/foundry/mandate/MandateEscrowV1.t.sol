@@ -9,7 +9,7 @@ import { IERC20 } from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
 import { MandateEscrowV1 } from "../../../contracts/mandate/MandateEscrowV1.sol";
 import { IMandateEscrowV1 } from "../../../contracts/mandate/interfaces/IMandateEscrowV1.sol";
-import { ImmutableParamsV1, MandateState } from "../../../contracts/mandate/interfaces/MandateTypes.sol";
+import { ImmutableParamsV1, InterestDirection, MandateState } from "../../../contracts/mandate/interfaces/MandateTypes.sol";
 import { IFundraise } from "../../../contracts/interfaces/protocol/IFundraise.sol";
 import { Id, MarketParams } from "../../../contracts/lending/interfaces/ILending8.sol";
 import { USDC } from "../../../contracts/test-tokens/usdc.sol";
@@ -173,7 +173,7 @@ contract MandateEscrowV1Test is Test {
             address(usdc), address(fundraise), address(registry), address(router), address(lending)
         );
         escrow = MandateEscrowV1(Clones.clone(address(impl)));
-        escrow.initialize(owner, ImmutableParamsV1({ interestDirection: 0, projectLimitBps: 1000 }));
+        escrow.initialize(owner, ImmutableParamsV1({ interestDirection: uint8(InterestDirection.KEEP), projectLimitBps: 1000 }));
 
         registry.setOperator(operator, true);
         fundraise.setProject(1_000_000e6, 0, IFundraise.Stage.Open);
@@ -194,21 +194,21 @@ contract MandateEscrowV1Test is Test {
     function test_initialize_rejects_zero_and_over_full_bps() public {
         MandateEscrowV1 a = MandateEscrowV1(Clones.clone(address(impl)));
         vm.expectRevert(abi.encodeWithSelector(MandateEscrowV1.BadProjectLimitBps.selector, uint16(0)));
-        a.initialize(owner, ImmutableParamsV1({ interestDirection: 0, projectLimitBps: 0 }));
+        a.initialize(owner, ImmutableParamsV1({ interestDirection: uint8(InterestDirection.KEEP), projectLimitBps: 0 }));
 
         MandateEscrowV1 b = MandateEscrowV1(Clones.clone(address(impl)));
         vm.expectRevert(abi.encodeWithSelector(MandateEscrowV1.BadProjectLimitBps.selector, uint16(10001)));
-        b.initialize(owner, ImmutableParamsV1({ interestDirection: 0, projectLimitBps: 10001 }));
+        b.initialize(owner, ImmutableParamsV1({ interestDirection: uint8(InterestDirection.KEEP), projectLimitBps: 10001 }));
     }
 
     function test_initialize_is_once_only() public {
         vm.expectRevert(MandateEscrowV1.AlreadyInitialized.selector);
-        escrow.initialize(owner, ImmutableParamsV1({ interestDirection: 1, projectLimitBps: 500 }));
+        escrow.initialize(owner, ImmutableParamsV1({ interestDirection: uint8(InterestDirection.WALLET), projectLimitBps: 500 }));
     }
 
     function test_params_are_readable_and_hash_matches_encoding() public view {
         ImmutableParamsV1 memory p = escrow.params();
-        assertEq(p.interestDirection, 0);
+        assertEq(p.interestDirection, uint8(InterestDirection.KEEP));
         assertEq(p.projectLimitBps, 1000);
         assertEq(escrow.paramsHash(), keccak256(abi.encode(p)), "hash must match the factory's encoding");
         assertEq(escrow.version(), 1);
@@ -271,7 +271,7 @@ contract MandateEscrowV1Test is Test {
 
         // Now make the free balance the binding constraint.
         MandateEscrowV1 small = MandateEscrowV1(Clones.clone(address(impl)));
-        small.initialize(owner, ImmutableParamsV1({ interestDirection: 0, projectLimitBps: 10000 }));
+        small.initialize(owner, ImmutableParamsV1({ interestDirection: uint8(InterestDirection.KEEP), projectLimitBps: 10000 }));
         usdc.mint(address(small), 150e6);
         fundraise.setProject(1_000_000e6, 0, IFundraise.Stage.Open);
         vm.prank(operator);
@@ -444,7 +444,7 @@ contract MandateEscrowV1Test is Test {
 
     function test_direction_one_forwards_interest_to_the_recipient() public {
         MandateEscrowV1 e = MandateEscrowV1(Clones.clone(address(impl)));
-        e.initialize(owner, ImmutableParamsV1({ interestDirection: 1, projectLimitBps: 1000 }));
+        e.initialize(owner, ImmutableParamsV1({ interestDirection: uint8(InterestDirection.WALLET), projectLimitBps: 1000 }));
         usdc.mint(address(e), 100e6);
 
         vm.prank(address(fundraise));
@@ -455,7 +455,7 @@ contract MandateEscrowV1Test is Test {
 
     function test_direction_two_rejects_a_zero_market_id() public {
         MandateEscrowV1 e = MandateEscrowV1(Clones.clone(address(impl)));
-        e.initialize(owner, ImmutableParamsV1({ interestDirection: 2, projectLimitBps: 1000 }));
+        e.initialize(owner, ImmutableParamsV1({ interestDirection: uint8(InterestDirection.LEND), projectLimitBps: 1000 }));
         usdc.mint(address(e), 100e6);
 
         vm.expectRevert(MandateEscrowV1.ZeroMarketId.selector);
@@ -466,7 +466,7 @@ contract MandateEscrowV1Test is Test {
     /// Happy path of direction 2 — previously only its revert branches were covered.
     function test_direction_two_supplies_interest_into_lending() public {
         MandateEscrowV1 e = MandateEscrowV1(Clones.clone(address(impl)));
-        e.initialize(owner, ImmutableParamsV1({ interestDirection: 2, projectLimitBps: 1000 }));
+        e.initialize(owner, ImmutableParamsV1({ interestDirection: uint8(InterestDirection.LEND), projectLimitBps: 1000 }));
         usdc.mint(address(e), 300e6);
 
         bytes32 marketId = keccak256("USDC/BTC8L");
@@ -494,7 +494,7 @@ contract MandateEscrowV1Test is Test {
     /// not hold; the check turns that into a legible revert instead of a failure inside Lending8.
     function test_direction_two_rejects_a_market_that_does_not_lend_usdc() public {
         MandateEscrowV1 e = MandateEscrowV1(Clones.clone(address(impl)));
-        e.initialize(owner, ImmutableParamsV1({ interestDirection: 2, projectLimitBps: 1000 }));
+        e.initialize(owner, ImmutableParamsV1({ interestDirection: uint8(InterestDirection.LEND), projectLimitBps: 1000 }));
         usdc.mint(address(e), 100e6);
 
         bytes32 marketId = keccak256("WETH/BTC8L");
@@ -516,7 +516,7 @@ contract MandateEscrowV1Test is Test {
     /// The allowance is opened and closed inside the same call, so nothing is left standing.
     function test_direction_two_leaves_no_allowance_behind() public {
         MandateEscrowV1 e = MandateEscrowV1(Clones.clone(address(impl)));
-        e.initialize(owner, ImmutableParamsV1({ interestDirection: 2, projectLimitBps: 1000 }));
+        e.initialize(owner, ImmutableParamsV1({ interestDirection: uint8(InterestDirection.LEND), projectLimitBps: 1000 }));
         usdc.mint(address(e), 100e6);
 
         bytes32 marketId = keccak256("USDC/BTC8L");
@@ -619,7 +619,7 @@ contract MandateEscrowV1Test is Test {
     function test_deposit_rejects_an_authorization_signed_for_another_escrow() public {
         usdc.mint(owner, 1_000e6);
         MandateEscrowV1 other = MandateEscrowV1(Clones.clone(address(impl)));
-        other.initialize(owner, ImmutableParamsV1({ interestDirection: 0, projectLimitBps: 1000 }));
+        other.initialize(owner, ImmutableParamsV1({ interestDirection: uint8(InterestDirection.KEEP), projectLimitBps: 1000 }));
 
         bytes32 nonce = keccak256("deposit-1");
         bytes memory sig = _signReceive(100e6, nonce, 0, block.timestamp + 1 hours); // signed for `escrow`
@@ -650,7 +650,7 @@ contract MandateEscrowV1Test is Test {
     function test_deposit_from_a_smart_account_owner() public {
         SmartAccountOwner account = new SmartAccountOwner();
         MandateEscrowV1 e = MandateEscrowV1(Clones.clone(address(impl)));
-        e.initialize(address(account), ImmutableParamsV1({ interestDirection: 0, projectLimitBps: 1000 }));
+        e.initialize(address(account), ImmutableParamsV1({ interestDirection: uint8(InterestDirection.KEEP), projectLimitBps: 1000 }));
         usdc.mint(address(account), 500e6);
 
         bytes32 nonce = keccak256("deposit-1");
@@ -686,7 +686,7 @@ contract MandateEscrowV1Test is Test {
 
     function test_zero_interest_forwards_nothing_under_any_direction() public {
         MandateEscrowV1 e = MandateEscrowV1(Clones.clone(address(impl)));
-        e.initialize(owner, ImmutableParamsV1({ interestDirection: 2, projectLimitBps: 1000 }));
+        e.initialize(owner, ImmutableParamsV1({ interestDirection: uint8(InterestDirection.LEND), projectLimitBps: 1000 }));
         usdc.mint(address(e), 100e6);
 
         // Budget already exhausted, so the whole payout is principal — the lending branch, which

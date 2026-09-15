@@ -4,6 +4,16 @@ pragma solidity ^0.8.23;
 /// @title Mandate escrow shared types
 /// @notice Shapes shared by the factory, router and escrow. this file only fixes the wire format.
 
+/// @notice Where interest goes. Declared beside the struct rather than inside it: the field stays
+///         `uint8` so an out-of-range value reverts with a named error instead of the decoder's
+///         empty revert, and so `type(InterestDirection).max` is the bound the check reads.
+/// @dev KEEP must stay zero — it is the default of a fresh mandate.
+enum InterestDirection {
+    KEEP,   // back into the mandate
+    WALLET, // to the owner's wallet
+    LEND    // supplied into Lending8 on the owner's behalf
+}
+
 /// @notice Rules baked into the escrow address. Changing any field means a different escrow.
 /// @dev The V1 suffix is part of the contract with the backend: this struct's composition is hashed
 ///      into paramsHash and therefore into the address, so it can never be extended in place. A
@@ -11,8 +21,7 @@ pragma solidity ^0.8.23;
 /// @dev Both phase-1 parameters are here, so a mandate has no mutable settings at all — nothing
 ///      about it changes after creation, by the owner or by the platform.
 struct ImmutableParamsV1 {
-    /// @notice Where interest goes: 0 — back into the mandate, 1 — to the owner's wallet,
-    ///         2 — into lending.
+    /// @notice An {InterestDirection}, held as its underlying type — see the enum for why.
     uint8 interestDirection;
 
     /// @notice Share of the mandate that may go into a single project, in basis points.
