@@ -177,35 +177,6 @@ contract AllTimeInvestedUSDTest is Setup {
     }
 
     // ─────────────────────────────────────────────────────────────────────────
-    // GAP-015: transferInvestment: allTimeInvestedUSD NOT transferred
-    // ─────────────────────────────────────────────────────────────────────────
-
-    function test_GAP015_transferInvestment_allTimeInvestedUSD_notTransferred() public {
-        // GAP-015: transferInvestment: allTimeInvestedUSD NOT transferred
-        uint256 pid = _createProject(100e6, 10_000e6);
-        _investAs(investor, pid, 300e6, inviter);
-
-        // Fund the project so we can do transferInvestment (requires Funded stage for sell)
-        _investAs(investor2, pid, 9700e6, inviter); // fill to softcap
-        _fundProject(pid);
-
-        uint256 usdBefore = fundraise.allTimeInvestedUSD(investor);
-        assertEq(usdBefore, 300e6);
-        assertEq(fundraise.allTimeInvestedUSD(investor2), 9700e6);
-
-        address market = makeAddr("market");
-        vm.prank(owner);
-        managerRegistry.setMarketAddress(market);
-
-        vm.prank(market);
-        fundraise.transferInvestment(pid, investor, attacker, true, 1);
-
-        // allTimeInvestedUSD should NOT change for either party
-        assertEq(fundraise.allTimeInvestedUSD(investor), usdBefore, "from: allTimeInvestedUSD unchanged");
-        assertEq(fundraise.allTimeInvestedUSD(attacker), 0, "to: allTimeInvestedUSD should be 0");
-    }
-
-    // ─────────────────────────────────────────────────────────────────────────
     // GAP-016: transferPosition: allTimeInvestedUSD not affected
     // ─────────────────────────────────────────────────────────────────────────
 

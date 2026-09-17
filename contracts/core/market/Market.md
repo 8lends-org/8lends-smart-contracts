@@ -63,19 +63,19 @@ mapping(address => uint256) public accumulatedFees;
 - Проект в стадии **Funded**
 - `maxReturn >= totalClaimed`, `price <= (maxReturn - totalClaimed)`
 
-**Действия:** создаётся marketCell, вызывается `Fundraise.transferInvestment(projectId, seller, marketCell, true, saleId)`, создаётся запись Sale (status = Active), выставляется `activeSaleIds[seller][projectId] = saleId`. Событие: `SaleCreated`.
+**Действия:** создаётся marketCell, вызывается `Fundraise.transferPosition(projectId, seller, marketCell, positionIndex, saleId)`, создаётся запись Sale (status = Active), выставляется `activeSaleIds[seller][projectId] = saleId`. Событие: `SaleCreated`.
 
 ### buy(uint256 _saleId)
 
 **Проверки:** sale существует, status == Active, msg.sender != seller, у marketCell есть инвестиция в Fundraise.
 
-**Действия:** покупатель переводит loan token: `feeAmount` на контракт (accumulatedFees), `sellerAmount = price - feeAmount` — продавцу. Вызов `Fundraise.transferInvestment(projectId, marketCell, buyer, false, saleId)`. Sale.status = Sold, activeSaleIds обнуляется, saleId добавляется в boughtSales[buyer] и soldSales[seller]. Событие: `SaleBought`, при feeAmount > 0 — `FeeCollected`.
+**Действия:** покупатель переводит loan token: `feeAmount` на контракт (accumulatedFees), `sellerAmount = price - feeAmount` — продавцу. Вызов `Fundraise.transferPosition(projectId, marketCell, buyer, 0, saleId)` — у ячейки позиция всегда нулевая. Sale.status = Sold, activeSaleIds обнуляется, saleId добавляется в boughtSales[buyer] и soldSales[seller]. Событие: `SaleBought`, при feeAmount > 0 — `FeeCollected`.
 
 ### cancel(uint256 _saleId)
 
 **Проверки:** msg.sender == seller, status == Active.
 
-**Действия:** `Fundraise.transferInvestment(projectId, marketCell, seller, false, saleId)` — позиция возвращается продавцу. Sale.status = Cancelled, activeSaleIds обнуляется. Событие: `SaleCancelled`.
+**Действия:** `Fundraise.transferPosition(projectId, marketCell, seller, 0, saleId)` — позиция возвращается продавцу. Sale.status = Cancelled, activeSaleIds обнуляется. Событие: `SaleCancelled`.
 
 ### Админ и view
 
@@ -95,7 +95,9 @@ mapping(address => uint256) public accumulatedFees;
 
 ## Интеграция с Fundraise
 
-Fundraise предоставляет `transferInvestment(projectId, from, to, onlyFundedStage, id)`, вызываемый только с адреса, зарегистрированного в ManagerRegistry как Market (`isMarket(msg.sender)`). При вызове вся позиция (investedAmount и totalClaimed) переносится с `from` на `to`.
+Fundraise предоставляет `transferPosition(projectId, from, to, positionIndex, id)`, вызываемый только с адреса, зарегистрированного в ManagerRegistry как Market (`isMarket(msg.sender)`). Переносится **одна позиция** по индексу, а не весь агрегат: доля отметки `totalClaimed` выводится из агрегата пропорционально размеру позиции с округлением вверх, чтобы покупатель не смог заклеймить уже выплаченное.
+
+Агрегатный `transferInvestment` удалён (EL-1815): маркет его не звал, а двигал он агрегат, не трогая массив позиций.
 
 ## Безопасность
 

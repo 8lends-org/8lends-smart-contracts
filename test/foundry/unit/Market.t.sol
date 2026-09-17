@@ -105,10 +105,6 @@ contract MockFundraise_MKT {
         return _positions[investor][pid].length;
     }
 
-    function transferInvestment(uint256, address, address, bool, uint256) external {
-        // Mock: does nothing (investment tracking is internal in real Fundraise)
-    }
-
     function transferPosition(uint256, address, address, uint256, uint256) external {
         // Mock: does nothing (position tracking is internal in real Fundraise)
     }
@@ -270,7 +266,7 @@ contract MarketTest is Test {
         vm.prank(investor);
         uint256 saleId = market.sell(PID, price, 0);
 
-        // Set investor info for marketCell (mock transferInvestment doesn't actually move data)
+        // Set investor info for marketCell (the mock transferPosition moves no data)
         Market.Sale memory sale = market.getSale(saleId);
         vm.prank(owner);
         mockFundraise.setInvestorInfo(sale.marketCell, PID, 30_000e6, 0);

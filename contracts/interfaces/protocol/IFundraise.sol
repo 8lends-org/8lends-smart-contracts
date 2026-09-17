@@ -56,8 +56,6 @@ interface IFundraise {
     ///      the allowance to zero after, so no standing allowance is left behind.
     function investFromMandate(address owner, uint256 pid, uint256 amount, address inviter) external;
 
-    function transferInvestment(uint256 _projectId, address _from, address _to, bool _onlyFundedStage, uint256 _id) external;
-
     function transferPosition(uint256 _projectId, address _from, address _to, uint256 _positionIndex, uint256 _id) external;
 
     function getInvestorPositions(address _investor, uint256 _projectId) external view returns (InvestorInfo[] memory);

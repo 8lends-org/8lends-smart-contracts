@@ -197,6 +197,22 @@ contract FundraisePositionsTest is Setup {
     //                    BACKFILL (Task 2.2)
     // ═══════════════════════════════════════════════════════════════
 
+    /// @dev A legacy investor: aggregate on the books, empty positions array — the very state
+    ///      backfillPositions exists to repair. Written into storage because no live function
+    ///      produces it any more: transferInvestment, which used to, was dead code and is gone
+    ///      (EL-1815). investorInfo is storage slot 1, InvestorInfo is {investedAmount, totalClaimed}.
+    function _moveAggregateLeavingNoPositions(uint256 _pid, address _from, address _to) internal {
+        (uint256 invested, uint256 claimed) = fundraise.investorInfo(_from, _pid);
+
+        bytes32 src = keccak256(abi.encode(_pid, keccak256(abi.encode(_from, uint256(1)))));
+        bytes32 dst = keccak256(abi.encode(_pid, keccak256(abi.encode(_to, uint256(1)))));
+
+        vm.store(address(fundraise), dst, bytes32(invested));
+        vm.store(address(fundraise), bytes32(uint256(dst) + 1), bytes32(claimed));
+        vm.store(address(fundraise), src, bytes32(0));
+        vm.store(address(fundraise), bytes32(uint256(src) + 1), bytes32(0));
+    }
+
     function test_backfillPositions_success() public {
         // Simulate old-style aggregate-only investor by directly setting investorInfo
         // We invest normally (which creates positions), then test backfill on a different investor
@@ -211,23 +227,14 @@ contract FundraisePositionsTest is Setup {
 
         // For backfill test, we need an investor with aggregate but NO positions
         // We can't simulate this easily in foundry since _invest always creates positions now
-        // Instead, test the backfill on a fresh project where we manually set aggregate via transferInvestment
+        // Instead, build the legacy shape directly: aggregate present, positions array empty.
 
         // Create a new project and invest as investor
         uint256 pid2 = _createProject(50_000e6, 100_000e6);
         _investAs(investor, pid2, 20_000e6, inviter);
 
-        // Transfer the entire aggregate to investor2 via old transferInvestment (no position created for investor2)
-        vm.prank(marketCaller);
-        fundraise.transferInvestment(pid2, investor, investor2, false, 999);
+        _moveAggregateLeavingNoPositions(pid2, investor, investor2);
 
-        // investor2 now has aggregate but the positions came from transferInvestment which doesn't create positions in new array
-        // Actually transferInvestment still updates aggregate but doesn't touch _investorPositions for to
-        // Wait — _investAs created positions for investor on pid2, and transferInvestment moved aggregate but not positions
-        // So investor2 has aggregate of 20_000e6 on pid2 but 0 positions
-
-        // Actually let me check: transferInvestment moves entire aggregate. It doesn't touch _investorPositions.
-        // So investor2 gets aggregate = 20k, but _investorPositions[investor2][pid2] is empty.
         assertEq(fundraise.getPositionCount(investor2, pid2), 0, "no positions from old transfer");
         (uint256 aggAmount,) = fundraise.investorInfo(investor2, pid2);
         assertEq(aggAmount, 20_000e6, "aggregate present from transfer");
@@ -247,8 +254,7 @@ contract FundraisePositionsTest is Setup {
         uint256 pid2 = _createProject(50_000e6, 100_000e6);
         _investAs(investor, pid2, 20_000e6, inviter);
 
-        vm.prank(marketCaller);
-        fundraise.transferInvestment(pid2, investor, investor2, false, 999);
+        _moveAggregateLeavingNoPositions(pid2, investor, investor2);
 
         uint256[] memory amounts = new uint256[](1);
         amounts[0] = 15_000e6; // wrong amount
@@ -285,9 +291,8 @@ contract FundraisePositionsTest is Setup {
         vm.prank(investor);
         fundraise.claim(pid, investor);
 
-        // investor now has totalClaimed > 0. Transfer aggregate to investor2 (no positions for investor2)
-        vm.prank(marketCaller);
-        fundraise.transferInvestment(pid, investor, investor2, false, 999);
+        // investor now has totalClaimed > 0; move the aggregate across with no positions behind it
+        _moveAggregateLeavingNoPositions(pid, investor, investor2);
 
         // investor2 has aggregate with totalClaimed > 0 but no positions
         assertEq(fundraise.getPositionCount(investor2, pid), 0);

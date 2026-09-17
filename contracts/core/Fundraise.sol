@@ -44,11 +44,9 @@ contract Fundraise is Initializable, UUPSUpgradeable, OwnableUpgradeable {
     error NoInvestmentToWithdraw();
     error InvalidStageForCancellation();
     error NotAMarket();
-    error ProjectNotInFundedStage();
     error AddressZeroFrom();
     error AddressZeroTo();
     error FromAndToSame();
-    error FromNotFoundInProject();
     error PositionIndexOutOfBounds();
     error PositionHasZeroAmount();
     error InvalidStageForTransfer();
@@ -461,28 +459,6 @@ contract Fundraise is Initializable, UUPSUpgradeable, OwnableUpgradeable {
         }
         project.innerStruct.stage = Stage.Canceled;
         emit ProjectStatusChanged(_projectId, uint8(Stage.Canceled));
-    }
-
-    function transferInvestment(uint256 _projectId, address _from, address _to, bool _isSell, uint256 _id) external {
-        if (!IManagerRegistry(managerRegistry).isMarket(msg.sender)) revert NotAMarket();
-        Project storage project = projects[_projectId];
-        if (_projectId >= projectCount) revert ProjectDoesNotExist();
-        if (_isSell) {
-            if (project.innerStruct.stage != Stage.Funded) revert ProjectNotInFundedStage();
-        }
-        if (_from == address(0)) revert AddressZeroFrom();
-        if (_to == address(0)) revert AddressZeroTo();
-        if (_from == _to) revert FromAndToSame();
-        uint256 amountInvested = investorInfo[_from][_projectId].investedAmount;
-        uint256 amountClaimed = investorInfo[_from][_projectId].totalClaimed;
-
-        if (amountInvested == 0) revert FromNotFoundInProject();
-
-        investorInfo[_to][_projectId].investedAmount += amountInvested;
-        investorInfo[_to][_projectId].totalClaimed += amountClaimed;
-        investorInfo[_from][_projectId].investedAmount = 0;
-        investorInfo[_from][_projectId].totalClaimed = 0;
-        emit InvestmentTransferred(_projectId, _from, _to, amountInvested, _id);
     }
 
     /// @notice Transfer a single investment position by index (used by Market for per-position sales)
