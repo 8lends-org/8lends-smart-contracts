@@ -44,6 +44,12 @@ interface IFundraise {
 
     function investorInfo(address _investor, uint256 _projectId) external view returns (InvestorInfo memory);
 
+    /// @notice Places `amount` of the caller's USDC into `pid`, recording `owner` as the investor.
+    /// @dev Callable only by an escrow of `owner`, which Fundraise checks against the factory in the
+    ///      registry. The escrow approves exactly `amount` immediately before the call and resets
+    ///      the allowance to zero after, so no standing allowance is left behind.
+    function investFromMandate(address owner, uint256 pid, uint256 amount, address inviter) external;
+
     function transferInvestment(uint256 _projectId, address _from, address _to, bool _onlyFundedStage, uint256 _id) external;
 
     function transferPosition(uint256 _projectId, address _from, address _to, uint256 _positionIndex, uint256 _id) external;

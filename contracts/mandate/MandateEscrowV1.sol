@@ -6,7 +6,6 @@ import { SafeERC20 } from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.s
 import { Math } from "@openzeppelin/contracts/utils/math/Math.sol";
 
 import { IMandateEscrowV1 } from "./interfaces/IMandateEscrowV1.sol";
-import { IMandateFundraise } from "./interfaces/IMandateFundraise.sol";
 import { IMandateRouter } from "./interfaces/IMandateRouter.sol";
 import { ImmutableParamsV1, InterestDirection, MandateState } from "./interfaces/MandateTypes.sol";
 import { IERC3009 } from "../interfaces/token/IERC3009.sol";
@@ -278,7 +277,7 @@ contract MandateEscrowV1 is IMandateEscrowV1 {
         if (routed == address(0)) IMandateRouter(ROUTER).enrollSelf(pid);
 
         IERC20(USDC).forceApprove(FUNDRAISE, amount);
-        IMandateFundraise(FUNDRAISE).investFromMandate(owner_, pid, amount, inviter);
+        IFundraise(FUNDRAISE).investFromMandate(owner_, pid, amount, inviter);
         IERC20(USDC).forceApprove(FUNDRAISE, 0);
 
         emit Allocated(pid, amount, paramsHash(), inviter);

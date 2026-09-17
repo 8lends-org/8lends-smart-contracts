@@ -14,6 +14,9 @@ import "../interfaces/protocol/ILimitedSeller.sol";
 import "../interfaces/protocol/IOracle.sol";
 
 import {IEscrowFactory} from "../interfaces/protocol/IEscrowFactory.sol";
+import {IMandateRouter} from "../mandate/interfaces/IMandateRouter.sol";
+import {IMandateFactory} from "../mandate/interfaces/IMandateFactory.sol";
+import {IMandateEscrowV1} from "../mandate/interfaces/IMandateEscrowV1.sol";
 
 /// @title Fundraise - 8lends RWA lending platform
 /// @notice Only standard ERC20 tokens are supported as loanToken.
@@ -77,6 +80,12 @@ contract Fundraise is Initializable, UUPSUpgradeable, OwnableUpgradeable {
     error NotAmlGateway();
     error LoanTokenNotUsdc();
     error InvestmentFailed();
+    error NotAllowed();
+    error NoMandateFactory();
+    error NotMandateOf(address investor, address caller);
+    error ProjectIsRouted(uint256 projectId);
+    error ProjectNotRouted(uint256 projectId);
+    error PayoutToMarketCell(address target);
     error StalePriceData();
     error ProjectPayoutExceedsRepaid();
 
@@ -105,6 +114,12 @@ contract Fundraise is Initializable, UUPSUpgradeable, OwnableUpgradeable {
     event LimitedSellerUpdated(address limitedSeller);
     event AmlGatewayUpdated(address indexed oldGateway, address indexed newGateway);
     event OracleUpdated(address oracle);
+    event MandateRouterUpdated(address mandateRouter);
+
+    /// @notice Principal returned somewhere other than the investor. Silent when they coincide.
+    event InvestmentRefunded(
+        uint256 indexed projectId, address indexed investor, address indexed recipient, uint256 amount
+    );
     event AllTimeInvestedUSDMigrated(uint256 count);
 
     uint256 public constant BASIS_POINTS = 1000000; // 1% = 10000
@@ -193,6 +208,10 @@ contract Fundraise is Initializable, UUPSUpgradeable, OwnableUpgradeable {
     ///      Appended at end of storage for upgrade safety; 0 for pre-upgrade projects (which is
     ///      sound because total-ever-claimed is already bounded by totalRepaid via per-investor watermarks).
     mapping(uint256 => uint256) public projectTotalClaimed;
+
+    /// @notice Router holding the payout routes of mandates.
+    /// @dev While zero every project reads as unrouted, so this can be deployed ahead of the router.
+    address public mandateRouter;
 
     /// @custom:oz-upgrades-unsafe-allow constructor
     constructor() {
@@ -353,13 +372,38 @@ contract Fundraise is Initializable, UUPSUpgradeable, OwnableUpgradeable {
         if (!success) revert InvestmentFailed();
     }
 
+    /// @notice Place a mandate's funds into a project, recording its owner as the investor.
+    /// @dev No signature and no KYC-less cap: access control is the KYC signature spent creating
+    ///      the mandate, and the caller can only be the owner's own escrow.
+    /// @param _investor Mandate owner, recorded as the investor
+    /// @param _amount Amount of loan token, pulled from the calling escrow
+    function investFromMandate(address _investor, uint256 _pid, uint256 _amount, address _inviter) external {
+        address factory = IManagerRegistry(managerRegistry).mandateFactory();
+        if (factory == address(0)) revert NoMandateFactory();
+        if (!IMandateFactory(factory).isEscrowOf(_investor, msg.sender)) {
+            revert NotMandateOf(_investor, msg.sender);
+        }
+
+        bool success = _invest(_investor, _pid, _amount, _inviter);
+        if (!success) revert InvestmentFailed();
+    }
+
     /// @notice In case if project got cancelled, user can withdraw his investment
     /// @param _projectId Project Id
-    /// @param _investor User address, in case if manager will withdraw money for user
+    /// @param _investor Whose principal is returned; the recipient is decided here, not passed in
     function withdrawInvestment(uint256 _projectId, address _investor) external {
-        if (msg.sender != _investor) {
-            if (!IManagerRegistry(managerRegistry).isManager(msg.sender)) revert NotAManager();
-        }
+        address escrow = _routeOf(_investor, _projectId);
+        (address target, bool compromised) = _payoutTarget(_investor, escrow);
+
+        // Clean address: nobody may call for it, the platform included. Flagged: anybody may, and
+        // the money still goes where this contract decides. The operator branch is not a
+        // convenience — without it the principal of a cancelled mandate project would sit here
+        // until the owner pressed a button he has no way of knowing about.
+        if (
+            msg.sender != _investor && !compromised
+            && (escrow == address(0) || !IManagerRegistry(managerRegistry).isOperator(msg.sender))
+        ) revert NotAllowed();
+
         Project storage project = projects[_projectId];
         if (_projectId >= projectCount) revert ProjectDoesNotExist();
         if (project.innerStruct.stage != Stage.Canceled) revert ProjectNotCanceled();
@@ -386,11 +430,9 @@ contract Fundraise is Initializable, UUPSUpgradeable, OwnableUpgradeable {
             positions[i].totalClaimed = 0;
         }
 
-        // Use claim address if set, otherwise use original investor address
-        address payoutAddress = IManagerRegistry(managerRegistry).getInvestorClaimAddress(_investor);
-
-        project.innerStruct.loanToken.safeTransfer(payoutAddress, amount);
+        project.innerStruct.loanToken.safeTransfer(target, amount);
         emit WithdrawInvestment(_projectId, _investor, amount);
+        if (target != _investor) emit InvestmentRefunded(_projectId, _investor, target, amount);
     }
 
     /// @notice Cancel project
@@ -566,12 +608,69 @@ contract Fundraise is Initializable, UUPSUpgradeable, OwnableUpgradeable {
 
     /// @notice User claims his investment
     /// @param _projectId Project info
-    /// @param _investor User address, in case if manager will withdraw money for user
+    /// @param _investor Whose payout is claimed; only he may call, unless his address was flagged
     function claim(uint256 _projectId, address _investor) external {
-        if (msg.sender != _investor) {
-            if (!IManagerRegistry(managerRegistry).isManager(msg.sender)) revert NotAManager();
-        }
+        address escrow = _routeOf(_investor, _projectId);
+        (address target, bool compromised) = _payoutTarget(_investor, escrow);
 
+        if (msg.sender != _investor && !compromised) revert NotAllowed();
+
+        // Called here the payout would land on the escrow without onPayout and count as principal,
+        // so under WALLET and LEND the interest would never go where the owner asked. A flagged
+        // address is exempt: its route does not apply, and this is the support button.
+        if (escrow != address(0) && !compromised) revert ProjectIsRouted(_projectId);
+
+        _claimTo(_projectId, _investor, target);
+    }
+
+    /// @notice Claim on a project routed to a mandate, handing the payout to the escrow to split.
+    /// @dev Open to an operator because the money can only reach the owner's own escrow — which is
+    ///      why the ordinary claim, whose money reaches a wallet, is not.
+    /// @param _marketId Lending8 pool for the LEND direction; ignored by the others
+    function claimForMandate(uint256 _projectId, address _investor, bytes32 _marketId) external {
+        address escrow = _routeOf(_investor, _projectId);
+        if (escrow == address(0)) revert ProjectNotRouted(_projectId);
+
+        (address target, bool compromised) = _payoutTarget(_investor, escrow);
+        if (
+            msg.sender != _investor && !compromised
+                && !IManagerRegistry(managerRegistry).isOperator(msg.sender)
+        ) revert NotAllowed();
+
+        (uint256 claimable, uint256 invested, uint256 claimed) = _claimTo(_projectId, _investor, target);
+
+        // Only when the money really went to the escrow by route: a call into the recovery EOA
+        // would not revert, so that mistake would be silent. Zero skipped — LEND reverts on it.
+        if (!compromised && claimable > 0) {
+            _notifyMandate(escrow, _projectId, claimable, invested, claimed, _marketId);
+        }
+    }
+
+    /// @dev Its own function only to keep claimForMandate off a too-deep stack.
+    function _notifyMandate(
+        address _escrow,
+        uint256 _projectId,
+        uint256 _claimable,
+        uint256 _invested,
+        uint256 _claimed,
+        bytes32 _marketId
+    ) internal {
+        IMandateEscrowV1(_escrow).onPayout(
+            _projectId,
+            _claimable,
+            _invested,
+            _claimed,
+            projects[_projectId].investorInterestRate,
+            _marketId
+        );
+    }
+
+    /// @dev Claim accounting, shared by both entry points. `claimed` is the value after the
+    ///      increment, which is what onPayout expects.
+    function _claimTo(uint256 _projectId, address _investor, address _target)
+        internal
+        returns (uint256 claimable, uint256 invested, uint256 claimed)
+    {
         Project storage project = projects[_projectId];
         if (_projectId >= projectCount) revert ProjectDoesNotExist();
         if (!(project.innerStruct.stage == Stage.Funded || project.innerStruct.stage == Stage.Repaid)) {
@@ -579,13 +678,15 @@ contract Fundraise is Initializable, UUPSUpgradeable, OwnableUpgradeable {
         }
 
         InvestorInfo storage investor = investorInfo[_investor][_projectId];
-        if (investor.investedAmount == 0) revert NoInvestmentFound();
-        uint256 investorShare = (investor.investedAmount * BASIS_POINTS) / project.totalInvested; // Basis points
+        invested = investor.investedAmount;
+        if (invested == 0) revert NoInvestmentFound();
+        uint256 investorShare = (invested * BASIS_POINTS) / project.totalInvested; // Basis points
         uint256 claimableShare = (project.innerStruct.totalRepaid * investorShare) / BASIS_POINTS; // Numeric
 
-        uint256 claimable = claimableShare > investor.totalClaimed ? claimableShare - investor.totalClaimed : 0; // Numeric
+        claimable = claimableShare > investor.totalClaimed ? claimableShare - investor.totalClaimed : 0; // Numeric
 
-        investor.totalClaimed += claimable; // Numeric
+        claimed = investor.totalClaimed + claimable;
+        investor.totalClaimed = claimed;
 
         // Defense-in-depth: cumulative payouts on a project can never exceed what was repaid.
         // Correct per-investor watermarks already guarantee this; the guard is a backstop that
@@ -594,10 +695,7 @@ contract Fundraise is Initializable, UUPSUpgradeable, OwnableUpgradeable {
         if (newProjectClaimed > project.innerStruct.totalRepaid) revert ProjectPayoutExceedsRepaid();
         projectTotalClaimed[_projectId] = newProjectClaimed;
 
-        // Use claim address if set, otherwise use original investor address
-        address payoutAddress = IManagerRegistry(managerRegistry).getInvestorClaimAddress(_investor);
-
-        project.innerStruct.loanToken.safeTransfer(payoutAddress, claimable);
+        project.innerStruct.loanToken.safeTransfer(_target, claimable);
 
         emit Claimed(_projectId, _investor, claimable);
     }
@@ -698,6 +796,42 @@ contract Fundraise is Initializable, UUPSUpgradeable, OwnableUpgradeable {
     }
 
     /// @notice Update manager registry address
+    /// @notice Whether an address has the shape Market gives the service cell of a listed lot.
+    /// @dev Market builds a cell as `(saleId << 128) | (hash & 2^96-1)`: non-zero saleId in the top
+    ///      32 bits, zeroes in the 32 below. Shape is all that can be checked here — the hash binds
+    ///      the seller, whom this contract does not know.
+    /// @dev Paying one would zero the position behind a live lot and wedge it in Active forever.
+    function isMarketCellShaped(address _address) public pure returns (bool) {
+        uint256 raw = uint256(uint160(_address));
+        return (raw >> 128) != 0 && ((raw >> 96) & type(uint32).max) == 0;
+    }
+
+    /// @dev Zero while no router is set, so every project then reads as unrouted.
+    function _routeOf(address _investor, uint256 _projectId) internal view returns (address) {
+        address router = mandateRouter;
+        return router == address(0) ? address(0) : IMandateRouter(router).routes(_investor, _projectId);
+    }
+
+    /// @dev Where the money goes, and whether the address was superseded — both from one read, so
+    ///      they cannot disagree. The order is the rule: a route never outranks the flag.
+    function _payoutTarget(address _investor, address _escrow)
+        internal
+        view
+        returns (address target, bool compromised)
+    {
+        address recipient = IManagerRegistry(managerRegistry).recipientOf(_investor);
+        compromised = recipient != _investor;
+        target = compromised ? recipient : (_escrow == address(0) ? _investor : _escrow);
+        if (isMarketCellShaped(target)) revert PayoutToMarketCell(target);
+    }
+
+    /// @notice Sets the mandate router. Zero switches every mandate path off: payouts fall back to
+    ///         wallets and claimForMandate reverts.
+    function setMandateRouter(address _mandateRouter) external onlyOwner {
+        mandateRouter = _mandateRouter;
+        emit MandateRouterUpdated(_mandateRouter);
+    }
+
     /// @param _managerRegistry New manager registry address
     function setManagerRegistry(address _managerRegistry) external onlyOwner {
         if (_managerRegistry == address(0)) revert ZeroAddress();

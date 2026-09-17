@@ -5,6 +5,7 @@ import "forge-std/Test.sol";
 import "../../../contracts/core/market/Market.sol";
 import "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
+import { Fundraise } from "../../../contracts/core/Fundraise.sol";
 
 // ── Minimal mocks for Market tests ──
 
@@ -198,6 +199,17 @@ contract MarketTest is Test {
         assertEq(uint8(sale.status), uint8(Market.SaleStatus.Active));
         assertEq(sale.buyer, address(0));
         assertTrue(sale.marketCell != address(0));
+    }
+
+    /// Fundraise refuses to pay a service cell, and it recognises one by shape alone. Nothing but
+    /// this test holds the two contracts to the same shape — Market derives it, Fundraise reads it,
+    /// and neither imports the other.
+    function test_sell_cellIsRecognisedByFundraise() public {
+        vm.prank(investor);
+        uint256 saleId = market.sell(PID, 25_000e6, 0);
+
+        address cell = market.getSale(saleId).marketCell;
+        assertTrue(new Fundraise().isMarketCellShaped(cell));
     }
 
     function test_sell_revert_noInvestment() public {

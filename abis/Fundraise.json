@@ -178,12 +178,22 @@
   },
   {
     "inputs": [],
+    "name": "NoMandateFactory",
+    "type": "error"
+  },
+  {
+    "inputs": [],
     "name": "NotAManager",
     "type": "error"
   },
   {
     "inputs": [],
     "name": "NotAMarket",
+    "type": "error"
+  },
+  {
+    "inputs": [],
+    "name": "NotAllowed",
     "type": "error"
   },
   {
@@ -199,6 +209,22 @@
   {
     "inputs": [],
     "name": "NotInitializing",
+    "type": "error"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "address",
+        "name": "investor",
+        "type": "address"
+      },
+      {
+        "internalType": "address",
+        "name": "caller",
+        "type": "address"
+      }
+    ],
+    "name": "NotMandateOf",
     "type": "error"
   },
   {
@@ -239,6 +265,17 @@
     "type": "error"
   },
   {
+    "inputs": [
+      {
+        "internalType": "address",
+        "name": "target",
+        "type": "address"
+      }
+    ],
+    "name": "PayoutToMarketCell",
+    "type": "error"
+  },
+  {
     "inputs": [],
     "name": "PositionHasZeroAmount",
     "type": "error"
@@ -269,6 +306,17 @@
     "type": "error"
   },
   {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "projectId",
+        "type": "uint256"
+      }
+    ],
+    "name": "ProjectIsRouted",
+    "type": "error"
+  },
+  {
     "inputs": [],
     "name": "ProjectNotCanceled",
     "type": "error"
@@ -281,6 +329,17 @@
   {
     "inputs": [],
     "name": "ProjectNotInFundedStage",
+    "type": "error"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "projectId",
+        "type": "uint256"
+      }
+    ],
+    "name": "ProjectNotRouted",
     "type": "error"
   },
   {
@@ -486,6 +545,37 @@
       {
         "indexed": true,
         "internalType": "address",
+        "name": "investor",
+        "type": "address"
+      },
+      {
+        "indexed": true,
+        "internalType": "address",
+        "name": "recipient",
+        "type": "address"
+      },
+      {
+        "indexed": false,
+        "internalType": "uint256",
+        "name": "amount",
+        "type": "uint256"
+      }
+    ],
+    "name": "InvestmentRefunded",
+    "type": "event"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": true,
+        "internalType": "uint256",
+        "name": "projectId",
+        "type": "uint256"
+      },
+      {
+        "indexed": true,
+        "internalType": "address",
         "name": "from",
         "type": "address"
       },
@@ -554,6 +644,19 @@
       }
     ],
     "name": "ManagerRegistryUpdated",
+    "type": "event"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": false,
+        "internalType": "address",
+        "name": "mandateRouter",
+        "type": "address"
+      }
+    ],
+    "name": "MandateRouterUpdated",
     "type": "event"
   },
   {
@@ -924,6 +1027,29 @@
   {
     "inputs": [
       {
+        "internalType": "uint256",
+        "name": "_projectId",
+        "type": "uint256"
+      },
+      {
+        "internalType": "address",
+        "name": "_investor",
+        "type": "address"
+      },
+      {
+        "internalType": "bytes32",
+        "name": "_marketId",
+        "type": "bytes32"
+      }
+    ],
+    "name": "claimForMandate",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
         "components": [
           {
             "internalType": "uint256",
@@ -1138,6 +1264,34 @@
   {
     "inputs": [
       {
+        "internalType": "address",
+        "name": "_investor",
+        "type": "address"
+      },
+      {
+        "internalType": "uint256",
+        "name": "_pid",
+        "type": "uint256"
+      },
+      {
+        "internalType": "uint256",
+        "name": "_amount",
+        "type": "uint256"
+      },
+      {
+        "internalType": "address",
+        "name": "_inviter",
+        "type": "address"
+      }
+    ],
+    "name": "investFromMandate",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
         "internalType": "uint256",
         "name": "_pid",
         "type": "uint256"
@@ -1195,6 +1349,25 @@
       }
     ],
     "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "address",
+        "name": "_address",
+        "type": "address"
+      }
+    ],
+    "name": "isMarketCellShaped",
+    "outputs": [
+      {
+        "internalType": "bool",
+        "name": "",
+        "type": "bool"
+      }
+    ],
+    "stateMutability": "pure",
     "type": "function"
   },
   {
@@ -1260,6 +1433,19 @@
   {
     "inputs": [],
     "name": "managerRegistry",
+    "outputs": [
+      {
+        "internalType": "address",
+        "name": "",
+        "type": "address"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "mandateRouter",
     "outputs": [
       {
         "internalType": "address",
@@ -1526,6 +1712,19 @@
       }
     ],
     "name": "setManagerRegistry",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "address",
+        "name": "_mandateRouter",
+        "type": "address"
+      }
+    ],
+    "name": "setMandateRouter",
     "outputs": [],
     "stateMutability": "nonpayable",
     "type": "function"

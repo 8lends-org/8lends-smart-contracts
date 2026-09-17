@@ -316,26 +316,20 @@ contract FundraiseTest is Setup {
         assertEq(uint8(inner.stage), uint8(Fundraise.Stage.Canceled));
     }
 
-    function test_claim_managerCanClaimOnBehalf() public {
+    /// A manager's blanket right to claim for a user was revoked with the mandate work: while an
+    /// address is clean, nobody may call for it — the platform included. The cases that replace it
+    /// are in FundraiseMandate.t.sol.
+    function test_claim_nobodyCanClaimOnBehalfOfACleanAddress() public {
         _investAs(investor, pid, 30_000e6, inviter);
         _fundProject(pid);
         _repayFull(pid);
 
-        uint256 balBefore = usdc.balanceOf(investor);
         vm.prank(manager);
+        vm.expectRevert(Fundraise.NotAllowed.selector);
         fundraise.claim(pid, investor);
-        uint256 balAfter = usdc.balanceOf(investor);
-
-        assertGt(balAfter, balBefore, "Manager should be able to claim on behalf");
-    }
-
-    function test_claim_randomUserCannotClaimOnBehalf() public {
-        _investAs(investor, pid, 30_000e6, inviter);
-        _fundProject(pid);
-        _repayFull(pid);
 
         vm.prank(attacker);
-        vm.expectRevert(Fundraise.NotAManager.selector);
+        vm.expectRevert(Fundraise.NotAllowed.selector);
         fundraise.claim(pid, investor);
     }
 
