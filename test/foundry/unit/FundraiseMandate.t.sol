@@ -328,39 +328,6 @@ contract FundraiseMandateTest is Setup {
         }
     }
 
-    // ── market cell guard ───────────────────────────────────────────────────────
-
-    function test_market_cell_shape_is_recognised_and_ordinary_addresses_are_not() public view {
-        assertTrue(fundraise.isMarketCellShaped(_cellShaped(1)));
-        assertTrue(fundraise.isMarketCellShaped(_cellShaped(4242)));
-        assertFalse(fundraise.isMarketCellShaped(investor));
-        assertFalse(fundraise.isMarketCellShaped(address(0)));
-        assertFalse(fundraise.isMarketCellShaped(address(escrow)));
-    }
-
-    /// A cell has no key, so it cannot be flagged — but it can be typed into a recovery address.
-    function test_payout_to_a_market_cell_reverts() public {
-        uint256 pid = _repaidProject();
-        address cell = _cellShaped(7);
-
-        vm.prank(owner);
-        managerRegistry.setInvestorClaimAddress(investor, cell);
-
-        vm.expectRevert(abi.encodeWithSelector(Fundraise.PayoutToMarketCell.selector, cell));
-        vm.prank(investor);
-        fundraise.claim(pid, investor);
-    }
-
-    /// The defect itself: it would zero the position behind a live lot and wedge it in Active.
-    function test_refund_for_a_market_cell_reverts() public {
-        uint256 pid = _cancelledProject();
-        address cell = _cellShaped(3);
-
-        vm.expectRevert(abi.encodeWithSelector(Fundraise.PayoutToMarketCell.selector, cell));
-        vm.prank(cell);
-        fundraise.withdrawInvestment(pid, cell);
-    }
-
     // ── regressions ─────────────────────────────────────────────────────────────
 
     /// Rewards read the registry directly and never the router, so a mandate cannot swallow them.
@@ -396,11 +363,6 @@ contract FundraiseMandateTest is Setup {
         vm.warp(block.timestamp + 8 days);
         vm.prank(manager);
         fundraise.cancelProject(pid);
-    }
-
-    /// @dev The shape Market gives a cell: sale id in the top 32 bits, zeroes in the 32 below.
-    function _cellShaped(uint256 saleId) internal pure returns (address) {
-        return address(uint160((saleId << 128) | (uint256(keccak256(abi.encode(saleId))) & type(uint96).max)));
     }
 
     function _registryWithoutFactory() internal returns (ManagerRegistry fresh) {

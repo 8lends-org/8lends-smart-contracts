@@ -83,7 +83,6 @@ contract Fundraise is Initializable, UUPSUpgradeable, OwnableUpgradeable {
     error NotMandateOf(address investor, address caller);
     error ProjectIsRouted(uint256 projectId);
     error ProjectNotRouted(uint256 projectId);
-    error PayoutToMarketCell(address target);
     error StalePriceData();
     error ProjectPayoutExceedsRepaid();
 
@@ -790,16 +789,6 @@ contract Fundraise is Initializable, UUPSUpgradeable, OwnableUpgradeable {
         );
     }
 
-    /// @notice Whether an address has the shape Market gives the service cell of a listed lot.
-    /// @dev Market builds a cell as `(saleId << 128) | (hash & 2^96-1)`: non-zero saleId in the top
-    ///      32 bits, zeroes in the 32 below. Shape is all that can be checked here — the hash binds
-    ///      the seller, whom this contract does not know.
-    /// @dev Paying one would zero the position behind a live lot and wedge it in Active forever.
-    function isMarketCellShaped(address _address) public pure returns (bool) {
-        uint256 raw = uint256(uint160(_address));
-        return (raw >> 128) != 0 && ((raw >> 96) & type(uint32).max) == 0;
-    }
-
     /// @dev Zero while no router is set, so every project then reads as unrouted.
     function _routeOf(address _investor, uint256 _projectId) internal view returns (address) {
         address router = mandateRouter;
@@ -816,7 +805,6 @@ contract Fundraise is Initializable, UUPSUpgradeable, OwnableUpgradeable {
         address recipient = IManagerRegistry(managerRegistry).recipientOf(_investor);
         compromised = recipient != _investor;
         target = compromised ? recipient : (_escrow == address(0) ? _investor : _escrow);
-        if (isMarketCellShaped(target)) revert PayoutToMarketCell(target);
     }
 
     /// @notice Sets the mandate router. Zero switches every mandate path off: payouts fall back to
