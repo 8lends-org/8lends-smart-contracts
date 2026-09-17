@@ -265,6 +265,21 @@ contract FundraiseMandateTest is Setup {
         assertEq(escrow.lastMarketId(), MARKET_ID);
     }
 
+    /// Nothing repaid yet: the call succeeds, but the escrow is not told about a payout that never
+    /// arrived — under LEND a zero would reach Lending8 and revert there.
+    function test_claimForMandate_leaves_the_escrow_alone_on_a_zero_payout() public {
+        uint256 pid = _createProject(AMOUNT, AMOUNT);
+        _investAs(investor, pid, AMOUNT, address(0));
+        _fundProject(pid);
+        _route(pid);
+
+        vm.prank(operator);
+        fundraise.claimForMandate(pid, investor, MARKET_ID);
+
+        assertEq(escrow.calls(), 0, "no split call");
+        assertEq(usdc.balanceOf(address(escrow)), 0);
+    }
+
     function test_claimForMandate_is_refused_to_a_stranger_on_a_clean_address() public {
         uint256 pid = _repaidProject();
         _route(pid);
