@@ -20,24 +20,13 @@ interface IMandateRouter {
     /// @notice Projects whose payouts are routed to this escrow.
     function enrolledPids(address escrow) external view returns (uint256[] memory);
 
-    // isEscrowOf is NOT declared here: the derived ownership check lives in the factory, in one
-    // implementation, next to predictMandateAddress — see IMandateFactory.isEscrowOf. The router
-    // calls it from setRoute, setRouteMany and enrollSelf.
-
-    // The router keeps no factory address of its own either: it reads managerRegistry
-    // .mandateFactory() inside setRoute, setRouteMany and enrollSelf, so rotating the factory stays
-    // a single registry write.
-
     /// @notice The registry this router reads. Two things come from it: isOperator for clearIfEmpty
     ///         and the factory address for the ownership check.
-    /// @dev Worth checking before a release: a zero or wrong value here reverts setRoute,
-    ///      setRouteMany and enrollSelf, i.e. enrolment stops entirely.
+    /// @dev A zero or wrong value here reverts setRoute, setRouteMany and enrollSelf — worth
+    ///      checking before a release.
     function managerRegistry() external view returns (address);
 
-    /// @notice The Fundraise this router reads investorInfo from — for sizeAndExposure and for the
-    ///         emptiness check in clearIfEmpty. Declared for the same reason: release verification.
-    /// @dev Fundraise is upgradeable in place, so this address never needs to change; a redeploy is
-    ///      forbidden because escrow clones carry it as an immutable.
+    /// @notice The Fundraise this router reads investorInfo from.
     function fundraise() external view returns (address);
 
     /// @notice Outstanding principal across all projects of this escrow, plus the exposure to one
@@ -82,12 +71,16 @@ interface IMandateRouter {
 
     /// @notice Clears the route once nothing is left in the project. Keeps the enrolled list short,
     ///         which is what keeps allocation gas bounded.
-    /// @dev Operator-gated, and it also requires investedAmount == 0.
-    /// @dev CALLER CONTRACT: invested == 0 is not the whole condition. Listing a lot takes the
-    ///      position out of the investment immediately, so an owner who listed ALL positions in a
-    ///      project looks like one who left it — clearing then means their lots come back without
-    ///      a route and payouts go to the wallet. "No active lots on this project" cannot be
-    ///      checked on chain (Market has no aggregate counter; activePositionSaleIds is keyed by
-    ///      position index), so the caller must check it.
+    /// @dev Operator-gated, and it requires two things on chain: no outstanding principal, and a
+    ///      project that is Repaid or Canceled. Outstanding alone would not do — a position that is
+    ///      merely listed on the market also reads as zero.
+    /// @dev CALLER CONTRACT: those two are still not the whole condition. An owner who listed ALL
+    ///      positions in a project looks like one who left it, so clearing then means their lots
+    ///      come back without a route and payouts go to the wallet. "No active lots on this
+    ///      project" cannot be checked on chain (Market has no aggregate counter;
+    ///      activePositionSaleIds is keyed by position index), so the caller must check it.
     function clearIfEmpty(address owner, uint256 pid) external;
+
+    /// @notice Same for many (owner, project) pairs. Reverts as a whole if any element fails.
+    function clearIfEmptyMany(address[] calldata owners, uint256[] calldata pids) external;
 }
