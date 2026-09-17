@@ -795,7 +795,25 @@ contract Fundraise is Initializable, UUPSUpgradeable, OwnableUpgradeable {
         emit TrustedSignerUpdated(_signer);
     }
 
-    /// @notice Update manager registry address
+    /// @notice Everything a placement needs to decide, without loading the rest of the project.
+    /// @dev The public `projects` getter reads all twelve slots; this reads four, and allocation
+    ///      runs on every mandate ticket. `loanToken` is free — same slot as `stage`.
+    /// @dev The deadline comes back too: past it an Open project still takes no money.
+    function projectCapacity(uint256 _projectId)
+        external
+        view
+        returns (Stage stage, address loanToken, uint256 openStageEndAt, uint256 hardCap, uint256 totalInvested)
+    {
+        Project storage project = projects[_projectId];
+        return (
+            project.innerStruct.stage,
+            address(project.innerStruct.loanToken),
+            project.openStageEndAt,
+            project.hardCap,
+            project.totalInvested
+        );
+    }
+
     /// @notice Whether an address has the shape Market gives the service cell of a listed lot.
     /// @dev Market builds a cell as `(saleId << 128) | (hash & 2^96-1)`: non-zero saleId in the top
     ///      32 bits, zeroes in the 32 below. Shape is all that can be checked here — the hash binds
@@ -832,6 +850,7 @@ contract Fundraise is Initializable, UUPSUpgradeable, OwnableUpgradeable {
         emit MandateRouterUpdated(_mandateRouter);
     }
 
+    /// @notice Update manager registry address
     /// @param _managerRegistry New manager registry address
     function setManagerRegistry(address _managerRegistry) external onlyOwner {
         if (_managerRegistry == address(0)) revert ZeroAddress();

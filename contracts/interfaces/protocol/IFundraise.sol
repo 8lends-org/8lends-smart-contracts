@@ -42,6 +42,12 @@ interface IFundraise {
 
     function projects(uint256 _projectId) external view returns (Project memory);
 
+    /// @notice Everything a placement needs to decide, without loading the rest of the project.
+    function projectCapacity(uint256 _projectId)
+        external
+        view
+        returns (Stage stage, address loanToken, uint256 openStageEndAt, uint256 hardCap, uint256 totalInvested);
+
     function investorInfo(address _investor, uint256 _projectId) external view returns (InvestorInfo memory);
 
     /// @notice Places `amount` of the caller's USDC into `pid`, recording `owner` as the investor.

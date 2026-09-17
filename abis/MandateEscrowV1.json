@@ -110,8 +110,30 @@
     "type": "error"
   },
   {
+    "inputs": [
+      {
+        "internalType": "address",
+        "name": "loanToken",
+        "type": "address"
+      }
+    ],
+    "name": "ProjectLoanTokenNotUsdc",
+    "type": "error"
+  },
+  {
     "inputs": [],
     "name": "ProjectNotOpen",
+    "type": "error"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "endedAt",
+        "type": "uint256"
+      }
+    ],
+    "name": "ProjectWindowClosed",
     "type": "error"
   },
   {

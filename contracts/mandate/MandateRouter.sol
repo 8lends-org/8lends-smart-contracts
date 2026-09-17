@@ -67,8 +67,9 @@ contract MandateRouter is IMandateRouter, Initializable, OwnableUpgradeable, UUP
     {
         address owner_ = IMandateEscrowV1(escrow).owner();
         uint256[] storage pids = _enrolled[escrow];
+        uint256 count = pids.length;
 
-        for (uint256 i = 0; i < pids.length; i++) {
+        for (uint256 i = 0; i < count; i++) {
             uint256 pid = pids[i];
             uint256 left = _outstanding(owner_, pid);
             outstanding += left;
@@ -179,8 +180,9 @@ contract MandateRouter is IMandateRouter, Initializable, OwnableUpgradeable, UUP
     }
 
     function _list(address escrow, uint256 pid) private {
-        _enrolled[escrow].push(pid);
-        _enrolledIndex[escrow][pid] = _enrolled[escrow].length;
+        uint256[] storage pids = _enrolled[escrow];
+        pids.push(pid);
+        _enrolledIndex[escrow][pid] = pids.length;
     }
 
     /// @dev Swap-and-pop: the list has no meaningful order, and allocation walks all of it.

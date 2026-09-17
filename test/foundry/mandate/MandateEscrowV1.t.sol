@@ -80,7 +80,14 @@ contract FundraiseStub {
     uint256 public calls;
     IERC20 internal usdc;
 
-    constructor(IERC20 usdc_) { usdc = usdc_; }
+    constructor(IERC20 usdc_) {
+        usdc = usdc_;
+        project.innerStruct.loanToken = usdc_;
+        project.openStageEndAt = type(uint256).max;
+    }
+
+    function setLoanToken(address token) external { project.innerStruct.loanToken = IERC20(token); }
+    function setWindowEnd(uint256 endsAt) external { project.openStageEndAt = endsAt; }
 
     function setProject(uint256 hardCap, uint256 totalInvested, IFundraise.Stage stage) external {
         project.hardCap = hardCap;
@@ -89,6 +96,20 @@ contract FundraiseStub {
     }
 
     function projects(uint256) external view returns (IFundraise.Project memory) { return project; }
+
+    function projectCapacity(uint256)
+        external
+        view
+        returns (IFundraise.Stage, address, uint256, uint256, uint256)
+    {
+        return (
+            project.innerStruct.stage,
+            address(project.innerStruct.loanToken),
+            project.openStageEndAt,
+            project.hardCap,
+            project.totalInvested
+        );
+    }
 
     function investFromMandate(address owner, uint256, uint256 amount, address inviter) external {
         lastOwner = owner;
@@ -299,6 +320,32 @@ contract MandateEscrowV1Test is Test {
         _fund(5_000e6);
         fundraise.setProject(1_000_000e6, 0, IFundraise.Stage.Funded);
         vm.expectRevert(MandateEscrowV1.ProjectNotOpen.selector);
+        vm.prank(operator);
+        escrow.allocate(PID, address(0));
+    }
+
+    /// Stage says Open, but the window has shut: Fundraise would answer a bare InvestmentFailed.
+    function test_allocate_refuses_a_project_past_its_window() public {
+        _fund(5_000e6);
+        fundraise.setProject(1_000_000e6, 0, IFundraise.Stage.Open);
+        fundraise.setWindowEnd(block.timestamp - 1);
+
+        vm.expectRevert(
+            abi.encodeWithSelector(MandateEscrowV1.ProjectWindowClosed.selector, block.timestamp - 1)
+        );
+        vm.prank(operator);
+        escrow.allocate(PID, address(0));
+    }
+
+    /// The escrow holds USDC alone; anything else has Fundraise pull a token that is not here.
+    function test_allocate_refuses_a_project_denominated_in_another_token() public {
+        _fund(5_000e6);
+        fundraise.setProject(1_000_000e6, 0, IFundraise.Stage.Open);
+        fundraise.setLoanToken(address(0xDA1));
+
+        vm.expectRevert(
+            abi.encodeWithSelector(MandateEscrowV1.ProjectLoanTokenNotUsdc.selector, address(0xDA1))
+        );
         vm.prank(operator);
         escrow.allocate(PID, address(0));
     }

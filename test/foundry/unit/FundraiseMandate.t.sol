@@ -3,6 +3,7 @@ pragma solidity ^0.8.23;
 
 import "forge-std/Test.sol";
 import "../Setup.sol";
+import { IFundraise } from "../../../contracts/interfaces/protocol/IFundraise.sol";
 
 /// @dev Routes only — the router has its own suite. Under test is what Fundraise does with them.
 contract RouterStub {
@@ -137,6 +138,29 @@ contract FundraiseMandateTest is Setup {
 
         vm.expectRevert(Fundraise.NoMandateFactory.selector);
         escrow.place(fundraise, IERC20(address(usdc)), investor, pid, AMOUNT);
+    }
+
+    /// The escrow reads the project through projectCapacity, never through projects — and the escrow
+    /// suite runs against a mock. Nothing but this holds the narrow getter to the wide one.
+    function test_projectCapacity_agrees_with_the_full_project() public {
+        uint256 pid = _createProject(AMOUNT, AMOUNT);
+        _investAs(investor, pid, AMOUNT / 2, address(0));
+
+        IFundraise.Project memory full = IFundraise(address(fundraise)).projects(pid);
+        (
+            IFundraise.Stage stage,
+            address loanToken,
+            uint256 openStageEndAt,
+            uint256 hardCap,
+            uint256 totalInvested
+        ) = IFundraise(address(fundraise)).projectCapacity(pid);
+
+        assertEq(uint8(stage), uint8(full.innerStruct.stage), "stage");
+        assertEq(loanToken, address(full.innerStruct.loanToken), "loanToken");
+        assertEq(openStageEndAt, full.openStageEndAt, "openStageEndAt");
+        assertEq(hardCap, full.hardCap, "hardCap");
+        assertEq(totalInvested, full.totalInvested, "totalInvested");
+        assertGt(totalInvested, 0, "a live project, not an empty struct");
     }
 
     // ── payout target ───────────────────────────────────────────────────────────
