@@ -6,6 +6,7 @@ import { Vm } from "forge-std/Vm.sol";
 import { Clones } from "@openzeppelin/contracts/proxy/Clones.sol";
 import { ERC1967Proxy } from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 import { IERC20 } from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import { Math } from "@openzeppelin/contracts/utils/math/Math.sol";
 
 import { MandateEscrowV1 } from "../../../contracts/mandate/MandateEscrowV1.sol";
 import { IMandateEscrowV1 } from "../../../contracts/mandate/interfaces/IMandateEscrowV1.sol";
@@ -480,6 +481,36 @@ contract MandateEscrowV1Test is Test {
         emit IMandateEscrowV1.PayoutSplit(PID, 100e6, 0);
         vm.prank(address(fundraise));
         escrow.onPayout(PID, 100e6, invested, 300e6, rate, bytes32(0));
+    }
+
+    /// The split is a function of the cumulative claimed, not of how the claims were chunked: over
+    /// any sequence the owner receives exactly min(total, budget). Covers the payment that straddles
+    /// the boundary, which is the only one that gets divided.
+    function testFuzz_waterfall_totals_do_not_depend_on_the_chunking(uint256 seed) public {
+        uint256 invested = 1_000e6;
+        uint256 rate = 1_500; // budget 150e6
+        uint256 budget = (invested * rate) / 10_000;
+        uint256 owed = invested + budget;
+
+        MandateEscrowV1 e = MandateEscrowV1(Clones.clone(address(impl)));
+        e.initialize(owner, ImmutableParamsV1({ interestDirection: uint8(InterestDirection.WALLET), projectLimitBps: 1000 }));
+
+        uint256 claimed;
+        for (uint256 i = 0; i < 12 && claimed < owed; i++) {
+            seed = uint256(keccak256(abi.encode(seed, i)));
+            uint256 fresh = (seed % (owed / 3)) + 1;
+            if (claimed + fresh > owed) fresh = owed - claimed;
+            claimed += fresh;
+
+            // The money lands before the callback, as Fundraise does it — so the balance below is
+            // what actually stayed, not what was pre-funded.
+            usdc.mint(address(e), fresh);
+            vm.prank(address(fundraise));
+            e.onPayout(PID, fresh, invested, claimed, rate, bytes32(0));
+        }
+
+        assertEq(usdc.balanceOf(owner), Math.min(claimed, budget), "interest paid out");
+        assertEq(e.freeBalance(), claimed - Math.min(claimed, budget), "principal kept");
     }
 
     function test_direction_zero_keeps_interest_on_the_balance() public {
