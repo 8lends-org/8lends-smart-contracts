@@ -30,9 +30,14 @@ contract RewardSystem is Initializable, UUPSUpgradeable, OwnableUpgradeable, Ree
 
     // Reward system parameters (changeable)
     uint256 public referralPercentage; // 6% USDC for inviter
-    /// @dev Zero on Base as of Sep-2026, which disables the bonus branch — initialize seeds 30 USDC.
+    /// @notice DEPRECATED. The welcome bonus is paid by WelcomeBonus, not from here.
+    /// @dev Zero on Base as of Sep-2026, which is what keeps the branch in recordInvestment dead.
+    ///      Drop the reads at the next upgrade — the branch, the setParameters argument and the
+    ///      WelcomeBonusRecorded event. The variable itself stays declared to hold its slot, and
+    ///      so does minInvestmentForBonus, which only ever gated this branch.
     uint256 public welcomeBonusAmount;
-    uint256 public minInvestmentForBonus; // Minimum 1000 USDC for bonus, moot while the bonus is off
+    /// @notice DEPRECATED with welcomeBonusAmount — it gates nothing else.
+    uint256 public minInvestmentForBonus;
     uint256 public tokenPercentage; // 6% tokens for investor
     /// @notice When > 0, enables buy-back-and-burn during reward activation. Value represents the burn percentage in BASIS_POINTS.
     uint256 public burnPercentage;
@@ -240,7 +245,8 @@ contract RewardSystem is Initializable, UUPSUpgradeable, OwnableUpgradeable, Ree
         refData.totalRewardsTokens += tokensAmount;
         rewardTokensAmount[_projectId] += tokensAmount;
 
-        // Bonus for investor (if investment USD value >= minimum and this is new user)
+        // DEPRECATED, see welcomeBonusAmount: dead while the amount is zero, to be removed at the
+        // next upgrade. Paying it from here would double the bonus WelcomeBonus already pays.
         if(welcomeBonusAmount > 0) {
             if (userInfo.isNewUser && _convertToUSD(_amount, _loanToken) >= minInvestmentForBonus) {
                 refData.totalRewardsUSDC += welcomeBonusAmount;
@@ -345,7 +351,7 @@ contract RewardSystem is Initializable, UUPSUpgradeable, OwnableUpgradeable, Ree
     /// @param _referralPercentage referral percentage 60000 is 6%
     /// @param _burnPercentage burn percentage 60000 is 6%
     /// @param _tokenPercentage token percentage 60000 is 6%
-    /// @param _welcomeBonusAmount welcome bonus amount in USDC-decimal units (dynamic, not hardcoded to 6 decimals)
+    /// @param _welcomeBonusAmount DEPRECATED, pass zero. Kept only to preserve the signature.
     /// @param _minInvestmentForBonus min investment for bonus in USDC-decimal units (dynamic, not hardcoded to 6 decimals)
     /// @param _weeklyUnlock weekly unlock 25000 is 2.5%
     /// @param _vestingWeeks vesting weeks 40 is 40 weeks
