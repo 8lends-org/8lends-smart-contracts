@@ -350,5 +350,24 @@
     "deployedFrom": "7812e1d",
     "deployedAt": "Jul-01-2026",
     "build": null
+  },
+  "CryptoCourseBonus": {
+    "proxy": "0x5A1c824536D3E94bfa7427A29d1570bcaD40118d",
+    "impl": "0xF1D0A857338580B6BbA670A8e6768C7C19F88805",
+    "buildHash": "0x0bbb7ae32d097ef2c1193555773a4fda9f56d773938bead7ca6737bbfe99eab9",
+    "matchesDeployed": true,
+    "deployedFrom": "490f810",
+    "deployedAt": "Sep-16-2026",
+    "build": {
+      "solc": "v0.8.23+commit.f704f362",
+      "optimizer": {
+        "enabled": true,
+        "runs": 50,
+        "details": {
+          "yul": true
+        }
+      },
+      "evmVersion": "paris"
+    }
   }
 }

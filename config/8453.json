@@ -34,6 +34,5 @@
   "uniswapPools": {
     "cbBTC_USDC": "0xfbb6eed8e7aa03b138556eedaf5d271a5e1e43ef",
     "ETH_USDC": "0x6c561b446416e1a00e8e93e221854d6ea4171372"
-  },
-  "CryptoCourseTrustedSigner": "0x32B2a3e58317417986C0170F758219De904e4858"
+  }
 }
