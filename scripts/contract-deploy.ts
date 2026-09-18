@@ -250,13 +250,14 @@ const DEPLOY_DESCRIPTORS: Record<string, DeployDescriptor> = {
   CryptoCourseBonus: {
     useProxy: true,
     initializer: "initialize",
-    // Amounts are per course now and are set after deploy with setCourseAmount / setCourseAmounts —
-    // there is no global bonus amount, so initialize takes two arguments.
+    // Amounts are per course and per reward, set after deploy with setCashAmount /
+    // setVoucherAmount. Paying is gated by the operator role in ManagerRegistry, as in the sibling
+    // bonus contracts, so the payer is granted with setOperatorStatus rather than passed here.
     getProxyArgs: (config) => {
-      if (!config.USDC || !config.CryptoCourseTrustedSigner) {
-        throw new Error("USDC, CryptoCourseTrustedSigner required in config");
+      if (!config.ManagerRegistry || !config.USDC) {
+        throw new Error("ManagerRegistry, USDC required in config");
       }
-      return [config.USDC, config.CryptoCourseTrustedSigner];
+      return [config.ManagerRegistry, config.USDC];
     },
     configKey: "CryptoCourseBonus",
     configKeyImpl: "CryptoCourseBonus_impl",

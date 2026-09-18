@@ -100,8 +100,7 @@ figures from the two are not comparable, and deployments go through Hardhat.
 |---|---|
 | `BASE_RPC_URL` | fast Base fork; falls back to the public endpoint |
 | `ETHEREUM_SEPOLIA_RPC_URL` | Sepolia; same fallback |
-| `OWNER_MNEMONIC_PROD` / `_DEV` | signing on Base / Sepolia |
-| `INITIAL_INDEX` | which mnemonic account to use |
+| `DEPLOYER_PRIVATE_KEY_PROD` / `_DEV` | signing on Base / Sepolia — one key each, not a seed |
 | `ETHERSCAN_API_KEY` | verification (single key, Etherscan V2) |
 | `TRUSTED_SIGNER_PRIVATE_KEY` | backend signature for `Fundraise` deploys |
 | `CONTRACT`, `METHOD`, `ARGS`, `CALLS` | inputs for `prepare-safe-tx` |

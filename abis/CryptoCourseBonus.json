@@ -16,30 +16,35 @@
     "type": "error"
   },
   {
-    "inputs": [],
-    "name": "ECDSAInvalidSignature",
+    "inputs": [
+      {
+        "internalType": "address",
+        "name": "user",
+        "type": "address"
+      },
+      {
+        "internalType": "uint256",
+        "name": "courseId",
+        "type": "uint256"
+      }
+    ],
+    "name": "AlreadyPaid",
     "type": "error"
   },
   {
     "inputs": [
       {
         "internalType": "uint256",
-        "name": "length",
+        "name": "amount",
+        "type": "uint256"
+      },
+      {
+        "internalType": "uint256",
+        "name": "maxAmount",
         "type": "uint256"
       }
     ],
-    "name": "ECDSAInvalidSignatureLength",
-    "type": "error"
-  },
-  {
-    "inputs": [
-      {
-        "internalType": "bytes32",
-        "name": "s",
-        "type": "bytes32"
-      }
-    ],
-    "name": "ECDSAInvalidSignatureS",
+    "name": "AmountExceedsMax",
     "type": "error"
   },
   {
@@ -60,7 +65,28 @@
   },
   {
     "inputs": [],
+    "name": "EmptyBatch",
+    "type": "error"
+  },
+  {
+    "inputs": [],
     "name": "FailedCall",
+    "type": "error"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "needed",
+        "type": "uint256"
+      },
+      {
+        "internalType": "uint256",
+        "name": "available",
+        "type": "uint256"
+      }
+    ],
+    "name": "InsufficientBalance",
     "type": "error"
   },
   {
@@ -70,7 +96,17 @@
   },
   {
     "inputs": [],
+    "name": "LengthMismatch",
+    "type": "error"
+  },
+  {
+    "inputs": [],
     "name": "NotInitializing",
+    "type": "error"
+  },
+  {
+    "inputs": [],
+    "name": "NotOperator",
     "type": "error"
   },
   {
@@ -97,7 +133,23 @@
   },
   {
     "inputs": [],
+    "name": "PayoutsStopped",
+    "type": "error"
+  },
+  {
+    "inputs": [],
     "name": "ReentrancyGuardReentrantCall",
+    "type": "error"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "courseId",
+        "type": "uint256"
+      }
+    ],
+    "name": "RewardNotConfigured",
     "type": "error"
   },
   {
@@ -128,6 +180,16 @@
     "type": "error"
   },
   {
+    "inputs": [],
+    "name": "ZeroAddress",
+    "type": "error"
+  },
+  {
+    "inputs": [],
+    "name": "ZeroAmount",
+    "type": "error"
+  },
+  {
     "anonymous": false,
     "inputs": [
       {
@@ -149,26 +211,26 @@
         "type": "uint256"
       }
     ],
-    "name": "BonusClaimed",
+    "name": "CashBonusPaid",
     "type": "event"
   },
   {
     "anonymous": false,
     "inputs": [
       {
-        "indexed": true,
-        "internalType": "uint256",
-        "name": "courseId",
-        "type": "uint256"
+        "indexed": false,
+        "internalType": "address",
+        "name": "managerRegistry",
+        "type": "address"
       },
       {
         "indexed": false,
-        "internalType": "uint256",
-        "name": "amount",
-        "type": "uint256"
+        "internalType": "address",
+        "name": "usdc",
+        "type": "address"
       }
     ],
-    "name": "CourseAmountSet",
+    "name": "ContractsUpdated",
     "type": "event"
   },
   {
@@ -202,6 +264,44 @@
     "inputs": [
       {
         "indexed": true,
+        "internalType": "uint256",
+        "name": "courseId",
+        "type": "uint256"
+      },
+      {
+        "indexed": false,
+        "internalType": "uint256",
+        "name": "maxAmount",
+        "type": "uint256"
+      }
+    ],
+    "name": "MaxCashAmountSet",
+    "type": "event"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": true,
+        "internalType": "uint256",
+        "name": "courseId",
+        "type": "uint256"
+      },
+      {
+        "indexed": false,
+        "internalType": "uint256",
+        "name": "maxAmount",
+        "type": "uint256"
+      }
+    ],
+    "name": "MaxVoucherAmountSet",
+    "type": "event"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": true,
         "internalType": "address",
         "name": "previousOwner",
         "type": "address"
@@ -214,19 +314,6 @@
       }
     ],
     "name": "OwnershipTransferred",
-    "type": "event"
-  },
-  {
-    "anonymous": false,
-    "inputs": [
-      {
-        "indexed": false,
-        "internalType": "address",
-        "name": "signer",
-        "type": "address"
-      }
-    ],
-    "name": "TrustedSignerSet",
     "type": "event"
   },
   {
@@ -246,13 +333,25 @@
     "anonymous": false,
     "inputs": [
       {
-        "indexed": false,
+        "indexed": true,
         "internalType": "address",
-        "name": "usdc",
+        "name": "user",
         "type": "address"
+      },
+      {
+        "indexed": true,
+        "internalType": "uint256",
+        "name": "courseId",
+        "type": "uint256"
+      },
+      {
+        "indexed": false,
+        "internalType": "uint256",
+        "name": "amount",
+        "type": "uint256"
       }
     ],
-    "name": "UsdcSet",
+    "name": "VoucherBonusPaid",
     "type": "event"
   },
   {
@@ -294,73 +393,12 @@
     "type": "function"
   },
   {
-    "inputs": [
-      {
-        "internalType": "uint256",
-        "name": "_courseId",
-        "type": "uint256"
-      },
-      {
-        "internalType": "bytes",
-        "name": "_sig",
-        "type": "bytes"
-      }
-    ],
-    "name": "claim",
-    "outputs": [],
-    "stateMutability": "nonpayable",
-    "type": "function"
-  },
-  {
-    "inputs": [
-      {
-        "internalType": "address",
-        "name": "",
-        "type": "address"
-      },
-      {
-        "internalType": "uint256",
-        "name": "",
-        "type": "uint256"
-      }
-    ],
-    "name": "claimed",
-    "outputs": [
-      {
-        "internalType": "bool",
-        "name": "",
-        "type": "bool"
-      }
-    ],
-    "stateMutability": "view",
-    "type": "function"
-  },
-  {
-    "inputs": [
-      {
-        "internalType": "uint256",
-        "name": "",
-        "type": "uint256"
-      }
-    ],
-    "name": "courseAmount",
-    "outputs": [
-      {
-        "internalType": "uint256",
-        "name": "",
-        "type": "uint256"
-      }
-    ],
-    "stateMutability": "view",
-    "type": "function"
-  },
-  {
     "inputs": [],
     "name": "getStats",
     "outputs": [
       {
         "internalType": "uint256",
-        "name": "paid",
+        "name": "paidTotal",
         "type": "uint256"
       },
       {
@@ -381,66 +419,18 @@
     "inputs": [
       {
         "internalType": "address",
-        "name": "_usdc",
+        "name": "_managerRegistry",
         "type": "address"
       },
       {
         "internalType": "address",
-        "name": "_trustedSigner",
+        "name": "_usdc",
         "type": "address"
       }
     ],
     "name": "initialize",
     "outputs": [],
     "stateMutability": "nonpayable",
-    "type": "function"
-  },
-  {
-    "inputs": [
-      {
-        "internalType": "address",
-        "name": "_user",
-        "type": "address"
-      },
-      {
-        "internalType": "uint256",
-        "name": "_courseId",
-        "type": "uint256"
-      }
-    ],
-    "name": "isClaimable",
-    "outputs": [
-      {
-        "internalType": "bool",
-        "name": "",
-        "type": "bool"
-      }
-    ],
-    "stateMutability": "view",
-    "type": "function"
-  },
-  {
-    "inputs": [
-      {
-        "internalType": "address",
-        "name": "_user",
-        "type": "address"
-      },
-      {
-        "internalType": "uint256",
-        "name": "_courseId",
-        "type": "uint256"
-      }
-    ],
-    "name": "isClaimed",
-    "outputs": [
-      {
-        "internalType": "bool",
-        "name": "",
-        "type": "bool"
-      }
-    ],
-    "stateMutability": "view",
     "type": "function"
   },
   {
@@ -458,12 +448,87 @@
   },
   {
     "inputs": [],
+    "name": "managerRegistry",
+    "outputs": [
+      {
+        "internalType": "contract IManagerRegistry",
+        "name": "",
+        "type": "address"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
+      }
+    ],
+    "name": "maxCashAmount",
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
+      }
+    ],
+    "name": "maxVoucherAmount",
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
     "name": "owner",
     "outputs": [
       {
         "internalType": "address",
         "name": "",
         "type": "address"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "address",
+        "name": "",
+        "type": "address"
+      },
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
+      }
+    ],
+    "name": "paid",
+    "outputs": [
+      {
+        "internalType": "bool",
+        "name": "",
+        "type": "bool"
       }
     ],
     "stateMutability": "view",
@@ -492,6 +557,11 @@
   {
     "inputs": [
       {
+        "internalType": "address",
+        "name": "_user",
+        "type": "address"
+      },
+      {
         "internalType": "uint256",
         "name": "_courseId",
         "type": "uint256"
@@ -502,13 +572,41 @@
         "type": "uint256"
       }
     ],
-    "name": "setCourseAmount",
+    "name": "sendCashBonus",
     "outputs": [],
     "stateMutability": "nonpayable",
     "type": "function"
   },
   {
     "inputs": [
+      {
+        "internalType": "address",
+        "name": "_user",
+        "type": "address"
+      },
+      {
+        "internalType": "uint256",
+        "name": "_courseId",
+        "type": "uint256"
+      },
+      {
+        "internalType": "uint256",
+        "name": "_amount",
+        "type": "uint256"
+      }
+    ],
+    "name": "sendVoucherBonus",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "address[]",
+        "name": "_users",
+        "type": "address[]"
+      },
       {
         "internalType": "uint256[]",
         "name": "_courseIds",
@@ -520,7 +618,7 @@
         "type": "uint256[]"
       }
     ],
-    "name": "setCourseAmounts",
+    "name": "sendVoucherBonusBatch",
     "outputs": [],
     "stateMutability": "nonpayable",
     "type": "function"
@@ -541,12 +639,17 @@
   {
     "inputs": [
       {
-        "internalType": "address",
-        "name": "_trustedSigner",
-        "type": "address"
+        "internalType": "uint256",
+        "name": "_courseId",
+        "type": "uint256"
+      },
+      {
+        "internalType": "uint256",
+        "name": "_maxAmount",
+        "type": "uint256"
       }
     ],
-    "name": "setTrustedSigner",
+    "name": "setMaxCashAmount",
     "outputs": [],
     "stateMutability": "nonpayable",
     "type": "function"
@@ -554,12 +657,17 @@
   {
     "inputs": [
       {
-        "internalType": "address",
-        "name": "_usdc",
-        "type": "address"
+        "internalType": "uint256",
+        "name": "_courseId",
+        "type": "uint256"
+      },
+      {
+        "internalType": "uint256",
+        "name": "_maxAmount",
+        "type": "uint256"
       }
     ],
-    "name": "setUsdc",
+    "name": "setMaxVoucherAmount",
     "outputs": [],
     "stateMutability": "nonpayable",
     "type": "function"
@@ -604,16 +712,21 @@
     "type": "function"
   },
   {
-    "inputs": [],
-    "name": "trustedSigner",
-    "outputs": [
+    "inputs": [
       {
         "internalType": "address",
-        "name": "",
+        "name": "_managerRegistry",
+        "type": "address"
+      },
+      {
+        "internalType": "address",
+        "name": "_usdc",
         "type": "address"
       }
     ],
-    "stateMutability": "view",
+    "name": "updateContracts",
+    "outputs": [],
+    "stateMutability": "nonpayable",
     "type": "function"
   },
   {

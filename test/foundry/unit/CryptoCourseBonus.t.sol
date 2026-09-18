@@ -4,6 +4,7 @@ pragma solidity ^0.8.23;
 import "../Setup.sol";
 import {CryptoCourseBonus} from "../../../contracts/bonus/CryptoCourseBonus.sol";
 import "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
+import "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
 
 contract CryptoCourseBonusTest is Setup {
     CryptoCourseBonus public bonus;
@@ -12,9 +13,13 @@ contract CryptoCourseBonusTest is Setup {
     uint256 constant COURSE_B = 2;
     uint256 constant COURSE_UNKNOWN = 99;
 
-    uint256 constant AMOUNT_A = 15e6;
-    uint256 constant AMOUNT_B = 15e6;
+    uint256 constant MAX_CASH_A = 15e6;
+    uint256 constant MAX_VOUCHER_A = 60e6;
+    uint256 constant MAX_CASH_B = 10e6;
     uint256 constant SEED = 1_000e6;
+
+    /// A typical payout: the backend computes it off-chain, so it sits below the ceiling.
+    uint256 constant PART_CASH_A = 9e6;
 
     address user1;
     address user2;
@@ -24,11 +29,12 @@ contract CryptoCourseBonusTest is Setup {
 
         vm.startPrank(owner);
         CryptoCourseBonus impl = new CryptoCourseBonus();
-        bytes memory data = abi.encodeCall(CryptoCourseBonus.initialize, (address(usdc), backend));
+        bytes memory data = abi.encodeCall(CryptoCourseBonus.initialize, (address(managerRegistry), address(usdc)));
         bonus = CryptoCourseBonus(address(new ERC1967Proxy(address(impl), data)));
 
-        bonus.setCourseAmount(COURSE_A, AMOUNT_A);
-        bonus.setCourseAmount(COURSE_B, AMOUNT_B);
+        bonus.setMaxCashAmount(COURSE_A, MAX_CASH_A);
+        bonus.setMaxVoucherAmount(COURSE_A, MAX_VOUCHER_A);
+        bonus.setMaxCashAmount(COURSE_B, MAX_CASH_B);
         vm.stopPrank();
 
         usdc.mint(address(bonus), SEED);
@@ -37,373 +43,298 @@ contract CryptoCourseBonusTest is Setup {
         user2 = makeAddr("user2");
     }
 
-    /// @dev Builds the claim signature exactly as the backend must: EIP-191 over
-    ///      keccak256(user, courseId, contract, chainid). Every argument is a parameter so the
-    ///      negative tests can vary one field at a time.
-    function _sign(address _user, uint256 _courseId, address _contract, uint256 _chainId, uint256 _pk)
-        internal
-        pure
-        returns (bytes memory)
-    {
-        bytes32 inner = keccak256(abi.encodePacked(_user, _courseId, _contract, _chainId));
-        bytes32 digest = keccak256(abi.encodePacked("\x19Ethereum Signed Message:\n32", inner));
-        (uint8 v, bytes32 r, bytes32 s) = vm.sign(_pk, digest);
-        return abi.encodePacked(r, s, v);
-    }
-
-    function _sign(address _user, uint256 _courseId) internal view returns (bytes memory) {
-        return _sign(_user, _courseId, address(bonus), block.chainid, backendPk);
-    }
-
-    // ── initialize ──
+    // ── initialize ──────────────────────────────────────────────────────────────
 
     function test_initialize_setsValues() public view {
         assertEq(address(bonus.usdc()), address(usdc));
-        assertEq(bonus.trustedSigner(), backend);
-        assertEq(bonus.courseAmount(COURSE_A), AMOUNT_A);
-        assertFalse(bonus.killSwitch());
+        assertEq(address(bonus.managerRegistry()), address(managerRegistry));
+        assertEq(bonus.maxCashAmount(COURSE_A), MAX_CASH_A);
+        assertEq(bonus.maxVoucherAmount(COURSE_A), MAX_VOUCHER_A);
     }
 
-    function test_initialize_revert_zeroUsdc() public {
+    function test_initialize_revert_zeroAddresses() public {
         CryptoCourseBonus impl = new CryptoCourseBonus();
-        bytes memory data = abi.encodeCall(CryptoCourseBonus.initialize, (address(0), backend));
-        vm.expectRevert("Invalid usdc");
-        new ERC1967Proxy(address(impl), data);
+
+        vm.expectRevert(CryptoCourseBonus.ZeroAddress.selector);
+        new ERC1967Proxy(address(impl), abi.encodeCall(CryptoCourseBonus.initialize, (address(0), address(usdc))));
+
+        vm.expectRevert(CryptoCourseBonus.ZeroAddress.selector);
+        new ERC1967Proxy(address(impl), abi.encodeCall(CryptoCourseBonus.initialize, (address(managerRegistry), address(0))));
     }
 
-    function test_initialize_revert_zeroSigner() public {
-        CryptoCourseBonus impl = new CryptoCourseBonus();
-        bytes memory data = abi.encodeCall(CryptoCourseBonus.initialize, (address(usdc), address(0)));
-        vm.expectRevert("Invalid trustedSigner");
-        new ERC1967Proxy(address(impl), data);
+    // ── payouts ─────────────────────────────────────────────────────────────────
+
+    /// The amount comes from the caller, not from storage: the ceiling is 15, this pays 9.
+    function test_cash_paysTheRequestedAmountNotTheCeiling() public {
+        vm.prank(operator);
+        bonus.sendCashBonus(user1, COURSE_A, PART_CASH_A);
+
+        assertEq(usdc.balanceOf(user1), PART_CASH_A, "user must receive what was asked for");
+        assertEq(usdc.balanceOf(operator), 0, "the caller must receive nothing");
+        assertEq(usdc.balanceOf(address(bonus)), SEED - PART_CASH_A);
+        assertEq(bonus.maxCashAmount(COURSE_A), MAX_CASH_A, "the ceiling is not consumed");
     }
 
-    // ── claim: happy path ──
+    /// Both directions of the bound in one test: exactly the ceiling goes through, one wei over
+    /// reverts. That is what pins `>` and would catch a `>=`.
+    function test_cash_ceilingBoundary() public {
+        vm.expectRevert(
+            abi.encodeWithSelector(CryptoCourseBonus.AmountExceedsMax.selector, MAX_CASH_A + 1, MAX_CASH_A)
+        );
+        vm.prank(operator);
+        bonus.sendCashBonus(user1, COURSE_A, MAX_CASH_A + 1);
 
-    function test_claim_success() public {
+        vm.prank(operator);
+        bonus.sendCashBonus(user1, COURSE_A, MAX_CASH_A);
+        assertEq(usdc.balanceOf(user1), MAX_CASH_A);
+    }
+
+    /// The two ceilings are separate, so the cash one must not bound a voucher payout.
+    function test_voucher_boundByItsOwnCeiling() public {
+        vm.prank(operator);
+        bonus.sendVoucherBonus(user1, COURSE_A, MAX_VOUCHER_A);
+        assertEq(usdc.balanceOf(user1), MAX_VOUCHER_A);
+
+        vm.expectRevert(
+            abi.encodeWithSelector(CryptoCourseBonus.AmountExceedsMax.selector, MAX_VOUCHER_A, MAX_CASH_A)
+        );
+        vm.prank(operator);
+        bonus.sendCashBonus(user2, COURSE_A, MAX_VOUCHER_A);
+    }
+
+    function test_revert_zeroAmount() public {
+        vm.expectRevert(CryptoCourseBonus.ZeroAmount.selector);
+        vm.prank(operator);
+        bonus.sendCashBonus(user1, COURSE_A, 0);
+    }
+
+    function test_events_carryUserCourseAndAmount() public {
+        vm.expectEmit(true, true, false, true, address(bonus));
+        emit CryptoCourseBonus.CashBonusPaid(user1, COURSE_A, PART_CASH_A);
+        vm.prank(operator);
+        bonus.sendCashBonus(user1, COURSE_A, PART_CASH_A);
+
+        vm.expectEmit(true, true, false, true, address(bonus));
+        emit CryptoCourseBonus.VoucherBonusPaid(user2, COURSE_A, MAX_VOUCHER_A);
+        vm.prank(operator);
+        bonus.sendVoucherBonus(user2, COURSE_A, MAX_VOUCHER_A);
+    }
+
+    // ── once per (wallet, course), in either form ────────────────────────────────
+
+    /// Paying below the ceiling does not leave the rest claimable — the flag is boolean, not a
+    /// remaining balance, so a short first payout closes the pair for good.
+    function test_revert_sameWalletAndCourseTwice() public {
+        vm.prank(operator);
+        bonus.sendCashBonus(user1, COURSE_A, PART_CASH_A);
+
+        vm.expectRevert(abi.encodeWithSelector(CryptoCourseBonus.AlreadyPaid.selector, user1, COURSE_A));
+        vm.prank(operator);
+        bonus.sendCashBonus(user1, COURSE_A, MAX_CASH_A - PART_CASH_A);
+    }
+
+    function test_cashClosesTheVoucherForTheSameCourse() public {
+        vm.prank(operator);
+        bonus.sendCashBonus(user1, COURSE_A, PART_CASH_A);
+
+        vm.expectRevert(abi.encodeWithSelector(CryptoCourseBonus.AlreadyPaid.selector, user1, COURSE_A));
+        vm.prank(operator);
+        bonus.sendVoucherBonus(user1, COURSE_A, MAX_VOUCHER_A);
+    }
+
+    function test_voucherClosesTheCashForTheSameCourse() public {
+        vm.prank(operator);
+        bonus.sendVoucherBonus(user1, COURSE_A, MAX_VOUCHER_A);
+
+        vm.expectRevert(abi.encodeWithSelector(CryptoCourseBonus.AlreadyPaid.selector, user1, COURSE_A));
+        vm.prank(operator);
+        bonus.sendCashBonus(user1, COURSE_A, MAX_CASH_A);
+    }
+
+    function test_otherCoursesAndOtherWalletsStayOpen() public {
+        vm.startPrank(operator);
+        bonus.sendCashBonus(user1, COURSE_A, MAX_CASH_A);
+        bonus.sendCashBonus(user1, COURSE_B, MAX_CASH_B); // same wallet, other course
+        bonus.sendCashBonus(user2, COURSE_A, PART_CASH_A); // other wallet, same course
+        vm.stopPrank();
+
+        assertEq(usdc.balanceOf(user1), MAX_CASH_A + MAX_CASH_B);
+        assertEq(usdc.balanceOf(user2), PART_CASH_A);
+        assertEq(bonus.totalBonusCount(), 3);
+        assertEq(bonus.totalPaid(), MAX_CASH_A + MAX_CASH_B + PART_CASH_A);
+    }
+
+    // ── who may call ────────────────────────────────────────────────────────────
+
+    function test_revert_callerIsNotOperator() public {
+        vm.expectRevert(CryptoCourseBonus.NotOperator.selector);
         vm.prank(user1);
-        bonus.claim(COURSE_A, _sign(user1, COURSE_A));
+        bonus.sendCashBonus(user1, COURSE_A, MAX_CASH_A);
 
-        assertEq(usdc.balanceOf(user1), AMOUNT_A);
-        assertTrue(bonus.isClaimed(user1, COURSE_A));
-        assertEq(bonus.totalPaid(), AMOUNT_A);
-        assertEq(bonus.totalBonusCount(), 1);
-    }
-
-    /// The whole point of keying uniqueness on the pair: a second course is still payable after the
-    /// first. With a per-wallet flag this test would fail.
-    function test_claim_secondCoursePaysAfterFirst() public {
-        vm.prank(user1);
-        bonus.claim(COURSE_A, _sign(user1, COURSE_A));
-        vm.prank(user1);
-        bonus.claim(COURSE_B, _sign(user1, COURSE_B));
-
-        assertEq(usdc.balanceOf(user1), AMOUNT_A + AMOUNT_B);
-        assertEq(bonus.totalBonusCount(), 2);
-        assertTrue(bonus.isClaimed(user1, COURSE_A));
-        assertTrue(bonus.isClaimed(user1, COURSE_B));
-    }
-
-    function test_claim_twoUsersSameCourse() public {
-        vm.prank(user1);
-        bonus.claim(COURSE_A, _sign(user1, COURSE_A));
-        vm.prank(user2);
-        bonus.claim(COURSE_A, _sign(user2, COURSE_A));
-
-        assertEq(usdc.balanceOf(user1), AMOUNT_A);
-        assertEq(usdc.balanceOf(user2), AMOUNT_A);
-        assertEq(bonus.totalBonusCount(), 2);
-    }
-
-    function test_claim_emitsEventWithCourseId() public {
-        vm.expectEmit(true, true, true, true, address(bonus));
-        emit CryptoCourseBonus.BonusClaimed(user1, COURSE_A, AMOUNT_A);
-
-        vm.prank(user1);
-        bonus.claim(COURSE_A, _sign(user1, COURSE_A));
-    }
-
-    /// The amount is read at claim time, so a voucher issued before a repricing pays the new amount.
-    /// Pinned because it is the reason the amount is not part of the signed data.
-    function test_claim_paysCurrentAmountNotTheOneAtIssuance() public {
-        bytes memory sig = _sign(user1, COURSE_A);
-
+        // Not even the owner: paying is the operator's job, and the owner has withdraw for the rest.
+        vm.expectRevert(CryptoCourseBonus.NotOperator.selector);
         vm.prank(owner);
-        bonus.setCourseAmount(COURSE_A, 25e6);
-
-        vm.prank(user1);
-        bonus.claim(COURSE_A, sig);
-        assertEq(usdc.balanceOf(user1), 25e6);
+        bonus.sendVoucherBonus(user1, COURSE_A, MAX_VOUCHER_A);
     }
 
-    // ── claim: once-only and configuration ──
-
-    function test_claim_revert_sameCourseTwice() public {
-        bytes memory sig = _sign(user1, COURSE_A);
-
-        vm.prank(user1);
-        bonus.claim(COURSE_A, sig);
-
-        vm.prank(user1);
-        vm.expectRevert("Already claimed");
-        bonus.claim(COURSE_A, sig);
-    }
-
-    /// A zero amount is the single "not payable" state, whether the course was never configured or
-    /// was retired by zeroing it. Retiring is the targeted revocation: vouchers already issued for
-    /// that course die, other courses keep working.
-    function test_claim_revert_unconfiguredOrRetiredCourse() public {
-        // never configured
-        vm.prank(user1);
-        vm.expectRevert("Course not configured");
-        bonus.claim(COURSE_UNKNOWN, _sign(user1, COURSE_UNKNOWN));
-
-        // configured, then zeroed — same state
-        bytes memory sig = _sign(user1, COURSE_A);
-
+    /// @dev Revocation lives in the registry, not here: one call takes the key out of every
+    ///      operator-gated contract at once.
+    function test_revokingTheOperatorRoleStopsPayouts() public {
         vm.prank(owner);
-        bonus.setCourseAmount(COURSE_A, 0);
+        managerRegistry.setOperatorStatus(operator, false);
 
-        vm.prank(user1);
-        vm.expectRevert("Course not configured");
-        bonus.claim(COURSE_A, sig);
+        vm.expectRevert(CryptoCourseBonus.NotOperator.selector);
+        vm.prank(operator);
+        bonus.sendCashBonus(user1, COURSE_A, MAX_CASH_A);
 
-        vm.prank(user1);
-        bonus.claim(COURSE_B, _sign(user1, COURSE_B));
-        assertEq(usdc.balanceOf(user1), AMOUNT_B);
-    }
-
-    function test_claim_revert_insufficientBalance() public {
-        // read the balance before the prank: an external call in an argument would consume it
-        uint256 bal = usdc.balanceOf(address(bonus));
+        address other = makeAddr("otherOperator");
         vm.prank(owner);
-        bonus.withdraw(address(usdc), bal, owner);
-
-        vm.prank(user1);
-        vm.expectRevert("Insufficient USDC balance");
-        bonus.claim(COURSE_A, _sign(user1, COURSE_A));
+        managerRegistry.setOperatorStatus(other, true);
+        vm.prank(other);
+        bonus.sendCashBonus(user1, COURSE_A, MAX_CASH_A);
+        assertEq(usdc.balanceOf(user1), MAX_CASH_A);
     }
 
-    // ── claim: signature binding. Each test varies one preimage field ──
+    // ── unknown or retired course ───────────────────────────────────────────────
 
-    function test_claim_revert_foreignSigner() public {
-        (, uint256 attackerPk) = makeAddrAndKey("attackerSigner");
-        bytes memory sig = _sign(user1, COURSE_A, address(bonus), block.chainid, attackerPk);
-
-        vm.prank(user1);
-        vm.expectRevert("Not trusted signer");
-        bonus.claim(COURSE_A, sig);
+    function test_revert_unknownCourse() public {
+        vm.expectRevert(
+            abi.encodeWithSelector(CryptoCourseBonus.RewardNotConfigured.selector, COURSE_UNKNOWN)
+        );
+        vm.prank(operator);
+        bonus.sendCashBonus(user1, COURSE_UNKNOWN, 1e6);
     }
 
-    function test_claim_revert_signatureIssuedToAnotherUser() public {
-        bytes memory sig = _sign(user1, COURSE_A);
-
-        vm.prank(user2);
-        vm.expectRevert("Not trusted signer");
-        bonus.claim(COURSE_A, sig);
+    function test_revert_voucherNotConfiguredWhileCashIs() public {
+        // COURSE_B has a cash ceiling only — the two rewards are configured independently.
+        vm.expectRevert(
+            abi.encodeWithSelector(CryptoCourseBonus.RewardNotConfigured.selector, COURSE_B)
+        );
+        vm.prank(operator);
+        bonus.sendVoucherBonus(user1, COURSE_B, 1e6);
     }
 
-    /// Without `courseId` in the preimage a voucher for the cheap course would unlock the expensive
-    /// one. This is the field the previous version of the contract did not have.
-    function test_claim_revert_signatureIssuedForAnotherCourse() public {
-        bytes memory sig = _sign(user1, COURSE_A);
+    // ── balance ─────────────────────────────────────────────────────────────────
 
-        vm.prank(user1);
-        vm.expectRevert("Not trusted signer");
-        bonus.claim(COURSE_B, sig);
-    }
-
-    function test_claim_revert_signatureForAnotherContract() public {
-        bytes memory sig = _sign(user1, COURSE_A, makeAddr("otherContract"), block.chainid, backendPk);
-
-        vm.prank(user1);
-        vm.expectRevert("Not trusted signer");
-        bonus.claim(COURSE_A, sig);
-    }
-
-    /// Guards the testnet-to-mainnet replay: same signer, same contract address, different chain.
-    function test_claim_revert_signatureFromAnotherChain() public {
-        bytes memory sig = _sign(user1, COURSE_A, address(bonus), block.chainid + 1, backendPk);
-
-        vm.prank(user1);
-        vm.expectRevert("Not trusted signer");
-        bonus.claim(COURSE_A, sig);
-    }
-
-    function test_claim_revert_malformedSignature() public {
-        vm.prank(user1);
-        vm.expectRevert(abi.encodeWithSignature("ECDSAInvalidSignatureLength(uint256)", 4));
-        bonus.claim(COURSE_A, hex"deadbeef");
-    }
-
-    /// Rotating the signer is the blunt revocation: every outstanding voucher dies at once.
-    function test_claim_revert_afterSignerRotation() public {
-        bytes memory sig = _sign(user1, COURSE_A);
-
-        (address newSigner,) = makeAddrAndKey("newSigner");
+    /// @dev Walks the boundary rather than testing an empty balance twice: one wei short reverts,
+    ///      exactly the amount goes through. That is what pins `<` and would catch a `<=`.
+    function test_balanceBoundary() public {
         vm.prank(owner);
-        bonus.setTrustedSigner(newSigner);
+        bonus.withdraw(address(usdc), SEED - (MAX_CASH_A - 1), owner);
 
-        vm.prank(user1);
-        vm.expectRevert("Not trusted signer");
-        bonus.claim(COURSE_A, sig);
+        vm.expectRevert(
+            abi.encodeWithSelector(CryptoCourseBonus.InsufficientBalance.selector, MAX_CASH_A, MAX_CASH_A - 1)
+        );
+        vm.prank(operator);
+        bonus.sendCashBonus(user1, COURSE_A, MAX_CASH_A);
+
+        usdc.mint(address(bonus), 1); // exactly MAX_CASH_A on the balance now
+        vm.prank(operator);
+        bonus.sendCashBonus(user1, COURSE_A, MAX_CASH_A);
+        assertEq(usdc.balanceOf(user1), MAX_CASH_A);
+        assertEq(usdc.balanceOf(address(bonus)), 0, "the last wei is spendable");
     }
 
-    // ── admin ──
+    // ── batch ───────────────────────────────────────────────────────────────────
 
-    function test_setCourseAmount_emitsEvent() public {
-        vm.expectEmit(true, true, true, true, address(bonus));
-        emit CryptoCourseBonus.CourseAmountSet(COURSE_UNKNOWN, 7e6);
-
-        vm.prank(owner);
-        bonus.setCourseAmount(COURSE_UNKNOWN, 7e6);
-        assertEq(bonus.courseAmount(COURSE_UNKNOWN), 7e6);
-    }
-
-    function test_setCourseAmounts_batch() public {
-        uint256[] memory ids = new uint256[](2);
+    /// Rows carry their own amounts, which is the point of the batch: vouchers mature together but
+    /// are not worth the same.
+    function test_batch_paysEveryRowItsOwnAmount() public {
+        address[] memory users = new address[](2);
+        uint256[] memory courses = new uint256[](2);
         uint256[] memory amounts = new uint256[](2);
-        ids[0] = 10; amounts[0] = 1e6;
-        ids[1] = 11; amounts[1] = 2e6;
+        users[0] = user1;
+        courses[0] = COURSE_A;
+        amounts[0] = MAX_VOUCHER_A;
+        users[1] = user2;
+        courses[1] = COURSE_A;
+        amounts[1] = MAX_VOUCHER_A / 3;
 
-        vm.prank(owner);
-        bonus.setCourseAmounts(ids, amounts);
+        vm.prank(operator);
+        bonus.sendVoucherBonusBatch(users, courses, amounts);
 
-        assertEq(bonus.courseAmount(10), 1e6);
-        assertEq(bonus.courseAmount(11), 2e6);
+        assertEq(usdc.balanceOf(user1), MAX_VOUCHER_A);
+        assertEq(usdc.balanceOf(user2), MAX_VOUCHER_A / 3);
+        assertEq(bonus.totalBonusCount(), 2);
     }
 
-    function test_setCourseAmounts_revert_lengthMismatch() public {
-        uint256[] memory ids = new uint256[](2);
-        uint256[] memory amounts = new uint256[](1);
+    function test_batch_isAllOrNothing() public {
+        vm.prank(operator);
+        bonus.sendVoucherBonus(user1, COURSE_A, MAX_VOUCHER_A); // user1 is already paid
 
-        vm.prank(owner);
-        vm.expectRevert("Length mismatch");
-        bonus.setCourseAmounts(ids, amounts);
+        address[] memory users = new address[](2);
+        uint256[] memory courses = new uint256[](2);
+        uint256[] memory amounts = new uint256[](2);
+        users[0] = user2;
+        courses[0] = COURSE_A;
+        amounts[0] = MAX_VOUCHER_A;
+        users[1] = user1; // this one reverts, so user2 must not be paid either
+        courses[1] = COURSE_A;
+        amounts[1] = MAX_VOUCHER_A;
+
+        vm.expectRevert(abi.encodeWithSelector(CryptoCourseBonus.AlreadyPaid.selector, user1, COURSE_A));
+        vm.prank(operator);
+        bonus.sendVoucherBonusBatch(users, courses, amounts);
+
+        assertEq(usdc.balanceOf(user2), 0, "nothing lands when one row fails");
     }
 
-    function test_setCourseAmount_revert_notOwner() public {
-        vm.prank(attacker);
-        vm.expectRevert();
-        bonus.setCourseAmount(COURSE_A, 50e6);
+    function test_batch_revert_lengthMismatchAndEmpty() public {
+        address[] memory users = new address[](1);
+        users[0] = user1;
+
+        vm.expectRevert(CryptoCourseBonus.LengthMismatch.selector);
+        vm.prank(operator);
+        bonus.sendVoucherBonusBatch(users, new uint256[](2), new uint256[](1));
+
+        // The amounts array is checked too, not only courses against users.
+        vm.expectRevert(CryptoCourseBonus.LengthMismatch.selector);
+        vm.prank(operator);
+        bonus.sendVoucherBonusBatch(users, new uint256[](1), new uint256[](2));
+
+        vm.expectRevert(CryptoCourseBonus.EmptyBatch.selector);
+        vm.prank(operator);
+        bonus.sendVoucherBonusBatch(new address[](0), new uint256[](0), new uint256[](0));
     }
 
-    function test_setTrustedSigner_revert_zero() public {
-        vm.prank(owner);
-        vm.expectRevert("Invalid trustedSigner");
-        bonus.setTrustedSigner(address(0));
-    }
+    // ── kill switch and zero recipient ──────────────────────────────────────────
 
-    function test_setTrustedSigner_revert_notOwner() public {
-        vm.prank(attacker);
-        vm.expectRevert();
-        bonus.setTrustedSigner(attacker);
-    }
-
-    function test_setKillSwitch_revert_notOwner() public {
-        vm.prank(attacker);
-        vm.expectRevert();
-        bonus.setKillSwitch(true);
-    }
-
-    function test_withdraw_success() public {
-        address recipient = makeAddr("recipient");
-        uint256 bal = usdc.balanceOf(address(bonus));
-
-        vm.prank(owner);
-        bonus.withdraw(address(usdc), bal, recipient);
-
-        assertEq(usdc.balanceOf(recipient), bal);
-        assertEq(usdc.balanceOf(address(bonus)), 0);
-    }
-
-    function test_withdraw_revert_notOwner() public {
-        vm.prank(attacker);
-        vm.expectRevert();
-        bonus.withdraw(address(usdc), 1e6, attacker);
-    }
-
-    function test_withdraw_revert_zeroRecipient() public {
-        vm.prank(owner);
-        vm.expectRevert("Invalid recipient");
-        bonus.withdraw(address(usdc), 1e6, address(0));
-    }
-
-    function test_setUsdc_success() public {
-        MockUSDC other = new MockUSDC();
-
-        vm.expectEmit(true, true, true, true, address(bonus));
-        emit CryptoCourseBonus.UsdcSet(address(other));
-
-        vm.prank(owner);
-        bonus.setUsdc(address(other));
-        assertEq(address(bonus.usdc()), address(other));
-    }
-
-    function test_setUsdc_revert_zero() public {
-        vm.prank(owner);
-        vm.expectRevert("Invalid usdc");
-        bonus.setUsdc(address(0));
-    }
-
-    function test_setUsdc_revert_notOwner() public {
-        vm.prank(attacker);
-        vm.expectRevert();
-        bonus.setUsdc(address(usdc));
-    }
-
-    function test_setKillSwitch_stopsAndResumes() public {
+    function test_revert_killSwitchStopsBothRewards() public {
         vm.prank(owner);
         bonus.setKillSwitch(true);
-        assertTrue(bonus.killSwitch());
 
-        vm.prank(user1);
-        vm.expectRevert("Kill switch is active");
-        bonus.claim(COURSE_A, _sign(user1, COURSE_A));
+        vm.expectRevert(CryptoCourseBonus.PayoutsStopped.selector);
+        vm.prank(operator);
+        bonus.sendCashBonus(user1, COURSE_A, MAX_CASH_A);
 
-        vm.prank(owner);
-        bonus.setKillSwitch(false);
-        assertFalse(bonus.killSwitch());
-
-        vm.prank(user1);
-        bonus.claim(COURSE_A, _sign(user1, COURSE_A));
-        assertEq(usdc.balanceOf(user1), AMOUNT_A);
+        vm.expectRevert(CryptoCourseBonus.PayoutsStopped.selector);
+        vm.prank(operator);
+        bonus.sendVoucherBonus(user1, COURSE_A, MAX_VOUCHER_A);
     }
 
-    /// Balance exactly equal to the amount must pass — the guard is `>=`, not `>`.
-    function test_claim_exactBalanceIsEnough() public {
-        uint256 bal = usdc.balanceOf(address(bonus));
-        vm.prank(owner);
-        bonus.withdraw(address(usdc), bal - AMOUNT_A, owner);
-        assertEq(usdc.balanceOf(address(bonus)), AMOUNT_A);
-
-        vm.prank(user1);
-        bonus.claim(COURSE_A, _sign(user1, COURSE_A));
-        assertEq(usdc.balanceOf(address(bonus)), 0);
+    function test_revert_zeroRecipient() public {
+        vm.expectRevert(CryptoCourseBonus.ZeroAddress.selector);
+        vm.prank(operator);
+        bonus.sendCashBonus(address(0), COURSE_A, MAX_CASH_A);
     }
 
-    // ── proxy ──
+    // ── admin ───────────────────────────────────────────────────────────────────
 
-    function test_initialize_revert_calledTwice() public {
-        vm.prank(owner);
-        vm.expectRevert(abi.encodeWithSignature("InvalidInitialization()"));
-        bonus.initialize(address(usdc), backend);
-    }
+    function test_setters_areOwnerOnly() public {
+        bytes memory denied =
+            abi.encodeWithSelector(OwnableUpgradeable.OwnableUnauthorizedAccount.selector, user1);
 
-    // ── views ──
-
-    function test_isClaimable() public {
-        assertTrue(bonus.isClaimable(user1, COURSE_A));
-        assertFalse(bonus.isClaimable(user1, COURSE_UNKNOWN), "not configured");
-
-        vm.prank(user1);
-        bonus.claim(COURSE_A, _sign(user1, COURSE_A));
-        assertFalse(bonus.isClaimable(user1, COURSE_A), "already claimed");
-        assertTrue(bonus.isClaimable(user2, COURSE_A), "another wallet");
-
-        vm.prank(owner);
+        vm.startPrank(user1);
+        vm.expectRevert(denied);
+        bonus.setMaxCashAmount(COURSE_A, 1);
+        vm.expectRevert(denied);
+        bonus.setMaxVoucherAmount(COURSE_A, 1);
+        vm.expectRevert(denied);
+        bonus.updateContracts(user1, user1);
+        vm.expectRevert(denied);
         bonus.setKillSwitch(true);
-        assertFalse(bonus.isClaimable(user2, COURSE_A), "kill switch");
+        vm.expectRevert(denied);
+        bonus.withdraw(address(usdc), 1, user1);
+        vm.stopPrank();
     }
-
 }
