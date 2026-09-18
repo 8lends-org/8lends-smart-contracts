@@ -63,13 +63,13 @@ mapping(address => uint256) public accumulatedFees;
 - Проект в стадии **Funded**
 - `maxReturn >= totalClaimed`, `price <= (maxReturn - totalClaimed)`
 
-**Действия:** создаётся marketCell, вызывается `Fundraise.transferPosition(projectId, seller, marketCell, positionIndex, saleId)`, создаётся запись Sale (status = Active), выставляется `activeSaleIds[seller][projectId] = saleId`. Событие: `SaleCreated`.
+**Действия:** у `sell` две перегрузки — с получателем выручки и без; без него получателем записывается сам продавец. Получателем принимается только сам продавец или его эскроу мандата, принадлежность выводится из адреса через `factory.isEscrowOf`. Создаётся marketCell, вызывается `Fundraise.transferPosition(projectId, seller, marketCell, positionIndex, saleId)`, создаётся запись Sale (status = Active), выставляется `activeSaleIds[seller][projectId] = saleId`. Событие: `SaleCreated`.
 
 ### buy(uint256 _saleId)
 
 **Проверки:** sale существует, status == Active, msg.sender != seller, у marketCell есть инвестиция в Fundraise.
 
-**Действия:** покупатель переводит loan token: `feeAmount` на контракт (accumulatedFees), `sellerAmount = price - feeAmount` — продавцу. Вызов `Fundraise.transferPosition(projectId, marketCell, buyer, 0, saleId)` — у ячейки позиция всегда нулевая. Sale.status = Sold, activeSaleIds обнуляется, saleId добавляется в boughtSales[buyer] и soldSales[seller]. Событие: `SaleBought`, при feeAmount > 0 — `FeeCollected`.
+**Действия:** покупатель переводит loan token: `feeAmount` на контракт (accumulatedFees), `sellerAmount = price - feeAmount` — получателю. Получатель разрешается в момент покупки: адрес восстановления, если продавец помечен скомпрометированным, иначе `proceedsTo` лота, иначе сам продавец. Событие: `SaleProceedsPaid`. Вызов `Fundraise.transferPosition(projectId, marketCell, buyer, 0, saleId)` — у ячейки позиция всегда нулевая. Sale.status = Sold, activeSaleIds обнуляется, saleId добавляется в boughtSales[buyer] и soldSales[seller]. Событие: `SaleBought`, при feeAmount > 0 — `FeeCollected`.
 
 ### cancel(uint256 _saleId)
 

@@ -42,6 +42,23 @@ contract MockManagerRegistry_MKT {
         address addr = claimAddresses[investor];
         return addr != address(0) ? addr : investor;
     }
+
+    function recipientOf(address investor) external view returns (address) {
+        address addr = claimAddresses[investor];
+        return addr != address(0) ? addr : investor;
+    }
+
+    address public mandateFactory;
+    function setMandateFactory(address f) external { mandateFactory = f; }
+}
+
+/// @notice Answers isEscrowOf from a table; the real derivation has its own suite.
+contract MockFactory_MKT {
+    mapping(address => mapping(address => bool)) public owns;
+    function set(address owner, address escrow) external { owns[owner][escrow] = true; }
+    function isEscrowOf(address owner, address escrow) external view returns (bool) {
+        return owns[owner][escrow];
+    }
 }
 
 /// @notice Mock Fundraise for Market tests
@@ -172,6 +189,272 @@ contract MarketTest is Test {
         assertEq(market.managerRegistry(), address(mockRegistry));
         assertEq(market.platformFee(), 0);
         assertEq(market.saleCount(), 0);
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    //                    PROCEEDS RECIPIENT (EL-1816)
+    // ═══════════════════════════════════════════════════════════════
+
+    MockFactory_MKT internal factory;
+    address internal escrow = makeAddr("escrow");
+
+    function _withFactory() internal {
+        factory = new MockFactory_MKT();
+        factory.set(investor, escrow);
+        vm.prank(owner);
+        mockRegistry.setMandateFactory(address(factory));
+    }
+
+    function _fundBuyer(address buyer) internal {
+        usdc.mint(buyer, 100_000e6);
+        vm.prank(buyer);
+        usdc.approve(address(market), type(uint256).max);
+    }
+
+    /// @dev Funding is separate so a test can set up an event expectation right before the buy.
+    function _buy(uint256 saleId, address buyer) internal {
+        if (usdc.balanceOf(buyer) == 0) _fundBuyer(buyer);
+
+        bytes32 inner = keccak256(abi.encodePacked(buyer, saleId));
+        bytes32 digest = keccak256(abi.encodePacked("\x19Ethereum Signed Message:\n32", inner));
+        (uint8 v, bytes32 r, bytes32 s) = vm.sign(backendPk, digest);
+
+        vm.prank(buyer);
+        market.buy(saleId, abi.encodePacked(r, s, v));
+    }
+
+    function test_sell_proceedsToOwnEscrow_isPaidThere() public {
+        _withFactory();
+        vm.prank(investor);
+        uint256 saleId = market.sell(PID, 25_000e6, 0, escrow);
+
+        mockFundraise.setInvestorInfo(market.getSale(saleId).marketCell, PID, 30_000e6, 0);
+
+        _fundBuyer(investor2);
+        vm.expectEmit(true, true, false, false, address(market));
+        emit Market.SaleProceedsPaid(saleId, escrow);
+        _buy(saleId, investor2);
+
+        assertEq(usdc.balanceOf(escrow), 25_000e6, "the mandate was paid");
+        assertEq(usdc.balanceOf(investor), 0, "and the wallet was not");
+    }
+
+    function test_sell_proceedsToSelf_isAccepted() public {
+        _withFactory();
+        vm.prank(investor);
+        uint256 saleId = market.sell(PID, 25_000e6, 0, investor);
+        assertEq(market.getSale(saleId).proceedsTo, investor);
+    }
+
+    function test_sell_rejects_a_stranger_and_someone_elses_escrow() public {
+        _withFactory();
+
+        vm.expectRevert("Not an escrow of the seller");
+        vm.prank(investor);
+        market.sell(PID, 25_000e6, 0, attacker);
+
+        // the escrow belongs to investor, so investor2 may not name it
+        mockFundraise.setInvestorInfo(investor2, PID, 30_000e6, 0);
+        vm.expectRevert("Not an escrow of the seller");
+        vm.prank(investor2);
+        market.sell(PID, 25_000e6, 0, escrow);
+    }
+
+    function test_sell_rejects_a_zero_recipient() public {
+        _withFactory();
+        vm.expectRevert("Proceeds address is zero");
+        vm.prank(investor);
+        market.sell(PID, 25_000e6, 0, address(0));
+    }
+
+    function test_sell_with_a_recipient_reverts_while_the_registry_has_no_factory() public {
+        vm.expectRevert("Mandate factory not set");
+        vm.prank(investor);
+        market.sell(PID, 25_000e6, 0, escrow);
+    }
+
+    /// The old entry point keeps paying the wallet.
+    function test_sell_withoutRecipient_paysTheSeller() public {
+        vm.prank(investor);
+        uint256 saleId = market.sell(PID, 25_000e6, 0);
+        assertEq(market.getSale(saleId).proceedsTo, investor);
+
+        mockFundraise.setInvestorInfo(market.getSale(saleId).marketCell, PID, 30_000e6, 0);
+        _fundBuyer(investor2);
+        vm.expectEmit(true, true, false, false, address(market));
+        emit Market.SaleProceedsPaid(saleId, investor);
+        _buy(saleId, investor2);
+        assertEq(usdc.balanceOf(investor), 25_000e6);
+    }
+
+    /// Every lot listed before the upgrade holds a zero here; getting it wrong pays address(0).
+    function test_buy_aPreUpgradeRecordWithZeroProceedsToPaysTheSeller() public {
+        vm.prank(investor);
+        uint256 saleId = market.sell(PID, 25_000e6, 0);
+
+        // sales is storage slot 2; proceedsTo is the 13th member of Sale
+        bytes32 base = keccak256(abi.encode(saleId, uint256(2)));
+        vm.store(address(market), bytes32(uint256(base) + 12), bytes32(0));
+        assertEq(market.getSale(saleId).proceedsTo, address(0), "as a pre-upgrade record reads");
+
+        mockFundraise.setInvestorInfo(market.getSale(saleId).marketCell, PID, 30_000e6, 0);
+        _buy(saleId, investor2);
+        assertEq(usdc.balanceOf(investor), 25_000e6);
+    }
+
+    /// Listing is the only point where the stage is looked at.
+    function test_buy_isNotBlockedByTheProjectStage() public {
+        vm.prank(investor);
+        uint256 saleId = market.sell(PID, 25_000e6, 0);
+
+        mockFundraise.setInvestorInfo(market.getSale(saleId).marketCell, PID, 30_000e6, 0);
+        vm.prank(owner);
+        mockFundraise.setProject(PID, IFundraise.Stage.Repaid, INTEREST_RATE, address(usdc));
+
+        _buy(saleId, investor2);
+        assertEq(uint8(market.getSale(saleId).status), uint8(Market.SaleStatus.Sold));
+    }
+
+    function test_setSaleProceedsTo_movesAnAlreadyListedLot() public {
+        _withFactory();
+        vm.prank(investor);
+        uint256 saleId = market.sell(PID, 25_000e6, 0);
+
+        vm.prank(investor);
+        market.setSaleProceedsTo(saleId, escrow);
+
+        Market.Sale memory sale = market.getSale(saleId);
+        assertEq(sale.proceedsTo, escrow);
+        assertEq(sale.price, 25_000e6, "price untouched");
+        assertEq(sale.fee, 0, "fee untouched");
+        assertEq(sale.positionIndex, 0, "position untouched");
+        assertEq(sale.marketCell, market.getSale(saleId).marketCell, "cell untouched");
+        assertEq(market.activePositionSaleIds(investor, PID, 0), saleId, "still the active lot");
+
+        mockFundraise.setInvestorInfo(sale.marketCell, PID, 30_000e6, 0);
+        _buy(saleId, investor2);
+        assertEq(usdc.balanceOf(escrow), 25_000e6);
+    }
+
+    function test_setSaleProceedsTo_isSellerOnly_andActiveOnly() public {
+        _withFactory();
+        vm.prank(investor);
+        uint256 saleId = market.sell(PID, 25_000e6, 0);
+
+        vm.expectRevert("Not seller");
+        vm.prank(attacker);
+        market.setSaleProceedsTo(saleId, attacker);
+
+        vm.prank(investor);
+        market.cancel(saleId);
+
+        vm.expectRevert("Sale not active");
+        vm.prank(investor);
+        market.setSaleProceedsTo(saleId, escrow);
+    }
+
+    function test_setSaleProceedsToMany_isAllOrNothing() public {
+        _withFactory();
+        vm.startPrank(investor);
+        uint256 a = market.sell(PID, 25_000e6, 0);
+        mockFundraise.addPosition(investor, PID, 10_000e6, 0);
+        uint256 b = market.sell(PID, 5_000e6, 1);
+        vm.stopPrank();
+
+        uint256[] memory ids = new uint256[](3);
+        ids[0] = a; ids[1] = b; ids[2] = 999; // the last one does not exist
+
+        vm.expectRevert("Invalid sale ID");
+        vm.prank(investor);
+        market.setSaleProceedsToMany(ids, escrow);
+
+        assertEq(market.getSale(a).proceedsTo, investor, "nothing moved");
+        assertEq(market.getSale(b).proceedsTo, investor);
+    }
+
+    /// Blocking the buy would close their secondary exit for good: relisting is refused to them,
+    /// and the recovery address cannot list on their behalf — the position is the seller's.
+    function test_buy_fromACompromisedSeller_paysTheRecoveryAddress() public {
+        vm.prank(investor);
+        uint256 saleId = market.sell(PID, 25_000e6, 0);
+
+        address recovery = makeAddr("recovery");
+        vm.prank(owner);
+        mockRegistry.setInvestorClaimAddress(investor, recovery);
+
+        mockFundraise.setInvestorInfo(market.getSale(saleId).marketCell, PID, 30_000e6, 0);
+        _buy(saleId, investor2);
+
+        assertEq(usdc.balanceOf(recovery), 25_000e6, "paid to the recovery address");
+        assertEq(usdc.balanceOf(investor), 0, "and not to the stolen wallet");
+    }
+
+    /// The flag outranks the recorded payee, chosen with a key that is no longer the owner's.
+    function test_buy_compromiseOutranksTheRecordedPayee() public {
+        _withFactory();
+        vm.prank(investor);
+        uint256 saleId = market.sell(PID, 25_000e6, 0, escrow);
+
+        address recovery = makeAddr("recovery");
+        vm.prank(owner);
+        mockRegistry.setInvestorClaimAddress(investor, recovery);
+
+        mockFundraise.setInvestorInfo(market.getSale(saleId).marketCell, PID, 30_000e6, 0);
+        _buy(saleId, investor2);
+
+        assertEq(usdc.balanceOf(recovery), 25_000e6);
+        assertEq(usdc.balanceOf(escrow), 0, "the recorded escrow is ignored");
+    }
+
+    /// Listing stays shut: an attacker holding the key must not be able to put up new lots.
+    function test_sell_isStillRefusedToACompromisedSeller() public {
+        address recovery = makeAddr("recovery");
+        vm.prank(owner);
+        mockRegistry.setInvestorClaimAddress(investor, recovery);
+
+        vm.expectRevert("Seller is compromised");
+        vm.prank(investor);
+        market.sell(PID, 25_000e6, 0);
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    //                    CANCEL GUARD (EL-1816)
+    // ═══════════════════════════════════════════════════════════════
+
+    /// A compromised seller cannot relist, so returning the position is all that is left to them.
+    function test_cancel_byTheRecoveryAddress() public {
+        vm.prank(investor);
+        uint256 saleId = market.sell(PID, 25_000e6, 0);
+
+        address recovery = makeAddr("recovery");
+        vm.prank(owner);
+        mockRegistry.setInvestorClaimAddress(investor, recovery);
+
+        vm.prank(recovery);
+        market.cancel(saleId);
+        assertEq(uint8(market.getSale(saleId).status), uint8(Market.SaleStatus.Cancelled));
+    }
+
+    /// Cancelling must never be blockable: otherwise the position stays on an address with no owner.
+    function test_cancel_worksAtAnyProjectStage() public {
+        vm.prank(investor);
+        uint256 saleId = market.sell(PID, 25_000e6, 0);
+
+        vm.prank(owner);
+        mockFundraise.setProject(PID, IFundraise.Stage.Repaid, INTEREST_RATE, address(usdc));
+
+        vm.prank(investor);
+        market.cancel(saleId);
+        assertEq(uint8(market.getSale(saleId).status), uint8(Market.SaleStatus.Cancelled));
+    }
+
+    function test_cancel_notByAnOperatorOrAnyoneElse() public {
+        vm.prank(investor);
+        uint256 saleId = market.sell(PID, 25_000e6, 0);
+
+        vm.expectRevert("Not seller");
+        vm.prank(attacker);
+        market.cancel(saleId);
     }
 
     // ═══════════════════════════════════════════════════════════════

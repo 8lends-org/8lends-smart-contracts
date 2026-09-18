@@ -10,6 +10,7 @@ import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import "@openzeppelin/contracts/utils/math/Math.sol";
 import "../../interfaces/protocol/IManagerRegistry.sol";
 import "../../interfaces/protocol/IFundraise.sol";
+import { IMandateFactory } from "../../mandate/interfaces/IMandateFactory.sol";
 
 contract Market is Initializable, UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuardUpgradeable {
     using SafeERC20 for IERC20;
@@ -33,6 +34,8 @@ contract Market is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentranc
         uint256 createdAt;
         SaleStatus status;
         uint256 positionIndex;
+        /// @dev Zero means the seller, which is what pre-upgrade records hold.
+        address proceedsTo;
     }
 
 
@@ -72,6 +75,12 @@ contract Market is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentranc
     );
 
     event SaleCancelled(uint256 indexed saleId, address indexed seller, uint256 indexed projectId);
+    /// @notice Who was actually paid, resolved at the buy.
+    /// @dev The indexer must read the recipient here, never cache it off SaleCreated: the seller
+    ///      may move it while the lot is up, and a buy racing that setter decides.
+    event SaleProceedsPaid(uint256 indexed saleId, address indexed recipient);
+    /// @notice The seller repointed a lot that is already up.
+    event SaleProceedsToSet(uint256 indexed saleId, address indexed recipient);
     event PlatformFeeUpdated(uint256 oldFee, uint256 newFee);
     event FeeCollected(address indexed token, uint256 amount);
 
@@ -127,12 +136,37 @@ contract Market is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentranc
     /// @param _positionIndex Index of the position to sell in seller's positions array
     /// @return saleId Created sale ID
     function sell(uint256 _projectId, uint256 _price, uint256 _positionIndex) external nonReentrant returns (uint256 saleId) {
-        return _executeSell(_projectId, _price, _positionIndex);
+        return _executeSell(_projectId, _price, _positionIndex, msg.sender);
     }
 
-    function _executeSell(uint256 _projectId, uint256 _price, uint256 _positionIndex) internal returns (uint256 saleId) {
+    /// @notice Sell a position and name where the proceeds go.
+    /// @param _proceedsTo Seller's own address or an escrow of theirs; zero is refused
+    function sell(uint256 _projectId, uint256 _price, uint256 _positionIndex, address _proceedsTo)
+        external
+        nonReentrant
+        returns (uint256 saleId)
+    {
+        _requireOwnPayee(_proceedsTo);
+        return _executeSell(_projectId, _price, _positionIndex, _proceedsTo);
+    }
+
+    /// @dev Ownership is derived from the address, not asked of it — a look-alike would answer
+    ///      owner() with anything. Not rechecked at buy time: an escrow is a hookless clone, so it
+    ///      cannot refuse an incoming transfer or be removed.
+    function _requireOwnPayee(address _proceedsTo) internal view {
+        if (_proceedsTo == msg.sender) return;
+        require(_proceedsTo != address(0), "Proceeds address is zero");
+        address factory = IManagerRegistry(managerRegistry).mandateFactory();
+        require(factory != address(0), "Mandate factory not set");
+        require(IMandateFactory(factory).isEscrowOf(msg.sender, _proceedsTo), "Not an escrow of the seller");
+    }
+
+    function _executeSell(uint256 _projectId, uint256 _price, uint256 _positionIndex, address _proceedsTo)
+        internal
+        returns (uint256 saleId)
+    {
         address fundraiseAddress = getFundraise();
-        require(IManagerRegistry(managerRegistry).getInvestorClaimAddress(msg.sender) == msg.sender, "Seller is compromised");
+        require(IManagerRegistry(managerRegistry).recipientOf(msg.sender) == msg.sender, "Seller is compromised");
         require(activePositionSaleIds[msg.sender][_projectId][_positionIndex] == 0, "Active sale exists for position");
         require(_price > 0, "Price must be greater than zero");
 
@@ -179,6 +213,7 @@ contract Market is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentranc
         sale.totalClaimed = posClaimed;
         sale.createdAt = block.timestamp;
         sale.positionIndex = _positionIndex;
+        sale.proceedsTo = _proceedsTo;
 
         activePositionSaleIds[msg.sender][_projectId][_positionIndex] = saleId;
         emit SaleCreated(saleId, msg.sender, _projectId, marketCell, _price);
@@ -206,7 +241,6 @@ contract Market is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentranc
 
     function _executeBuy(uint256 _saleId, address fundraiseAddress) internal {
         Sale storage sale = sales[_saleId];
-        require(IManagerRegistry(managerRegistry).getInvestorClaimAddress(sale.seller) == sale.seller, "Seller is compromised");
         require(sale.status == SaleStatus.Active, "Sale not active");
         require(msg.sender != sale.seller, "Cannot buy own sale");
         IFundraise.InvestorInfo memory marketCellInfo = IFundraise(fundraiseAddress).investorInfo(sale.marketCell, sale.projectId);
@@ -215,8 +249,13 @@ contract Market is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentranc
         IERC20 loanToken = project.innerStruct.loanToken;
         uint256 feeAmount = (sale.price * sale.fee) / BASIS_POINTS;
         uint256 sellerAmount = sale.price - feeAmount;
+        // The flag outranks the recorded payee, chosen with a key that is no longer the owner's.
+        // Blocking the buy instead would shut their secondary exit for good — relisting is refused
+        // to them, and nobody can list on their behalf.
+        address recipient = IManagerRegistry(managerRegistry).recipientOf(sale.seller);
+        if (recipient == sale.seller && sale.proceedsTo != address(0)) recipient = sale.proceedsTo;
         loanToken.safeTransferFrom(msg.sender, address(this), feeAmount);
-        loanToken.safeTransferFrom(msg.sender, sale.seller, sellerAmount);
+        loanToken.safeTransferFrom(msg.sender, recipient, sellerAmount);
         accumulatedFees[address(loanToken)] += feeAmount;
         // Market cell always has the position at index 0
         IFundraise(fundraiseAddress).transferPosition(sale.projectId, sale.marketCell, msg.sender, 0, _saleId);
@@ -232,6 +271,7 @@ contract Market is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentranc
         boughtSales[msg.sender].push(_saleId);
         soldSales[sale.seller].push(_saleId);
         emit SaleBought(_saleId, msg.sender, sale.seller, sale.projectId);
+        emit SaleProceedsPaid(_saleId, recipient);
         if (feeAmount > 0) {
             emit FeeCollected(address(loanToken), feeAmount);
         }
@@ -252,13 +292,41 @@ contract Market is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentranc
         require(_saleId > 0 && _saleId <= saleCount, "Invalid sale ID");
         address fundraiseAddress = getFundraise();
         Sale storage sale = sales[_saleId];
-        require(msg.sender == sale.seller, "Not seller");
+        // The recovery address too: a compromised seller cannot relist, so returning the position
+        // is all that is left to them.
+        require(
+            msg.sender == sale.seller
+                || msg.sender == IManagerRegistry(managerRegistry).recipientOf(sale.seller),
+            "Not seller"
+        );
         require(sale.status == SaleStatus.Active, "Sale not active");
         // Market cell always has the position at index 0
         IFundraise(fundraiseAddress).transferPosition(sale.projectId, sale.marketCell, sale.seller, 0, _saleId);
         sale.status = SaleStatus.Cancelled;
         activePositionSaleIds[sale.seller][sale.projectId][sale.positionIndex] = 0;
         emit SaleCancelled(_saleId, sale.seller, sale.projectId);
+    }
+
+    /// @notice Point an already listed lot at another address of the seller's.
+    /// @dev Saves cancelling and relisting when a mandate moves. Price, fee, saleId and the
+    ///      position in the service cell all stay put.
+    function setSaleProceedsTo(uint256 _saleId, address _proceedsTo) public {
+        require(_saleId > 0 && _saleId <= saleCount, "Invalid sale ID");
+        Sale storage sale = sales[_saleId];
+        require(msg.sender == sale.seller, "Not seller");
+        require(sale.status == SaleStatus.Active, "Sale not active");
+
+        _requireOwnPayee(_proceedsTo);
+        sale.proceedsTo = _proceedsTo;
+        emit SaleProceedsToSet(_saleId, _proceedsTo);
+    }
+
+    /// @notice Same for many lots — one call beside setRouteMany when a portfolio moves.
+    /// @dev Reverts as a whole if any element fails, so filter the list before sending.
+    function setSaleProceedsToMany(uint256[] calldata _saleIds, address _proceedsTo) external {
+        for (uint256 i = 0; i < _saleIds.length; i++) {
+            setSaleProceedsTo(_saleIds[i], _proceedsTo);
+        }
     }
 
     /// @notice Set platform fee (owner only)

@@ -268,6 +268,44 @@
     "inputs": [
       {
         "indexed": true,
+        "internalType": "uint256",
+        "name": "saleId",
+        "type": "uint256"
+      },
+      {
+        "indexed": true,
+        "internalType": "address",
+        "name": "recipient",
+        "type": "address"
+      }
+    ],
+    "name": "SaleProceedsPaid",
+    "type": "event"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": true,
+        "internalType": "uint256",
+        "name": "saleId",
+        "type": "uint256"
+      },
+      {
+        "indexed": true,
+        "internalType": "address",
+        "name": "recipient",
+        "type": "address"
+      }
+    ],
+    "name": "SaleProceedsToSet",
+    "type": "event"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": true,
         "internalType": "address",
         "name": "implementation",
         "type": "address"
@@ -519,6 +557,11 @@
             "internalType": "uint256",
             "name": "positionIndex",
             "type": "uint256"
+          },
+          {
+            "internalType": "address",
+            "name": "proceedsTo",
+            "type": "address"
           }
         ],
         "internalType": "struct Market.Sale",
@@ -702,6 +745,11 @@
         "internalType": "uint256",
         "name": "positionIndex",
         "type": "uint256"
+      },
+      {
+        "internalType": "address",
+        "name": "proceedsTo",
+        "type": "address"
       }
     ],
     "stateMutability": "view",
@@ -764,11 +812,81 @@
     "inputs": [
       {
         "internalType": "uint256",
+        "name": "_projectId",
+        "type": "uint256"
+      },
+      {
+        "internalType": "uint256",
+        "name": "_price",
+        "type": "uint256"
+      },
+      {
+        "internalType": "uint256",
+        "name": "_positionIndex",
+        "type": "uint256"
+      },
+      {
+        "internalType": "address",
+        "name": "_proceedsTo",
+        "type": "address"
+      }
+    ],
+    "name": "sell",
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "saleId",
+        "type": "uint256"
+      }
+    ],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
         "name": "_fee",
         "type": "uint256"
       }
     ],
     "name": "setPlatformFee",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "_saleId",
+        "type": "uint256"
+      },
+      {
+        "internalType": "address",
+        "name": "_proceedsTo",
+        "type": "address"
+      }
+    ],
+    "name": "setSaleProceedsTo",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256[]",
+        "name": "_saleIds",
+        "type": "uint256[]"
+      },
+      {
+        "internalType": "address",
+        "name": "_proceedsTo",
+        "type": "address"
+      }
+    ],
+    "name": "setSaleProceedsToMany",
     "outputs": [],
     "stateMutability": "nonpayable",
     "type": "function"
