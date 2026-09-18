@@ -5,18 +5,22 @@ Map of this tree. For how to build, test and deploy, see the [root README](../RE
 | Folder | Holds | Files |
 |---|---|---|
 | `core/` | The protocol: fundraising, rewards, access control, secondary market | 8 |
+| `mandate/` | Auto-reinvest: the per-user escrow, its factory, the payout router | 7 |
 | `bonus/` | Five independent one-off campaigns, one file each | 5 |
 | `token/` | `Token` (8LNDS) and `BTC8L` | 2 |
 | `escrow/` | Per-user escrow for AML-gated investments, and its factory | 2 |
 | `oracle/` | Price feed with source priority and deviation checks | 3 |
 | `lending/` | Lending market — a vendored Morpho fork, see below | 29 |
-| `interfaces/` | All shared interfaces, grouped by origin | 26 |
-| `mocks/` | Test doubles. Never deployed | 14 |
+| `interfaces/` | All shared interfaces, grouped by origin | 25 |
+| `mocks/` | Test doubles. Never deployed | 12 |
 | `test-tokens/` | USDC/WBTC/WETH stand-ins, deployed on Sepolia only | 4 |
 
 Folders exist per contract only where they earn it: `core/market/` because `Market.md`
 sits beside the contract, `token/8lnds/` because the folder name is what says which token
 `Token.sol` is. Everything else is flat.
+
+`mandate/` keeps its own `interfaces/`: the escrow is a clone with no upgrade path, so its ABI is
+frozen per version, and mixing those declarations with the upgradeable ones would blur that.
 
 ## How they fit together
 
@@ -31,6 +35,15 @@ flowchart LR
     Fundraise --> LimitedSeller
     LimitedSeller --> Fundraise
     Market --> Fundraise
+    MandateEscrowV1 --> Fundraise
+    MandateEscrowV1 --> MandateRouter
+    MandateEscrowV1 --> Lending8
+    MandateFactory --> MandateEscrowV1
+    MandateRouter --> Fundraise
+    MandateRouter --> MandateFactory
+    Fundraise --> MandateRouter
+    Fundraise --> MandateEscrowV1
+    Market --> MandateFactory
     RewardSystem --> Oracle
     RewardSystem --> Token
     Rewards2 --> Token

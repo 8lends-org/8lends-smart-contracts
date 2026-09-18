@@ -13,7 +13,7 @@
     "forge:test:fuzz": "forge test --match-path 'test/foundry/fuzz/*' -vvv",
     "forge:test:invariant": "forge test --match-path 'test/foundry/invariant/*' -vvv",
     "forge:test:upgrade": "forge test --match-path 'test/foundry/upgrade/*' -vvv",
-    "forge:coverage": "forge coverage",
+    "forge:coverage": "forge coverage --ir-minimum",
     "slither": "slither . --config-file slither.config.json",
     "slither:high": "slither . --config-file slither.config.json --exclude-informational --exclude-low",
     "slither:triage": "slither . --config-file slither.config.json --triage-mode"

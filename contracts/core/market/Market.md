@@ -73,7 +73,10 @@ mapping(address => uint256) public accumulatedFees;
 
 ### cancel(uint256 _saleId)
 
-**Проверки:** msg.sender == seller, status == Active.
+**Проверки:** `msg.sender` — продавец либо его адрес восстановления (`recipientOf(seller)`),
+status == Active. Адрес восстановления здесь не удобство: лот скомпрометированного продавца
+выставлен быть не может, а позиция лежит на служебной ячейке, и вернуть её иначе некому. Стадия
+проекта не проверяется намеренно — отмена не должна блокироваться ничем.
 
 **Действия:** `Fundraise.transferPosition(projectId, marketCell, seller, 0, saleId)` — позиция возвращается продавцу. Sale.status = Cancelled, activeSaleIds обнуляется. Событие: `SaleCancelled`.
 
