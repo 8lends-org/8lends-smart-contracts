@@ -160,7 +160,7 @@ interface IMandateEscrowV1 {
     /// @notice Called by Fundraise right after a payout landed here. Splits it into principal and
     ///         interest and forwards the interest per the mandate's rule.
     /// @dev The split rule lives in this clone, not in Fundraise, so "how my interest is computed"
-    ///      cannot change by upgrade. Interest-first waterfall: budget = invested * rate / 10000,
+    ///      cannot change by upgrade. Interest-first waterfall: budget = invested * rate / 1_000_000, Fundraise's scale,
     ///      position before this payout = claimed - fresh.
     /// @dev Called from claimForMandate only, and it must call ONLY when the payout target is this
     ///      escrow by route and the payout is non-zero. Not "target != investor": the compromise

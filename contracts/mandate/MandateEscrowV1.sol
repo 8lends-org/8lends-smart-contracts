@@ -25,7 +25,16 @@ contract MandateEscrowV1 is IMandateEscrowV1 {
 
     // ── constants ───────────────────────────────────────────────────────────────
 
+    /// @dev The mandate's own scale, for projectLimitBps.
     uint256 private constant BPS = 10_000;
+
+    /// @dev Fundraise's scale, and it is NOT the one above: investorInterestRate comes from there,
+    ///      where 1_000_000 is 100%. Dividing it by BPS would make the interest budget a hundred
+    ///      times too large, and the waterfall would call every payout interest — under WALLET and
+    ///      LEND the principal would leave the mandate. Pinned to Fundraise.BASIS_POINTS by a test.
+    uint256 private constant RATE_DENOMINATOR = 1_000_000;
+
+    /// @dev Also a reminder that a wrong constant here cannot be patched: this clone is immutable.
 
     /// @dev Smallest ticket, 6 decimals. Not settable: a movable floor would let the platform place
     ///      past the owner's own concentration limit.
@@ -324,7 +333,7 @@ contract MandateEscrowV1 is IMandateEscrowV1 {
         if (msg.sender != FUNDRAISE) revert NotFundraise();
 
         // Interest-first waterfall: a payout is interest up to whatever of the budget is unpaid.
-        uint256 budget = (invested * rate) / BPS;
+        uint256 budget = (invested * rate) / RATE_DENOMINATOR;
         uint256 was = claimed - fresh; // position in the waterfall before this payout
         uint256 interest = was >= budget ? 0 : Math.min(fresh, budget - was);
 

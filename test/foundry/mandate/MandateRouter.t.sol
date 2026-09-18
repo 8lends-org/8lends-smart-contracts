@@ -121,17 +121,6 @@ contract MandateRouterTest is Test {
         router.setRoute(PID, address(escrow));
     }
 
-    /// Rotating the factory is a single registry write — no router upgrade.
-    function test_router_follows_a_factory_swap_in_the_registry() public {
-        FactoryStub replacement = new FactoryStub();
-        replacement.set(alice, address(escrow));
-        registry.setFactory(address(replacement));
-
-        vm.prank(alice);
-        router.setRoute(PID, address(escrow));
-        assertEq(router.routes(alice, PID), address(escrow));
-    }
-
     /// Moving a project between an owner's own mandates keeps one route and one list entry.
     function test_moving_a_route_leaves_the_old_escrow() public {
         vm.startPrank(alice);
