@@ -230,10 +230,10 @@ contract MandateRouterTest is Test {
         impostor.enroll(router, PID);
     }
 
-    // ── sizeAndExposure ─────────────────────────────────────────────────────────
+    // ── outstanding / exposure ──────────────────────────────────────────────────
 
-    /// Outstanding principal, summed over enrolled projects, with one project singled out.
-    function test_sizeAndExposure_sums_outstanding_principal() public {
+    /// Outstanding principal, summed over enrolled projects, and singled out per project.
+    function test_outstanding_sums_and_exposure_singles_out() public {
         fundraise.setInfo(alice, 1, 1_000e6, 400e6);   // 600 left
         fundraise.setInfo(alice, 2, 500e6, 0);         // 500 left
         fundraise.setInfo(alice, 3, 300e6, 900e6);     // repaid with interest → 0, not negative
@@ -243,12 +243,14 @@ contract MandateRouterTest is Test {
         vm.prank(alice);
         router.setRouteMany(pids, address(escrow));
 
-        (uint256 outstanding, uint256 exposure) = router.sizeAndExposure(address(escrow), 2);
-        assertEq(outstanding, 1_100e6);
-        assertEq(exposure, 500e6);
+        assertEq(router.outstanding(address(escrow)), 1_100e6);
+        assertEq(router.exposure(address(escrow), 2), 500e6);
+        assertEq(router.exposure(address(escrow), 3), 0, "repaid with interest floors at zero");
+        assertEq(router.exposure(address(escrow), 99), 0, "a project outside the list has none");
 
-        (, uint256 none) = router.sizeAndExposure(address(escrow), 99);
-        assertEq(none, 0, "a project outside the list has no exposure");
+        // The owner holds this one manually, so it is theirs but not the mandate's.
+        fundraise.setInfo(alice, 42, 700e6, 0);
+        assertEq(router.exposure(address(escrow), 42), 0, "not enrolled, not the mandate's");
     }
 
     // ── clearIfEmpty ────────────────────────────────────────────────────────────

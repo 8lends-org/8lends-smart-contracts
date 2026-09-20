@@ -52,19 +52,18 @@ contract RegistryStub {
 ///      allocation formula can be driven directly, which is the point of these cases.
 contract RouterStub {
     mapping(address => mapping(uint256 => address)) public routes;
-    uint256 public outstanding;
+    uint256 private _outstanding;
     mapping(uint256 => uint256) public exposureOf;
     uint256 public enrollCalls;
     bool public enrollReverts;
 
     function setRoute(address owner, uint256 pid, address escrow) external { routes[owner][pid] = escrow; }
-    function setOutstanding(uint256 v) external { outstanding = v; }
+    function setOutstanding(uint256 v) external { _outstanding = v; }
     function setExposure(uint256 pid, uint256 v) external { exposureOf[pid] = v; }
     function setEnrollReverts(bool v) external { enrollReverts = v; }
 
-    function sizeAndExposure(address, uint256 targetPid) external view returns (uint256, uint256) {
-        return (outstanding, exposureOf[targetPid]);
-    }
+    function outstanding(address) external view returns (uint256) { return _outstanding; }
+    function exposure(address, uint256 pid) external view returns (uint256) { return exposureOf[pid]; }
 
     function enrollSelf(uint256) external {
         require(!enrollReverts, "owner already holds this project");

@@ -29,14 +29,17 @@ interface IMandateRouter {
     /// @notice The Fundraise this router reads investorInfo from.
     function fundraise() external view returns (address);
 
-    /// @notice Outstanding principal across all projects of this escrow, plus the exposure to one
-    ///         target project. Both are `investedAmount - totalClaimed`, floored at zero.
-    /// @return outstanding Sum over enrolled projects
-    /// @return exposure Outstanding principal in targetPid, zero if not enrolled
-    function sizeAndExposure(address escrow, uint256 targetPid)
-        external
-        view
-        returns (uint256 outstanding, uint256 exposure);
+    /// @notice Outstanding principal across every project of this escrow — the mandate's size,
+    ///         less what is sitting on its balance.
+    /// @dev Walks the enrolled list, so it costs one Fundraise read per project. Floored at zero
+    ///      per project: totalClaimed includes interest, so a repaid position claims back more than
+    ///      it put in.
+    function outstanding(address escrow) external view returns (uint256 total);
+
+    /// @notice Outstanding principal of this escrow in one project. Constant time.
+    /// @dev Zero for a project that is not enrolled, even when the owner holds a manual position
+    ///      there: this is how much of the mandate is in the project, not how much of the owner.
+    function exposure(address escrow, uint256 pid) external view returns (uint256);
 
     // ── owner ───────────────────────────────────────────────────────────────────
 

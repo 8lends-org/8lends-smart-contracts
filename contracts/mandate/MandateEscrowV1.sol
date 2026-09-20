@@ -164,8 +164,7 @@ contract MandateEscrowV1 is IMandateEscrowV1 {
 
     /// @inheritdoc IMandateEscrowV1
     function mandateSize() public view returns (uint256) {
-        (uint256 outstanding, ) = IMandateRouter(ROUTER).sizeAndExposure(address(this), 0);
-        return freeBalance() + outstanding;
+        return freeBalance() + IMandateRouter(ROUTER).outstanding(address(this));
     }
 
     /// @inheritdoc IMandateEscrowV1
@@ -183,9 +182,9 @@ contract MandateEscrowV1 is IMandateEscrowV1 {
         view
         returns (uint256 cap, uint256 exposure, uint256 room)
     {
-        uint256 outstanding;
-        (outstanding, exposure) = IMandateRouter(ROUTER).sizeAndExposure(address(this), pid);
-        cap = ((free + outstanding) * _projectLimitBps) / BPS;
+        IMandateRouter router = IMandateRouter(ROUTER);
+        exposure = router.exposure(address(this), pid);
+        cap = ((free + router.outstanding(address(this))) * _projectLimitBps) / BPS;
         room = cap > exposure ? cap - exposure : 0;
     }
 

@@ -60,21 +60,22 @@ contract MandateRouter is IMandateRouter, Initializable, OwnableUpgradeable, UUP
     }
 
     /// @inheritdoc IMandateRouter
-    function sizeAndExposure(address escrow, uint256 targetPid)
-        external
-        view
-        returns (uint256 outstanding, uint256 exposure)
-    {
+    function outstanding(address escrow) external view returns (uint256 total) {
         address owner_ = IMandateEscrowV1(escrow).owner();
         uint256[] storage pids = _enrolled[escrow];
         uint256 count = pids.length;
 
         for (uint256 i = 0; i < count; i++) {
-            uint256 pid = pids[i];
-            uint256 left = _outstanding(owner_, pid);
-            outstanding += left;
-            if (pid == targetPid) exposure = left;
+            total += _outstanding(owner_, pids[i]);
         }
+    }
+
+    /// @inheritdoc IMandateRouter
+    function exposure(address escrow, uint256 pid) external view returns (uint256) {
+        // The membership map answers this without walking: it exists for _unlist, and one-based
+        // means a zero here is "not enrolled" rather than "first in the list".
+        if (_enrolledIndex[escrow][pid] == 0) return 0;
+        return _outstanding(IMandateEscrowV1(escrow).owner(), pid);
     }
 
     // ── owner ───────────────────────────────────────────────────────────────────
