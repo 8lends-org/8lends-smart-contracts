@@ -66,7 +66,7 @@ contract MandateRouter is IMandateRouter, Initializable, OwnableUpgradeable, UUP
         uint256 count = pids.length;
 
         for (uint256 i = 0; i < count; i++) {
-            total += _outstanding(owner_, pids[i]);
+            total += IFundraise(fundraise).outstandingPrincipal(owner_, pids[i]);
         }
     }
 
@@ -75,7 +75,7 @@ contract MandateRouter is IMandateRouter, Initializable, OwnableUpgradeable, UUP
         // The membership map answers this without walking: it exists for _unlist, and one-based
         // means a zero here is "not enrolled" rather than "first in the list".
         if (_enrolledIndex[escrow][pid] == 0) return 0;
-        return _outstanding(IMandateEscrowV1(escrow).owner(), pid);
+        return IFundraise(fundraise).outstandingPrincipal(IMandateEscrowV1(escrow).owner(), pid);
     }
 
     // ── owner ───────────────────────────────────────────────────────────────────
@@ -130,7 +130,7 @@ contract MandateRouter is IMandateRouter, Initializable, OwnableUpgradeable, UUP
         address escrow = routes[owner_][pid];
         if (escrow == address(0)) revert NoRoute(pid);
 
-        uint256 left = _outstanding(owner_, pid);
+        uint256 left = IFundraise(fundraise).outstandingPrincipal(owner_, pid);
         if (left != 0) revert StillOutstanding(pid, left);
 
         // Outstanding alone is not enough: a position that is merely listed on the market also
@@ -200,13 +200,6 @@ contract MandateRouter is IMandateRouter, Initializable, OwnableUpgradeable, UUP
         }
         pids.pop();
         delete _enrolledIndex[escrow][pid];
-    }
-
-    /// @dev Principal not yet returned. Floored because Fundraise's totalClaimed includes interest,
-    ///      so a fully repaid position claims back more than it put in.
-    function _outstanding(address owner_, uint256 pid) private view returns (uint256) {
-        IFundraise.InvestorInfo memory info = IFundraise(fundraise).investorInfo(owner_, pid);
-        return info.investedAmount > info.totalClaimed ? info.investedAmount - info.totalClaimed : 0;
     }
 
     function _authorizeUpgrade(address newImplementation) internal override onlyOwner {}

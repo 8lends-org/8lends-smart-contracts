@@ -3,7 +3,7 @@ pragma solidity ^0.8.23;
 
 import "forge-std/Test.sol";
 import "../Setup.sol";
-import { IFundraise } from "../../../contracts/interfaces/protocol/IFundraise.sol";
+import { Math } from "@openzeppelin/contracts/utils/math/Math.sol";
 
 /// @dev Routes only — the router has its own suite. Under test is what Fundraise does with them.
 contract RouterStub {
@@ -140,27 +140,61 @@ contract FundraiseMandateTest is Setup {
         escrow.place(fundraise, IERC20(address(usdc)), investor, pid, AMOUNT);
     }
 
-    /// The escrow reads the project through projectCapacity, never through projects — and the escrow
-    /// suite runs against a mock. Nothing but this holds the narrow getter to the wide one.
-    function test_projectCapacity_agrees_with_the_full_project() public {
+    // ── outstanding principal ───────────────────────────────────────────────────
+
+    /// The router reports what a mandate still has out, the escrow forwards what came back as
+    /// interest, and both read the same claim counter — so the split has to be the same one. Six
+    /// real repayments, each checked against onPayout's arithmetic transcribed. Counting all of
+    /// totalClaimed as principal is wrong by exactly the interest collected so far.
+    function test_outstandingPrincipal_follows_the_interest_first_waterfall() public {
         uint256 pid = _createProject(AMOUNT, AMOUNT);
-        _investAs(investor, pid, AMOUNT / 2, address(0));
+        _investAs(investor, pid, AMOUNT, address(0));
+        _fundProject(pid);
 
-        IFundraise.Project memory full = IFundraise(address(fundraise)).projects(pid);
-        (
-            IFundraise.Stage stage,
-            address loanToken,
-            uint256 openStageEndAt,
-            uint256 hardCap,
-            uint256 totalInvested
-        ) = IFundraise(address(fundraise)).projectCapacity(pid);
+        uint256 budget = (AMOUNT * INVESTOR_INTEREST) / BASIS_POINTS;
+        assertEq(fundraise.outstandingPrincipal(investor, pid), AMOUNT, "nothing back yet");
 
-        assertEq(uint8(stage), uint8(full.innerStruct.stage), "stage");
-        assertEq(loanToken, address(full.innerStruct.loanToken), "loanToken");
-        assertEq(openStageEndAt, full.openStageEndAt, "openStageEndAt");
-        assertEq(hardCap, full.hardCap, "hardCap");
-        assertEq(totalInvested, full.totalInvested, "totalInvested");
-        assertGt(totalInvested, 0, "a live project, not an empty struct");
+        uint256 claimed;
+        uint256 principalBack;
+        for (uint256 i = 0; i < 6; i++) {
+            _repay(pid, (AMOUNT + budget) / 6);
+            vm.prank(investor);
+            fundraise.claim(pid, investor);
+
+            (, uint256 nowClaimed) = fundraise.investorInfo(investor, pid);
+            uint256 fresh = nowClaimed - claimed;
+            // onPayout's split, transcribed: interest until the budget is spent, principal after.
+            uint256 interest = claimed >= budget ? 0 : Math.min(fresh, budget - claimed);
+            principalBack += fresh - interest;
+            claimed = nowClaimed;
+
+            assertEq(
+                fundraise.outstandingPrincipal(investor, pid),
+                AMOUNT - principalBack,
+                "the view disagrees with the waterfall the escrow settles by"
+            );
+            if (i == 0) assertEq(principalBack, 0, "the first repayment is interest, not principal");
+        }
+
+        assertGt(claimed, AMOUNT, "more was claimed than was put in");
+        assertEq(fundraise.outstandingPrincipal(investor, pid), 0, "and the principal is all back");
+    }
+
+    /// Nothing caps a repayment at what is owed, so the claim counter can pass principal plus
+    /// budget. The subtraction floors there rather than wrapping.
+    function test_outstandingPrincipal_floors_when_the_borrower_overpays() public {
+        uint256 pid = _createProject(AMOUNT, AMOUNT);
+        _investAs(investor, pid, AMOUNT, address(0));
+        _fundProject(pid);
+
+        uint256 owed = AMOUNT + (AMOUNT * INVESTOR_INTEREST) / BASIS_POINTS;
+        _repay(pid, owed * 2);
+        vm.prank(investor);
+        fundraise.claim(pid, investor);
+
+        (, uint256 claimed) = fundraise.investorInfo(investor, pid);
+        assertGt(claimed, owed, "claimed past principal and budget both");
+        assertEq(fundraise.outstandingPrincipal(investor, pid), 0);
     }
 
     // ── payout target ───────────────────────────────────────────────────────────

@@ -42,13 +42,11 @@ interface IFundraise {
 
     function projects(uint256 _projectId) external view returns (Project memory);
 
-    /// @notice Everything a placement needs to decide, without loading the rest of the project.
-    function projectCapacity(uint256 _projectId)
-        external
-        view
-        returns (Stage stage, address loanToken, uint256 openStageEndAt, uint256 hardCap, uint256 totalInvested);
-
     function investorInfo(address _investor, uint256 _projectId) external view returns (InvestorInfo memory);
+
+    /// @notice Principal of this position that has not come back yet, read through the same
+    ///         interest-first waterfall the escrow's onPayout splits payouts by.
+    function outstandingPrincipal(address _investor, uint256 _projectId) external view returns (uint256);
 
     /// @notice Places `amount` of the caller's USDC into `pid`, recording `owner` as the investor.
     /// @dev Callable only by an escrow of `owner`, which Fundraise checks against the factory in the

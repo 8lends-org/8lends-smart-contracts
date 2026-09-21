@@ -97,20 +97,6 @@ contract FundraiseStub {
 
     function projects(uint256) external view returns (IFundraise.Project memory) { return project; }
 
-    function projectCapacity(uint256)
-        external
-        view
-        returns (IFundraise.Stage, address, uint256, uint256, uint256)
-    {
-        return (
-            project.innerStruct.stage,
-            address(project.innerStruct.loanToken),
-            project.openStageEndAt,
-            project.hardCap,
-            project.totalInvested
-        );
-    }
-
     function investFromMandate(address owner, uint256, uint256 amount, address inviter) external {
         lastOwner = owner;
         lastAmount = amount;

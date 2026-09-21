@@ -34,6 +34,7 @@ contract RegistryStub {
 contract FundraiseStub {
     mapping(address => mapping(uint256 => IFundraise.InvestorInfo)) private _info;
     mapping(uint256 => IFundraise.Stage) private _stage;
+    mapping(uint256 => uint256) private _rate;
 
     function setInfo(address who, uint256 pid, uint256 invested, uint256 claimed) external {
         _info[who][pid] = IFundraise.InvestorInfo({ investedAmount: invested, totalClaimed: claimed });
@@ -41,12 +42,25 @@ contract FundraiseStub {
 
     function setStage(uint256 pid, IFundraise.Stage s) external { _stage[pid] = s; }
 
+    function setRate(uint256 pid, uint256 rate) external { _rate[pid] = rate; }
+
     function investorInfo(address who, uint256 pid) external view returns (IFundraise.InvestorInfo memory) {
         return _info[who][pid];
     }
 
     function projects(uint256 pid) external view returns (IFundraise.Project memory p) {
         p.innerStruct.stage = _stage[pid];
+        p.investorInterestRate = _rate[pid];
+    }
+
+    /// @dev Mirrors the real waterfall so the router's summing is measured on plausible numbers.
+    ///      Whether the waterfall itself is right is settled against the real Fundraise, in
+    ///      FundraiseMandate.t.sol.
+    function outstandingPrincipal(address who, uint256 pid) external view returns (uint256) {
+        IFundraise.InvestorInfo memory info = _info[who][pid];
+        uint256 budget = (info.investedAmount * _rate[pid]) / 1e6;
+        uint256 principal = info.totalClaimed > budget ? info.totalClaimed - budget : 0;
+        return info.investedAmount > principal ? info.investedAmount - principal : 0;
     }
 }
 
@@ -73,6 +87,8 @@ contract MandateRouterTest is Test {
     address operator = address(0x00E7A);
 
     uint256 constant PID = 7;
+    /// @dev Fundraise's rate scale is millionths — 1% is 10 000.
+    uint256 constant RATE_20PCT = 200_000;
 
     function setUp() public {
         factory = new FactoryStub();
@@ -232,20 +248,26 @@ contract MandateRouterTest is Test {
 
     // ── outstanding / exposure ──────────────────────────────────────────────────
 
-    /// Outstanding principal, summed over enrolled projects, and singled out per project.
+    /// Outstanding principal, summed over enrolled projects, and singled out per project. Every
+    /// project carries interest: at a zero rate the waterfall is a no-op and the sum proves nothing.
     function test_outstanding_sums_and_exposure_singles_out() public {
-        fundraise.setInfo(alice, 1, 1_000e6, 400e6);   // 600 left
-        fundraise.setInfo(alice, 2, 500e6, 0);         // 500 left
-        fundraise.setInfo(alice, 3, 300e6, 900e6);     // repaid with interest → 0, not negative
+        fundraise.setRate(1, RATE_20PCT);
+        fundraise.setRate(2, RATE_20PCT);
+        fundraise.setRate(3, RATE_20PCT);
+
+        fundraise.setInfo(alice, 1, 1_000e6, 400e6); // budget 200, so 200 of principal back → 800
+        fundraise.setInfo(alice, 2, 500e6, 0); // nothing claimed → the whole 500
+        fundraise.setInfo(alice, 3, 300e6, 900e6); // far past invested + budget → 0, not negative
 
         uint256[] memory pids = new uint256[](3);
         pids[0] = 1; pids[1] = 2; pids[2] = 3;
         vm.prank(alice);
         router.setRouteMany(pids, address(escrow));
 
-        assertEq(router.outstanding(address(escrow)), 1_100e6);
+        assertEq(router.outstanding(address(escrow)), 1_300e6);
+        assertEq(router.exposure(address(escrow), 1), 800e6, "interest claimed is not principal back");
         assertEq(router.exposure(address(escrow), 2), 500e6);
-        assertEq(router.exposure(address(escrow), 3), 0, "repaid with interest floors at zero");
+        assertEq(router.exposure(address(escrow), 3), 0, "overpaid floors at zero");
         assertEq(router.exposure(address(escrow), 99), 0, "a project outside the list has none");
 
         // The owner holds this one manually, so it is theirs but not the mandate's.
@@ -256,6 +278,8 @@ contract MandateRouterTest is Test {
     // ── clearIfEmpty ────────────────────────────────────────────────────────────
 
     function test_clearIfEmpty_removes_a_settled_project() public {
+        // Exactly principal plus the interest budget: the last unit of principal is back.
+        fundraise.setRate(PID, RATE_20PCT);
         fundraise.setInfo(alice, PID, 1_000e6, 1_200e6);
         fundraise.setStage(PID, IFundraise.Stage.Repaid);
         vm.prank(alice);
@@ -268,14 +292,18 @@ contract MandateRouterTest is Test {
         assertEq(router.enrolledPids(address(escrow)).length, 0);
     }
 
+    /// A position whose claims so far are pure interest still has every cent of principal out.
+    /// Reading it as settled would clear the route, and the principal that follows would reach the
+    /// wallet unsplit instead of the mandate.
     function test_clearIfEmpty_keeps_a_project_with_principal_left() public {
-        fundraise.setInfo(alice, PID, 1_000e6, 400e6);
+        fundraise.setRate(PID, RATE_20PCT);
+        fundraise.setInfo(alice, PID, 1_000e6, 200e6); // the whole interest budget, no principal
         fundraise.setStage(PID, IFundraise.Stage.Repaid);
         vm.prank(alice);
         router.setRoute(PID, address(escrow));
 
         vm.expectRevert(
-            abi.encodeWithSelector(MandateRouter.StillOutstanding.selector, PID, uint256(600e6))
+            abi.encodeWithSelector(MandateRouter.StillOutstanding.selector, PID, uint256(1_000e6))
         );
         vm.prank(operator);
         router.clearIfEmpty(alice, PID);

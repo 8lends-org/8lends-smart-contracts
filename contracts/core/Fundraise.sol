@@ -770,25 +770,6 @@ contract Fundraise is Initializable, UUPSUpgradeable, OwnableUpgradeable {
         emit TrustedSignerUpdated(_signer);
     }
 
-    /// @notice Everything a placement needs to decide, without loading the rest of the project.
-    /// @dev The public `projects` getter reads all twelve slots; this reads four, and allocation
-    ///      runs on every mandate ticket. `loanToken` is free — same slot as `stage`.
-    /// @dev The deadline comes back too: past it an Open project still takes no money.
-    function projectCapacity(uint256 _projectId)
-        external
-        view
-        returns (Stage stage, address loanToken, uint256 openStageEndAt, uint256 hardCap, uint256 totalInvested)
-    {
-        Project storage project = projects[_projectId];
-        return (
-            project.innerStruct.stage,
-            address(project.innerStruct.loanToken),
-            project.openStageEndAt,
-            project.hardCap,
-            project.totalInvested
-        );
-    }
-
     /// @dev Zero while no router is set, so every project then reads as unrouted.
     function _routeOf(address _investor, uint256 _projectId) internal view returns (address) {
         address router = mandateRouter;
@@ -910,6 +891,21 @@ contract Fundraise is Initializable, UUPSUpgradeable, OwnableUpgradeable {
         uint256 claimableShare = (project.innerStruct.totalRepaid * investorShare) / BASIS_POINTS; // Numeric
 
         claimable = claimableShare > investor.totalClaimed ? claimableShare - investor.totalClaimed : 0;
+    }
+
+    /// @notice How much of this position's principal has not come back yet.
+    /// @dev totalClaimed mixes principal and interest, so it is read through the interest-first
+    ///      waterfall: a claim is interest until the budget is spent, principal after. The mandate
+    ///      escrow splits payouts by the same rule in onPayout, and the two have to agree.
+    function outstandingPrincipal(address _investor, uint256 _projectId) external view returns (uint256) {
+        InvestorInfo storage investor = investorInfo[_investor][_projectId];
+        uint256 invested = investor.investedAmount;
+
+        uint256 budget = (invested * projects[_projectId].investorInterestRate) / BASIS_POINTS;
+        uint256 claimed = investor.totalClaimed;
+        uint256 principal = claimed > budget ? claimed - budget : 0;
+
+        return invested > principal ? invested - principal : 0;
     }
 
     function splitSignature(bytes memory sig) public pure returns (bytes32 r, bytes32 s, uint8 v) {

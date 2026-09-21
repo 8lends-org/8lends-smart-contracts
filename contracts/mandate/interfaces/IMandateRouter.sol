@@ -31,9 +31,9 @@ interface IMandateRouter {
 
     /// @notice Outstanding principal across every project of this escrow — the mandate's size,
     ///         less what is sitting on its balance.
-    /// @dev Walks the enrolled list, so it costs one Fundraise read per project. Floored at zero
-    ///      per project: totalClaimed includes interest, so a repaid position claims back more than
-    ///      it put in.
+    /// @dev Walks the enrolled list, so it costs a Fundraise read per project. What was claimed is
+    ///      split by the same interest-first waterfall onPayout applies, since totalClaimed mixes
+    ///      the two and only the principal part of it has left the mandate.
     function outstanding(address escrow) external view returns (uint256 total);
 
     /// @notice Outstanding principal of this escrow in one project. Constant time.

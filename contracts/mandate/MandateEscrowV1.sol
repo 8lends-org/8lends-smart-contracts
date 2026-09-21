@@ -276,15 +276,13 @@ contract MandateEscrowV1 is IMandateEscrowV1 {
         // Scoped so the project fields and the intermediates die before the calls below — otherwise
         // the placement's own arguments sit too deep to reach.
         {
-            (
-                IFundraise.Stage stage,
-                address loanToken,
-                uint256 openStageEndAt,
-                uint256 hardCap,
-                uint256 totalInvested
-            ) = IFundraise(FUNDRAISE).projectCapacity(pid);
+            IFundraise.Project memory project = IFundraise(FUNDRAISE).projects(pid);
+            uint256 openStageEndAt = project.openStageEndAt;
+            address loanToken = address(project.innerStruct.loanToken);
+            uint256 hardCap = project.hardCap;
+            uint256 totalInvested = project.totalInvested;
 
-            if (stage != IFundraise.Stage.Open) revert ProjectNotOpen();
+            if (project.innerStruct.stage != IFundraise.Stage.Open) revert ProjectNotOpen();
             // Both fail before the enrolled-list walk below. Open is not the same as accepting
             // money: past the deadline Fundraise refuses with a bare InvestmentFailed.
             if (block.timestamp > openStageEndAt) revert ProjectWindowClosed(openStageEndAt);

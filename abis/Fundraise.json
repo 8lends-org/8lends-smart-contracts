@@ -1474,6 +1474,30 @@
     "type": "function"
   },
   {
+    "inputs": [
+      {
+        "internalType": "address",
+        "name": "_investor",
+        "type": "address"
+      },
+      {
+        "internalType": "uint256",
+        "name": "_projectId",
+        "type": "uint256"
+      }
+    ],
+    "name": "outstandingPrincipal",
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
     "inputs": [],
     "name": "owner",
     "outputs": [
@@ -1481,45 +1505,6 @@
         "internalType": "address",
         "name": "",
         "type": "address"
-      }
-    ],
-    "stateMutability": "view",
-    "type": "function"
-  },
-  {
-    "inputs": [
-      {
-        "internalType": "uint256",
-        "name": "_projectId",
-        "type": "uint256"
-      }
-    ],
-    "name": "projectCapacity",
-    "outputs": [
-      {
-        "internalType": "enum Fundraise.Stage",
-        "name": "stage",
-        "type": "uint8"
-      },
-      {
-        "internalType": "address",
-        "name": "loanToken",
-        "type": "address"
-      },
-      {
-        "internalType": "uint256",
-        "name": "openStageEndAt",
-        "type": "uint256"
-      },
-      {
-        "internalType": "uint256",
-        "name": "hardCap",
-        "type": "uint256"
-      },
-      {
-        "internalType": "uint256",
-        "name": "totalInvested",
-        "type": "uint256"
       }
     ],
     "stateMutability": "view",
