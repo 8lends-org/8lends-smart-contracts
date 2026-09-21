@@ -66,10 +66,6 @@ contract Fundraise is Initializable, UUPSUpgradeable, OwnableUpgradeable {
     error PreFundDurationMustBePositive();
     error BorrowerMustBeSet();
     error LoanTokenMustBeSet();
-    error PositionsAlreadyExist();
-    error InvestorHasClaimed();
-    error AmountMustBePositive();
-    error SumMismatchWithAggregate();
     error InvalidSignatureLength();
     error OracleNotSet();
     error LoanTokenPriceZero();
@@ -853,25 +849,6 @@ contract Fundraise is Initializable, UUPSUpgradeable, OwnableUpgradeable {
         if (_project.innerStruct.borrower == address(0)) revert BorrowerMustBeSet();
         if (address(_project.innerStruct.loanToken) == address(0)) revert LoanTokenMustBeSet();
     }
-
-    /// @notice Backfill individual positions for an existing investor from event history.
-    /// @dev Called by owner/manager after upgrade. Each amount becomes a separate position.
-    /// @param _investor Investor address
-    /// @param _projectId Project ID
-    /// @param _amounts Array of individual investment amounts (from Invest event logs)
-    function backfillPositions(address _investor, uint256 _projectId, uint256[] calldata _amounts) external {
-        if (!IManagerRegistry(managerRegistry).isManager(msg.sender)) revert NotAManager();
-        if (_investorPositions[_investor][_projectId].length != 0) revert PositionsAlreadyExist();
-        if (investorInfo[_investor][_projectId].totalClaimed != 0) revert InvestorHasClaimed();
-        uint256 total = 0;
-        for (uint256 i = 0; i < _amounts.length; i++) {
-            if (_amounts[i] == 0) revert AmountMustBePositive();
-            _investorPositions[_investor][_projectId].push(InvestorInfo(_amounts[i], 0));
-            total += _amounts[i];
-        }
-        if (total != investorInfo[_investor][_projectId].investedAmount) revert SumMismatchWithAggregate();
-    }
-
 
     /// @notice Get investors available amount for claim
     /// @param _projectId ProjectId

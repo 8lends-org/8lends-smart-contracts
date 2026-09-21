@@ -27,11 +27,6 @@
   },
   {
     "inputs": [],
-    "name": "AmountMustBePositive",
-    "type": "error"
-  },
-  {
-    "inputs": [],
     "name": "ArrayLengthMismatch",
     "type": "error"
   },
@@ -129,11 +124,6 @@
   {
     "inputs": [],
     "name": "InvestmentFailed",
-    "type": "error"
-  },
-  {
-    "inputs": [],
-    "name": "InvestorHasClaimed",
     "type": "error"
   },
   {
@@ -271,11 +261,6 @@
   },
   {
     "inputs": [],
-    "name": "PositionsAlreadyExist",
-    "type": "error"
-  },
-  {
-    "inputs": [],
     "name": "PreFundDurationMustBePositive",
     "type": "error"
   },
@@ -355,11 +340,6 @@
   {
     "inputs": [],
     "name": "StalePriceData",
-    "type": "error"
-  },
-  {
-    "inputs": [],
-    "name": "SumMismatchWithAggregate",
     "type": "error"
   },
   {
@@ -947,29 +927,6 @@
       }
     ],
     "stateMutability": "view",
-    "type": "function"
-  },
-  {
-    "inputs": [
-      {
-        "internalType": "address",
-        "name": "_investor",
-        "type": "address"
-      },
-      {
-        "internalType": "uint256",
-        "name": "_projectId",
-        "type": "uint256"
-      },
-      {
-        "internalType": "uint256[]",
-        "name": "_amounts",
-        "type": "uint256[]"
-      }
-    ],
-    "name": "backfillPositions",
-    "outputs": [],
-    "stateMutability": "nonpayable",
     "type": "function"
   },
   {
