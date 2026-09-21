@@ -676,10 +676,6 @@ contract Fundraise is Initializable, UUPSUpgradeable, OwnableUpgradeable {
     /// @param _project Project info
     /// @param _projectHash project hash, for event
     function createProject(Project memory _project, uint256 _projectHash) external returns (uint256) {
-        return _createProjectInternal(_project, _projectHash);
-    }
-
-    function _createProjectInternal(Project memory _project, uint256 _projectHash) internal returns (uint256) {
         if (!IManagerRegistry(managerRegistry).isManager(msg.sender)) revert NotAManager();
         _validateProject(_project);
 

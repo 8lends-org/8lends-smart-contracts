@@ -218,6 +218,60 @@ contract DoubleClaimMarketTest is Setup {
         assertEq(sale.maxReturn, 36_000e6, "maxReturn unchanged");
     }
 
+    /// The watermark a position carries is derived twice from the same aggregate: Market works it
+    /// out to gate the price, Fundraise works it out again to write it on transfer. The comment on
+    /// Market._derivedPositionClaimed says the two must agree; nothing held them to it, and the
+    /// test above cannot — one position holding the whole aggregate makes the apportioning an
+    /// identity and the rounding a no-op. Here the seller holds three positions and the division
+    /// leaves a remainder, so both the pro rata and the direction of rounding are measured.
+    function test_marketAndFundraiseDeriveTheSameClaimedWatermark() public {
+        uint256 pid = _createProject(10_000e6, 30_000e6);
+        _investAs(investor, pid, 10_000e6, inviter);
+        _investAs(investor, pid, 7_000e6, inviter); // the one that gets sold
+        _investAs(investor, pid, 3_000e6, inviter);
+        _fundProject(pid);
+
+        // One wei past a round number, so 7/20 of it does not divide evenly.
+        uint256 repaid = 10_000e6 + 1;
+        _repay(pid, repaid);
+        vm.prank(investor);
+        fundraise.claim(pid, investor);
+
+        (uint256 aggInvested, uint256 aggClaimed) = fundraise.investorInfo(investor, pid);
+        assertEq(aggClaimed, repaid, "sole investor takes the whole repayment");
+
+        uint256 posInvested = 7_000e6;
+        uint256 expected = Math.mulDiv(aggClaimed, posInvested, aggInvested, Math.Rounding.Ceil);
+        // Strict, so the division really left a remainder and the rounding direction is measured.
+        assertGt(expected * aggInvested, aggClaimed * posInvested, "the case is degenerate, Ceil never bites");
+
+        uint256 maxReturn = posInvested + (posInvested * INVESTOR_INTEREST) / BASIS_POINTS;
+
+        // Market's number, read off the bound it enforces and off the snapshot it stores.
+        vm.prank(investor);
+        vm.expectRevert("Price exceeds buyer return");
+        market.sell(pid, maxReturn - expected + 1, 1);
+
+        vm.prank(investor);
+        uint256 saleId = market.sell(pid, maxReturn - expected, 1);
+        assertEq(market.getSale(saleId).totalClaimed, expected, "Market derived a different watermark");
+
+        // Fundraise's number, read off what the buyer ends up carrying.
+        uint256 price = maxReturn - expected;
+        vm.prank(owner);
+        usdc.mint(investor2, price);
+        bytes memory sig = _signMarketBuy(investor2, saleId);
+        vm.startPrank(investor2);
+        usdc.approve(address(market), price);
+        market.buy(saleId, sig);
+        vm.stopPrank();
+
+        Fundraise.InvestorInfo[] memory bought = fundraise.getInvestorPositions(investor2, pid);
+        assertEq(bought.length, 1, "the buyer carries exactly the position that was sold");
+        assertEq(bought[0].investedAmount, posInvested, "size survived the transfer");
+        assertEq(bought[0].totalClaimed, expected, "Fundraise derived a different watermark than Market");
+    }
+
     // ═══════════════════════════════════════════════════════════════════
     //  Mandatory CI invariant (findings.md): invest→repay→claim→sell→buy→claim
     //  never pays out more than totalRepaid.

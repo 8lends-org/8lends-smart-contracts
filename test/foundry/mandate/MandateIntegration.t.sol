@@ -65,8 +65,15 @@ contract MandateIntegrationTest is Setup {
 
     /// @dev WALLET, so the split is observable: interest leaves the escrow, principal stays.
     function _mandate(address user, InterestDirection direction) internal returns (MandateEscrowV1 e) {
+        return _mandate(user, direction, 10_000);
+    }
+
+    function _mandate(address user, InterestDirection direction, uint16 limitBps)
+        internal
+        returns (MandateEscrowV1 e)
+    {
         ImmutableParamsV1 memory p =
-            ImmutableParamsV1({ interestDirection: uint8(direction), projectLimitBps: 10_000 });
+            ImmutableParamsV1({ interestDirection: uint8(direction), projectLimitBps: limitBps });
 
         bytes32 inner = keccak256(
             abi.encodePacked(user, keccak256(abi.encode(p)), uint16(1), address(factory), block.chainid)
@@ -97,6 +104,36 @@ contract MandateIntegrationTest is Setup {
 
     function _position(address who, uint256 pid) internal view returns (uint256 inv, uint256 cl) {
         (inv, cl) = fundraise.investorInfo(who, pid);
+    }
+
+    // ── the size the limit is taken from ──────────────────────────────────────
+
+    /// The per-project cap is mandateSize * projectLimitBps / 10000 — the interface says so and
+    /// the code says it in those words. This keeps the two the same: spell the sum out a second
+    /// time and the base the cap is taken from drifts from the figure named mandateSize, with
+    /// nothing to notice it. The placement below covers the other half — moving money into a
+    /// project must not move the base, or a mandate could fill one project ticket by ticket.
+    function test_the_cap_is_taken_from_the_size_the_interface_names() public {
+        uint16 limitBps = 2_500; // a quarter, so the multiplication is not the identity
+        MandateEscrowV1 e = _mandate(investor, InterestDirection.WALLET, limitBps);
+        _fund(e, 40_000e6);
+        uint256 pid = _openProject();
+
+        (uint256 cap, , ) = e.projectLimit(pid);
+        assertEq(e.mandateSize(), 40_000e6, "nothing placed yet, so size is the balance");
+        assertEq(cap, (e.mandateSize() * limitBps) / 10_000, "cap is not taken from mandateSize");
+        assertEq(cap, 10_000e6, "and the quarter is a real quarter");
+
+        vm.prank(operator);
+        e.allocate(pid, address(0));
+
+        // Placing moves money from the balance into outstanding principal, so the base — and with
+        // it the cap — must not move. This is what stops a mandate filling one project by tickets.
+        assertEq(e.mandateSize(), 40_000e6, "placing changed the size the limit is taken from");
+        (uint256 capAfter, uint256 exposure, uint256 room) = e.projectLimit(pid);
+        assertEq(capAfter, cap, "cap drifted after a placement");
+        assertEq(exposure, 10_000e6, "the placement is the exposure");
+        assertEq(room, 0, "and the project is full for this mandate");
     }
 
     // ── the scale the rate is quoted in ───────────────────────────────────────

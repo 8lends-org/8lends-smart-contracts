@@ -173,18 +173,8 @@ contract MandateEscrowV1 is IMandateEscrowV1 {
         view
         returns (uint256 cap, uint256 exposure, uint256 room)
     {
-        return _projectLimit(pid, freeBalance());
-    }
-
-    /// @dev Takes the balance rather than reading it, so allocate pays for one balanceOf, not two.
-    function _projectLimit(uint256 pid, uint256 free)
-        private
-        view
-        returns (uint256 cap, uint256 exposure, uint256 room)
-    {
-        IMandateRouter router = IMandateRouter(ROUTER);
-        exposure = router.exposure(address(this), pid);
-        cap = ((free + router.outstanding(address(this))) * _projectLimitBps) / BPS;
+        exposure = IMandateRouter(ROUTER).exposure(address(this), pid);
+        cap = (mandateSize() * _projectLimitBps) / BPS;
         room = cap > exposure ? cap - exposure : 0;
     }
 
@@ -289,8 +279,7 @@ contract MandateEscrowV1 is IMandateEscrowV1 {
             // The escrow holds USDC alone; anything else has Fundraise pull a token that is not here.
             if (loanToken != USDC) revert ProjectLoanTokenNotUsdc(loanToken);
 
-            uint256 free = freeBalance();
-            (, uint256 exposure, uint256 room) = _projectLimit(pid, free);
+            (, uint256 exposure, uint256 room) = projectLimit(pid);
 
             // First entry only. On a top-up placing does not change mandateSize, so cap stays put
             // and room is zero from the second pass on — an unconditional floor would pour the
@@ -298,7 +287,7 @@ contract MandateEscrowV1 is IMandateEscrowV1 {
             uint256 want = (exposure == 0 && room < MIN_ALLOCATION) ? MIN_ALLOCATION : room;
 
             uint256 capacity = hardCap > totalInvested ? hardCap - totalInvested : 0;
-            amount = Math.min(Math.min(want, capacity), free);
+            amount = Math.min(Math.min(want, capacity), freeBalance());
         }
         if (amount < MIN_ALLOCATION) revert BelowMinimum(amount);
 
