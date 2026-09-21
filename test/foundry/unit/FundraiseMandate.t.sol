@@ -223,6 +223,75 @@ contract FundraiseMandateTest is Setup {
         assertEq(escrow.calls(), 0, "no split call on money that never arrived");
     }
 
+    // ── recovery chains ─────────────────────────────────────────────────────────
+
+    /// A recovery target is not a bystander who happens to appear in someone else's chain — in this
+    /// model it is the same person's next wallet. So when it is itself superseded, everything it
+    /// holds follows, including what it owned before it was ever named as a recovery address.
+    /// recipientOf resolves through the canonical head, and B's own lookup lands on that same head.
+    /// Surprising on first reading and deliberate; pinned here so it is not mistaken for a defect.
+    function test_a_recovery_target_carries_its_own_position_down_the_chain() public {
+        address b = makeAddr("bWallet");
+        address c = makeAddr("cWallet");
+
+        // B's own position, taken while B was nobody's recovery address.
+        uint256 pid = _createProject(AMOUNT, AMOUNT * 2);
+        _investAs(b, pid, AMOUNT, address(0));
+        _fundProject(pid);
+        _repayFull(pid);
+
+        vm.startPrank(owner);
+        managerRegistry.setInvestorClaimAddress(investor, b); // A -> B
+        managerRegistry.setInvestorClaimAddress(b, c); // B -> C
+        vm.stopPrank();
+
+        assertEq(managerRegistry.recipientOf(investor), c, "A resolves through the chain to C");
+        assertEq(managerRegistry.recipientOf(b), c, "and so does B, a party in its own right");
+        assertTrue(managerRegistry.isCompromised(b), "B is superseded, not merely a member of a chain");
+        assertFalse(managerRegistry.isCompromised(c), "C ends the chain and stays usable");
+
+        uint256 bBefore = usdc.balanceOf(b);
+        uint256 cBefore = usdc.balanceOf(c);
+        vm.prank(b);
+        fundraise.claim(pid, b);
+
+        assertGt(usdc.balanceOf(c) - cBefore, 0, "B's own payout went to C");
+        assertEq(usdc.balanceOf(b), bBefore, "and none of it stayed with B");
+    }
+
+    /// The same for a mandate B runs itself: the flag outranks the route, so a project B routed to
+    /// its own escrow pays to C once B is superseded — the escrow is B's, and B is no longer B.
+    function test_a_recovery_target_carries_its_own_mandate_down_the_chain() public {
+        address b = makeAddr("bWallet");
+        address c = makeAddr("cWallet");
+
+        EscrowStub bEscrow = new EscrowStub();
+        factory.set(b, address(bEscrow));
+
+        uint256 pid = _createProject(AMOUNT, AMOUNT * 2);
+        _investAs(b, pid, AMOUNT, address(0));
+        _fundProject(pid);
+        _repayFull(pid);
+        router.setRoute(b, pid, address(bEscrow));
+
+        vm.startPrank(owner);
+        managerRegistry.setInvestorClaimAddress(investor, b);
+        managerRegistry.setInvestorClaimAddress(b, c);
+        vm.stopPrank();
+
+        // The whole chain collapses onto one entry keyed by its head, so A moves too — without
+        // this the test would pass on a registry that never resolves through the head at all.
+        assertEq(managerRegistry.recipientOf(investor), c, "A resolves through the chain to C");
+
+        uint256 cBefore = usdc.balanceOf(c);
+        vm.prank(attacker);
+        fundraise.claimForMandate(pid, b, MARKET_ID);
+
+        assertGt(usdc.balanceOf(c) - cBefore, 0, "paid to the end of the chain");
+        assertEq(usdc.balanceOf(address(bEscrow)), 0, "and not into B's own mandate");
+        assertEq(bEscrow.calls(), 0, "no split call on money that never arrived");
+    }
+
     // ── claim authorisation ─────────────────────────────────────────────────────
 
     /// The manager's blanket right to claim for a user is what this upgrade removes.
