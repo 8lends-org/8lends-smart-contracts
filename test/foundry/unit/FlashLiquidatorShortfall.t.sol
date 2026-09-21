@@ -297,10 +297,10 @@ contract FlashLiquidatorShortfallTest is Test {
 
         assertGt(loanDelta, 0, "no shortfall at LLTV=0.8 even at worst allowed rate");
 
-        // delta ~ repaid * (LIF * 0.97 - 1)
+        // delta == repaid * (LIF * 0.97 - 1), one wei of slack for the two truncations
         uint256 lif = _lif(0.8e18); // ~1.063829787e18
         int256 expected = int256((repaid * lif) / WAD_ * 0.97e18 / WAD_) - int256(repaid);
-        assertApproxEqAbs(loanDelta, expected, 0.05e18, "delta ~ repaid*(LIF*0.97 - 1)");
+        assertApproxEqAbs(loanDelta, expected, 1, "delta == repaid*(LIF*0.97 - 1), to the wei");
     }
 
     /// 2. LLTV = 0.8, router 1% below minOut: flash swap reverts on amountOutMin ->
@@ -350,10 +350,10 @@ contract FlashLiquidatorShortfallTest is Test {
         assertLt(loanDelta, 0, "shortfall: flash repayment ate own balance at LLTV=0.95");
         assertLt(proceeds, int256(repaid), "proceeds < repaid");
 
-        // delta ~ -repaid * (1 - LIF * 0.97), LIF ~ 1.015228e18 -> ~ -3.0457e18 for repaid=200e18
+        // delta == -repaid * (1 - LIF * 0.97); at LIF 1.015228e18 that is about -3.0457e18 for 200e18
         uint256 lif = _lif(0.95e18);
         int256 expected = int256((repaid * lif) / WAD_ * 0.97e18 / WAD_) - int256(repaid);
-        assertApproxEqAbs(loanDelta, expected, 0.05e18, "delta ~ repaid*(LIF*0.97 - 1) < 0");
+        assertApproxEqAbs(loanDelta, expected, 1, "delta == repaid*(LIF*0.97 - 1) < 0, to the wei");
     }
 
     /// 4. LLTV = 0.95, router at 0.97, ZERO own balance: the flash branch cannot cover the
@@ -387,6 +387,6 @@ contract FlashLiquidatorShortfallTest is Test {
         emit log_named_int("swap proceeds", proceeds);
         emit log_named_int("own balance delta (boundary)", loanDelta);
 
-        assertApproxEqAbs(loanDelta, int256(0), 1e12, "boundary delta ~ 0 (wei rounding only)");
+        assertApproxEqAbs(loanDelta, int256(0), 1000, "boundary delta ~ 0 (wei rounding only)");
     }
 }

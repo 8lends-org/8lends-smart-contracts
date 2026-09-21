@@ -138,6 +138,16 @@ contract RewardVestingFuzzTest is Setup {
         uint256 totalClaimed = token.balanceOf(investor);
         uint256 expectedTotal = _calcUnlock(totalAmount, weeks2);
         assertEq(totalClaimed, expectedTotal, "Total claimed after second claim");
+
+        // Run the schedule out: the holder must end up with all of it, not almost all. Everything
+        // above bounds the payout from the top or compares it with the test's own copy of the
+        // formula, so without this a schedule that leaked a little every week would pass.
+        vm.warp(block.timestamp + 60 weeks);
+        if (token.balanceOf(investor) < totalAmount) {
+            vm.prank(investor);
+            rewards2.claim(); // reverts on nothing left, and weeks2 may already have taken it all
+        }
+        assertEq(token.balanceOf(investor), totalAmount, "the whole grant, to the wei");
     }
 
     // ═══════════════════════════════════════════════════════════════

@@ -58,6 +58,20 @@ contract RewardSystemInvariantTest is Setup {
         assertGe(balance, remaining, "INVARIANT VIOLATED: rewards2 token balance < remaining obligations");
     }
 
+    /// @notice Everything granted stays reachable: taken plus still claimable is the whole grant
+    ///         once the schedule has run out.
+    /// @dev Every other property here bounds payouts from above; this is the one that bounds them
+    ///      from below, so a schedule losing a little each week cannot pass.
+    function invariant_nothingIsStrandedAfterTheSchedule() public {
+        vm.warp(block.timestamp + 60 weeks);
+
+        for (uint256 i = 0; i < userList.length; i++) {
+            (uint256 all, uint256 claimable, uint256 claimed, , ) = rewards2.getBalances(userList[i]);
+            if (all == 0) continue;
+            assertEq(claimed + claimable, all, "INVARIANT VIOLATED: part of a grant reaches nobody");
+        }
+    }
+
     /// @notice Each user's claimedAmount never exceeds their totalAmount
     function invariant_individualVestingBounds() public view {
         for (uint256 i = 0; i < userList.length; i++) {

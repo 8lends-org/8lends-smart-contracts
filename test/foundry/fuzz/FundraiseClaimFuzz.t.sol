@@ -2,27 +2,26 @@
 pragma solidity ^0.8.23;
 
 import "../Setup.sol";
+import { Math } from "@openzeppelin/contracts/utils/math/Math.sol";
 
-/// @notice Fuzz tests for Fundraise claim math (vulnerability #5 — rounding loss)
-/// @dev Tests the proportional distribution formula:
-///      investorShare = (investedAmount * BASIS_POINTS) / totalInvested
-///      claimableShare = (totalRepaid * investorShare) / BASIS_POINTS
+/// @notice Fuzz over the proportional distribution: claimableShare = totalRepaid * invested
+///         / totalInvested, one division, floored.
+/// @dev Where an exact answer exists it is asserted exactly. Across several holders there is none
+///      to assert: each share is floored, so the sum falls short of the pool by an amount that
+///      depends on the inputs. Both ends are bounded instead, and the bounds are the tightest the
+///      arithmetic permits — the exact shares sum to the pool, so the fractional parts they drop
+///      sum to a whole number below the holder count, never to the count itself.
 contract FundraiseClaimFuzzTest is Setup {
-    uint256 constant BP = 1_000_000;
-
     // ═══════════════════════════════════════════════════════════════
     //          PURE MATH FUZZ (no contract interaction)
     // ═══════════════════════════════════════════════════════════════
 
-    /// @notice Single investor share calculation never exceeds totalRepaid
+    /// @notice The only holder takes everything, nothing rounds away.
     function testFuzz_claimMath_singleInvestor(uint256 invested, uint256 totalRepaid) public pure {
         invested = bound(invested, 1e6, 1_000_000e6);
         totalRepaid = bound(totalRepaid, 0, invested * 3);
 
-        uint256 investorShare = (invested * BP) / invested; // == BP
-        uint256 claimable = (totalRepaid * investorShare) / BP;
-
-        assertEq(claimable, totalRepaid, "Single investor should get exact totalRepaid");
+        assertEq(Math.mulDiv(totalRepaid, invested, invested), totalRepaid, "all of it");
     }
 
     /// @notice Two investors: sum of claims never exceeds totalRepaid
@@ -36,13 +35,11 @@ contract FundraiseClaimFuzzTest is Setup {
         uint256 totalInvested = amount1 + amount2;
         totalRepaid = bound(totalRepaid, 0, totalInvested * 3);
 
-        uint256 share1 = (amount1 * BP) / totalInvested;
-        uint256 share2 = (amount2 * BP) / totalInvested;
+        uint256 claim1 = Math.mulDiv(totalRepaid, amount1, totalInvested);
+        uint256 claim2 = Math.mulDiv(totalRepaid, amount2, totalInvested);
 
-        uint256 claim1 = (totalRepaid * share1) / BP;
-        uint256 claim2 = (totalRepaid * share2) / BP;
-
-        assertLe(claim1 + claim2, totalRepaid, "Sum of claims exceeds totalRepaid");
+        assertLe(claim1 + claim2, totalRepaid, "never more than came in");
+        assertGe(claim1 + claim2 + 1, totalRepaid, "and short by less than a holder");
     }
 
     /// @notice Three investors: dust amount from rounding loss
@@ -58,27 +55,14 @@ contract FundraiseClaimFuzzTest is Setup {
         uint256 total = a1 + a2 + a3;
         totalRepaid = bound(totalRepaid, 0, total * 3);
 
-        uint256 s1 = (a1 * BP) / total;
-        uint256 s2 = (a2 * BP) / total;
-        uint256 s3 = (a3 * BP) / total;
+        uint256 sumClaims = Math.mulDiv(totalRepaid, a1, total)
+            + Math.mulDiv(totalRepaid, a2, total)
+            + Math.mulDiv(totalRepaid, a3, total);
 
-        uint256 c1 = (totalRepaid * s1) / BP;
-        uint256 c2 = (totalRepaid * s2) / BP;
-        uint256 c3 = (totalRepaid * s3) / BP;
-
-        uint256 sumClaims = c1 + c2 + c3;
-        assertLe(sumClaims, totalRepaid);
-
-        // KNOWN ISSUE: Dust can be significant due to double-division rounding.
-        // The formula truncates twice: once for investorShare, once for claimableShare.
-        // With large totalRepaid and uneven splits, dust can reach thousands of USDC units.
-        if (totalRepaid > 0) {
-            uint256 dust = totalRepaid - sumClaims;
-            // Dust should be less than 0.1% of totalRepaid (min 3 for tiny amounts)
-            uint256 maxDust = totalRepaid / 1000;
-            if (maxDust < 3) maxDust = 3;
-            assertLe(dust, maxDust, "Dust exceeds 0.1% of totalRepaid");
-        }
+        assertLe(sumClaims, totalRepaid, "never more than came in");
+        // Two units across three holders, which is all three floors can drop between them. Any
+        // slack beyond that would let a loss that scales with the pool pass as rounding.
+        assertLe(totalRepaid - sumClaims, 2, "less than one unit per holder");
     }
 
     // ═══════════════════════════════════════════════════════════════
@@ -136,10 +120,6 @@ contract FundraiseClaimFuzzTest is Setup {
 
         assertLe(claimed1 + claimed2, totalRepaid, "Over-claim in contract");
 
-        // KNOWN ISSUE: Dust from rounding can be significant.
-        // See vulnerability #5: double-division truncation.
-        uint256 dust = totalRepaid - (claimed1 + claimed2);
-        // Dust should be less than 0.1% of totalRepaid
-        assertLe(dust, totalRepaid / 1000, "Dust exceeds 0.1% of totalRepaid");
+        assertLe(totalRepaid - (claimed1 + claimed2), 1, "less than one unit per holder");
     }
 }
