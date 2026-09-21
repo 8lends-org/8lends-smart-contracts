@@ -155,8 +155,6 @@ contract MandateRouter is IMandateRouter, Initializable, OwnableUpgradeable, UUP
 
     // ── internals ───────────────────────────────────────────────────────────────
 
-    /// @dev The factory address is read from the registry on every call rather than stored here, so
-    ///      rotating it is one registry write under the multisig instead of three upgrades.
     function _requireEscrowOf(address owner_, address escrow) private view {
         address factory = IManagerRegistry(managerRegistry).mandateFactory();
         if (factory == address(0)) revert NoMandateFactory();

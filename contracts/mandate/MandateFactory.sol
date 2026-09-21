@@ -71,7 +71,7 @@ contract MandateFactory is IMandateFactory, Initializable, OwnableUpgradeable, U
 
         // abi.encode, not encodePacked — it hashes a struct, and the escrow computes it the same way.
         bytes32 paramsHash = keccak256(abi.encode(p));
-        _requireKyc(msg.sender, paramsHash, version, kyc);
+        _requireKycSignerSig(msg.sender, paramsHash, version, kyc);
 
         // A repeat lands on occupied code and reverts inside cloneDeterministic, which is what makes
         // the signature single-use without a nonce.
@@ -166,7 +166,7 @@ contract MandateFactory is IMandateFactory, Initializable, OwnableUpgradeable, U
     /// @dev Same scheme as the live investUpdateV2 path, so the backend needs no new signing flow.
     ///      encodePacked is safe here — every field is fixed-size, and `version` packs to two bytes.
     ///      ECDSA.recover rejects a malleable high-s signature on its own.
-    function _requireKyc(address owner_, bytes32 paramsHash, uint16 version, bytes calldata sig)
+    function _requireKycSignerSig(address owner_, bytes32 paramsHash, uint16 version, bytes calldata sig)
         private
         view
     {
