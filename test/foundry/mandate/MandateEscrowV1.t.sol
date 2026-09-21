@@ -443,8 +443,8 @@ contract MandateEscrowV1Test is Test {
         escrow.onPayout(PID, 1, 1, 1, 0, bytes32(0));
     }
 
-    /// @dev Interest budget = invested * rate / 10000. Interest is paid first, so a payout is
-    ///      interest until the budget is exhausted, then principal.
+    /// @dev Interest budget = invested * rate / 1e6, Fundraise's scale. Interest is paid first,
+    ///      so a payout is interest until the budget is exhausted, then principal.
     function test_waterfall_pays_interest_first_then_principal() public {
         uint256 invested = 1_000e6;
         uint256 rate = 150_000; // 15% in Fundraise scale → budget 150
