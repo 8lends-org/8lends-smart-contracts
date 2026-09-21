@@ -108,8 +108,7 @@ contract EscrowFactoryTest is Test {
     // =========================================================================
 
     function test_Initialize_TwiceReverts() public {
-        // InvalidInitialization is the OZ error thrown when already initialized
-        vm.expectRevert();
+        vm.expectRevert(abi.encodeWithSignature("InvalidInitialization()"));
         factory.initialize(address(escrowImpl), mockFundraise, address(usdc), signer);
     }
 
@@ -272,7 +271,7 @@ contract EscrowFactoryTest is Test {
 
     function test_SetSigner_OnlyOwner() public {
         vm.prank(attacker);
-        vm.expectRevert();
+        vm.expectRevert(abi.encodeWithSignature("OwnableUnauthorizedAccount(address)", attacker));
         factory.setSigner(attacker);
     }
 
@@ -308,7 +307,7 @@ contract EscrowFactoryTest is Test {
 
     function test_SetMaxInvestAmount_OnlyOwner() public {
         vm.prank(attacker);
-        vm.expectRevert();
+        vm.expectRevert(abi.encodeWithSignature("OwnableUnauthorizedAccount(address)", attacker));
         factory.setMaxInvestAmount(1000e6);
     }
 
@@ -392,7 +391,7 @@ contract EscrowFactoryTest is Test {
     function test_SetImplementation_OnlyOwner_ZeroReverts() public {
         // Non-owner reverts
         vm.prank(attacker);
-        vm.expectRevert();
+        vm.expectRevert(abi.encodeWithSignature("OwnableUnauthorizedAccount(address)", attacker));
         factory.setImplementation(address(escrowImpl));
 
         // Owner setting zero reverts
@@ -418,7 +417,7 @@ contract EscrowFactoryTest is Test {
     function test_SetFundraise_OnlyOwner_ZeroReverts() public {
         // Non-owner reverts
         vm.prank(attacker);
-        vm.expectRevert();
+        vm.expectRevert(abi.encodeWithSignature("OwnableUnauthorizedAccount(address)", attacker));
         factory.setFundraise(mockFundraise);
 
         // Owner setting zero reverts
@@ -444,7 +443,7 @@ contract EscrowFactoryTest is Test {
     function test_SetUsdc_OnlyOwner_ZeroReverts() public {
         // Non-owner reverts
         vm.prank(attacker);
-        vm.expectRevert();
+        vm.expectRevert(abi.encodeWithSignature("OwnableUnauthorizedAccount(address)", attacker));
         factory.setUsdc(address(usdc));
 
         // Owner setting zero reverts
@@ -497,7 +496,7 @@ contract EscrowFactoryTest is Test {
         EscrowFactory v2 = new EscrowFactory();
 
         vm.prank(attacker);
-        vm.expectRevert();
+        vm.expectRevert(abi.encodeWithSignature("OwnableUnauthorizedAccount(address)", attacker));
         factory.upgradeToAndCall(address(v2), "");
     }
 

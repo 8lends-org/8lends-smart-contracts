@@ -601,7 +601,7 @@ contract FundraiseLimitedSellerTest is Setup {
 
     function test_setLimitedSeller_onlyOwner() public {
         vm.prank(attacker);
-        vm.expectRevert();
+        vm.expectRevert(abi.encodeWithSignature("OwnableUnauthorizedAccount(address)", attacker));
         fundraise.setLimitedSeller(address(mockLimitedSeller));
     }
 

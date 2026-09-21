@@ -106,7 +106,7 @@ contract OracleStalenessTest is Setup {
     function test_GAP024_setMaxPriceAge_nonOwner_reverts() public {
         // GAP-024: setMaxPriceAge: non-owner reverts
         vm.prank(attacker);
-        vm.expectRevert();
+        vm.expectRevert(abi.encodeWithSignature("OwnableUnauthorizedAccount(address)", attacker));
         fundraise.setMaxPriceAge(3600);
     }
 

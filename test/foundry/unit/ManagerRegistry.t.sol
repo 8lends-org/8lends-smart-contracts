@@ -11,7 +11,7 @@ contract ManagerRegistryTest is Setup {
     function test_setManagerStatus_ownerOrManager() public {
         // Random address cannot set manager status.
         vm.prank(attacker);
-        vm.expectRevert();
+        vm.expectRevert("ManagerRegistry: Not authorized");
         managerRegistry.setManagerStatus(attacker, true);
 
         // Existing manager can set manager status.
@@ -58,11 +58,11 @@ contract ManagerRegistryTest is Setup {
         address newOperator = makeAddr("newOperator");
 
         vm.prank(manager);
-        vm.expectRevert();
+        vm.expectRevert(abi.encodeWithSignature("OwnableUnauthorizedAccount(address)", manager));
         managerRegistry.setOperatorStatus(newOperator, true);
 
         vm.prank(attacker);
-        vm.expectRevert();
+        vm.expectRevert(abi.encodeWithSignature("OwnableUnauthorizedAccount(address)", attacker));
         managerRegistry.setOperatorStatus(newOperator, true);
 
         vm.prank(owner);
@@ -111,7 +111,7 @@ contract ManagerRegistryTest is Setup {
 
     function test_setPoolStatus_onlyOwner() public {
         vm.prank(attacker);
-        vm.expectRevert();
+        vm.expectRevert(abi.encodeWithSignature("OwnableUnauthorizedAccount(address)", attacker));
         managerRegistry.setPoolStatus(attacker, true);
     }
 
@@ -127,7 +127,7 @@ contract ManagerRegistryTest is Setup {
 
     function test_setClaimAddress_onlyOwner() public {
         vm.prank(attacker);
-        vm.expectRevert();
+        vm.expectRevert(abi.encodeWithSignature("OwnableUnauthorizedAccount(address)", attacker));
         managerRegistry.setInvestorClaimAddress(investor, attacker);
     }
 
@@ -259,12 +259,12 @@ contract ManagerRegistryTest is Setup {
         address factory = makeAddr("mandateFactory");
 
         vm.prank(attacker);
-        vm.expectRevert();
+        vm.expectRevert(abi.encodeWithSignature("OwnableUnauthorizedAccount(address)", attacker));
         managerRegistry.setMandateFactory(factory);
 
         // Not even a manager.
         vm.prank(manager);
-        vm.expectRevert();
+        vm.expectRevert(abi.encodeWithSignature("OwnableUnauthorizedAccount(address)", manager));
         managerRegistry.setMandateFactory(factory);
     }
 

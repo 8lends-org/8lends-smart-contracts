@@ -314,11 +314,11 @@ contract RewardSystemReduceReferralUSDCTest is Setup {
             _oneEntryBatch(inviter, pid, 100e6, REFERRAL_BONUS);
 
         vm.prank(attacker);
-        vm.expectRevert(); // OwnableUnauthorizedAccount
+        vm.expectRevert(abi.encodeWithSignature("OwnableUnauthorizedAccount(address)", attacker));
         rewardSystem.reduceReferralUSDC(inv, ps, red, exp);
 
         vm.prank(manager);
-        vm.expectRevert();
+        vm.expectRevert(abi.encodeWithSignature("OwnableUnauthorizedAccount(address)", manager));
         rewardSystem.reduceReferralUSDC(inv, ps, red, exp);
     }
 

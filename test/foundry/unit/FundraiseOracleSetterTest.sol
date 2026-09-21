@@ -66,7 +66,7 @@ contract FundraiseOracleSetterTest is Setup {
     function test_GAP041_setOracle_nonOwner_reverts() public {
         // GAP-041: setOracle non-owner → revert
         vm.prank(attacker);
-        vm.expectRevert();
+        vm.expectRevert(abi.encodeWithSignature("OwnableUnauthorizedAccount(address)", attacker));
         fundraise.setOracle(address(mockOracle));
     }
 

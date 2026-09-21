@@ -191,9 +191,9 @@ contract TestUSDCTest is Test {
 
     function test_blacklist_is_owner_only() public {
         vm.startPrank(address(0xBAD));
-        vm.expectRevert();
+        vm.expectRevert(abi.encodeWithSignature("OwnableUnauthorizedAccount(address)", address(0xBAD)));
         usdc.blacklist(payer);
-        vm.expectRevert();
+        vm.expectRevert(abi.encodeWithSignature("OwnableUnauthorizedAccount(address)", address(0xBAD)));
         usdc.unBlacklist(payer);
         vm.stopPrank();
     }

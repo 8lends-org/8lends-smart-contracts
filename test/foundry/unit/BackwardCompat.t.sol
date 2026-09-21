@@ -399,7 +399,7 @@ contract BackwardCompatTest is Setup {
         limits[0] = 100e6;
 
         vm.prank(attacker);
-        vm.expectRevert();
+        vm.expectRevert(abi.encodeWithSignature("OwnableUnauthorizedAccount(address)", attacker));
         limitedSeller.migrateEarnedLimits(users, limits);
     }
 

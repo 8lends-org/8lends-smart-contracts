@@ -403,7 +403,7 @@ contract LeagueBonusTest is Setup {
 
     function test_setBonusAmount_revert_notOwner() public {
         vm.prank(notOperator);
-        vm.expectRevert();
+        vm.expectRevert(abi.encodeWithSignature("OwnableUnauthorizedAccount(address)", notOperator));
         league.setBonusAmount(LeagueBonus.League.Gold, 150e6);
     }
 
@@ -461,7 +461,7 @@ contract LeagueBonusTest is Setup {
 
     function test_withdraw_revert_notOwner() public {
         vm.prank(notOperator);
-        vm.expectRevert();
+        vm.expectRevert(abi.encodeWithSignature("OwnableUnauthorizedAccount(address)", notOperator));
         league.withdraw(address(usdc), 1e6, notOperator);
     }
 

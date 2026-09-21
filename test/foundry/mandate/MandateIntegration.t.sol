@@ -198,8 +198,9 @@ contract MandateIntegrationTest is Setup {
 
         _repay(pid, 100_000e6);
 
-        // nothing left to collect for the mandate, and no revert on the way
-        vm.expectRevert();
+        // The whole position was sold, so Fundraise has nothing recorded against the owner and
+        // refuses the collection outright — the mandate is simply no longer in this project.
+        vm.expectRevert(Fundraise.NoInvestmentFound.selector);
         _collect(pid);
     }
 

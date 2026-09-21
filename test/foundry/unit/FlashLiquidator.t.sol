@@ -130,6 +130,9 @@ contract FlashLiquidatorTest is Test {
     // Not `public`: a public getter named test* would be collected by forge as a test.
     MarketParams internal testMarketParams;
 
+    /// @dev ERC-1967 implementation slot, so the upgrade is checked where it actually lands.
+    bytes32 constant IMPL_SLOT = 0x360894a13ba1a3210667c828492db98dca3e2076cc3735a920a3ca505d382bbc;
+
     function setUp() public {
         ownerAddr = makeAddr("owner");
         attackerAddr = makeAddr("attacker");
@@ -181,7 +184,7 @@ contract FlashLiquidatorTest is Test {
     }
 
     function test_initialize_revert_doubleInit() public {
-        vm.expectRevert();
+        vm.expectRevert(abi.encodeWithSignature("InvalidInitialization()"));
         flashLiquidator.initialize(ILending8(address(mockLending8)), ownerAddr, address(0));
     }
 
@@ -266,7 +269,7 @@ contract FlashLiquidatorTest is Test {
 
     function test_setMaxSlippage_revert_notOwner() public {
         vm.prank(attackerAddr);
-        vm.expectRevert();
+        vm.expectRevert(abi.encodeWithSignature("OwnableUnauthorizedAccount(address)", attackerAddr));
         flashLiquidator.setMaxSlippage(0.01e18);
     }
 
@@ -279,7 +282,7 @@ contract FlashLiquidatorTest is Test {
 
     function test_setUniswapV2Router_revert_notOwner() public {
         vm.prank(attackerAddr);
-        vm.expectRevert();
+        vm.expectRevert(abi.encodeWithSignature("OwnableUnauthorizedAccount(address)", attackerAddr));
         flashLiquidator.setUniswapV2Router(makeAddr("router"));
     }
 
@@ -299,7 +302,7 @@ contract FlashLiquidatorTest is Test {
 
     function test_withdraw_revert_notOwner() public {
         vm.prank(attackerAddr);
-        vm.expectRevert();
+        vm.expectRevert(abi.encodeWithSignature("OwnableUnauthorizedAccount(address)", attackerAddr));
         flashLiquidator.withdraw(address(loanToken), attackerAddr, 1_000e6);
     }
 
@@ -321,13 +324,24 @@ contract FlashLiquidatorTest is Test {
     function test_upgrade_revert_notOwner() public {
         FlashLiquidator newImpl = new FlashLiquidator();
         vm.prank(attackerAddr);
-        vm.expectRevert();
+        vm.expectRevert(abi.encodeWithSignature("OwnableUnauthorizedAccount(address)", attackerAddr));
         flashLiquidator.upgradeToAndCall(address(newImpl), "");
     }
 
     function test_upgrade_success_owner() public {
+        uint256 slippageBefore = flashLiquidator.maxSlippage();
+        address routerBefore = flashLiquidator.uniswapV2Router();
+
         FlashLiquidator newImpl = new FlashLiquidator();
         vm.prank(ownerAddr);
         flashLiquidator.upgradeToAndCall(address(newImpl), "");
+
+        assertEq(
+            address(uint160(uint256(vm.load(address(flashLiquidator), IMPL_SLOT)))),
+            address(newImpl),
+            "the proxy still points at the old implementation"
+        );
+        assertEq(flashLiquidator.maxSlippage(), slippageBefore, "slippage cap did not survive");
+        assertEq(flashLiquidator.uniswapV2Router(), routerBefore, "router address did not survive");
     }
 }

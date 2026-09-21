@@ -146,6 +146,9 @@ contract LimitedSellerTest is Test {
     uint256 public constant SELLER_PERCENT = 60_000; // 6%
     uint256 public constant PID = 0;
 
+    /// @dev ERC-1967 implementation slot, so the upgrade is checked where it actually lands.
+    bytes32 constant IMPL_SLOT = 0x360894a13ba1a3210667c828492db98dca3e2076cc3735a920a3ca505d382bbc;
+
     function setUp() public {
         owner = makeAddr("owner");
         investor = makeAddr("investor");
@@ -211,7 +214,7 @@ contract LimitedSellerTest is Test {
 
     function test_initialize_revert_invalidPercent() public {
         LimitedSeller impl = new LimitedSeller();
-        vm.expectRevert();
+        vm.expectRevert(LimitedSeller.InvalidPercent.selector);
         new ERC1967Proxy(
             address(impl),
             abi.encodeCall(
@@ -481,7 +484,7 @@ contract LimitedSellerTest is Test {
 
     function test_setPercent_revert_notOwner() public {
         vm.prank(attacker);
-        vm.expectRevert();
+        vm.expectRevert(abi.encodeWithSignature("OwnableUnauthorizedAccount(address)", attacker));
         limitedSeller.setPercent(100_000);
     }
 
@@ -494,7 +497,7 @@ contract LimitedSellerTest is Test {
 
     function test_setManagerRegistry_revert_notOwner() public {
         vm.prank(attacker);
-        vm.expectRevert();
+        vm.expectRevert(abi.encodeWithSignature("OwnableUnauthorizedAccount(address)", attacker));
         limitedSeller.setManagerRegistry(makeAddr("newRegistry"));
     }
 
@@ -505,14 +508,25 @@ contract LimitedSellerTest is Test {
     function test_upgrade_revert_notOwner() public {
         LimitedSeller newImpl = new LimitedSeller();
         vm.prank(attacker);
-        vm.expectRevert();
+        vm.expectRevert(abi.encodeWithSignature("OwnableUnauthorizedAccount(address)", attacker));
         limitedSeller.upgradeToAndCall(address(newImpl), "");
     }
 
     function test_upgrade_success() public {
+        uint256 percentBefore = limitedSeller.percent();
+        address usdcBefore = address(limitedSeller.usdc());
+
         LimitedSeller newImpl = new LimitedSeller();
         vm.prank(owner);
         limitedSeller.upgradeToAndCall(address(newImpl), "");
+
+        assertEq(
+            address(uint160(uint256(vm.load(address(limitedSeller), IMPL_SLOT)))),
+            address(newImpl),
+            "the proxy still points at the old implementation"
+        );
+        assertEq(limitedSeller.percent(), percentBefore, "percent did not survive");
+        assertEq(address(limitedSeller.usdc()), usdcBefore, "usdc address did not survive");
     }
 
     // ═══════════════════════════════════════════════════════════════
@@ -655,7 +669,7 @@ contract LimitedSellerTest is Test {
 
     function test_setMarket_revert_notOwner() public {
         vm.prank(attacker);
-        vm.expectRevert();
+        vm.expectRevert(abi.encodeWithSignature("OwnableUnauthorizedAccount(address)", attacker));
         limitedSeller.setMarket(makeAddr("newMarket"));
     }
 
@@ -720,7 +734,7 @@ contract LimitedSellerTest is Test {
         limits[0] = 1_000e6;
 
         vm.prank(attacker);
-        vm.expectRevert();
+        vm.expectRevert(abi.encodeWithSignature("OwnableUnauthorizedAccount(address)", attacker));
         limitedSeller.migrateEarnedLimits(users, limits);
     }
 

@@ -146,6 +146,9 @@ contract MarketTest is Test {
     uint256 public constant INTEREST_RATE = 200_000; // 20%
     uint256 public constant BASIS_POINTS = 1_000_000;
 
+    /// @dev ERC-1967 implementation slot, so the upgrade is checked where it actually lands.
+    bytes32 constant IMPL_SLOT = 0x360894a13ba1a3210667c828492db98dca3e2076cc3735a920a3ca505d382bbc;
+
     function setUp() public {
         owner = makeAddr("owner");
         investor = makeAddr("investor");
@@ -727,7 +730,7 @@ contract MarketTest is Test {
 
     function test_setPlatformFee_revert_notOwner() public {
         vm.prank(attacker);
-        vm.expectRevert();
+        vm.expectRevert(abi.encodeWithSignature("OwnableUnauthorizedAccount(address)", attacker));
         market.setPlatformFee(10_000);
     }
 
@@ -777,7 +780,7 @@ contract MarketTest is Test {
 
     function test_withdrawFees_revert_notOwner() public {
         vm.prank(attacker);
-        vm.expectRevert();
+        vm.expectRevert(abi.encodeWithSignature("OwnableUnauthorizedAccount(address)", attacker));
         market.withdrawFees(address(usdc), attacker);
     }
 
@@ -838,14 +841,29 @@ contract MarketTest is Test {
     function test_upgrade_revert_notOwner() public {
         Market newImpl = new Market();
         vm.prank(attacker);
-        vm.expectRevert();
+        vm.expectRevert(abi.encodeWithSignature("OwnableUnauthorizedAccount(address)", attacker));
         market.upgradeToAndCall(address(newImpl), "");
     }
 
     function test_upgrade_success() public {
+        vm.prank(investor);
+        uint256 saleId = market.sell(PID, 10_000e6, 0);
+        uint256 feeBefore = market.platformFee();
+        uint256 countBefore = market.saleCount();
+
         Market newImpl = new Market();
         vm.prank(owner);
         market.upgradeToAndCall(address(newImpl), "");
+
+        assertEq(
+            address(uint160(uint256(vm.load(address(market), IMPL_SLOT)))),
+            address(newImpl),
+            "the proxy still points at the old implementation"
+        );
+        // An upgrade that answers but forgot the storage layout would pass on the slot alone.
+        assertEq(market.platformFee(), feeBefore, "fee did not survive");
+        assertEq(market.saleCount(), countBefore, "sale counter did not survive");
+        assertEq(market.getSale(saleId).seller, investor, "the open lot did not survive");
     }
 
     // ═══════════════════════════════════════════════════════════════

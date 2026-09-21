@@ -304,7 +304,7 @@ contract RewardSystemTest is Setup {
     function test_distributeVestingTokens_revert_notOwner() public {
         (address[] memory u, uint256[] memory a, uint256[] memory p) = _oneUser(investor, 1e18, pid);
         vm.prank(attacker);
-        vm.expectRevert();
+        vm.expectRevert(abi.encodeWithSignature("OwnableUnauthorizedAccount(address)", attacker));
         rewardSystem.distributeVestingTokens(u, a, p);
     }
 

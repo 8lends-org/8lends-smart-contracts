@@ -121,7 +121,7 @@ contract RewardSystemOracleTest is Setup {
 
     function test_setOracle_onlyOwner() public {
         vm.prank(attacker);
-        vm.expectRevert();
+        vm.expectRevert(abi.encodeWithSignature("OwnableUnauthorizedAccount(address)", attacker));
         rewardSystem.setOracle(address(mockOracle));
     }
 

@@ -145,7 +145,9 @@ contract FactoryEdgeCaseTest is Setup {
         // Now approveInvest should try to call investFromEscrow on the dummy address
         // which will revert (EOA, no code)
         vm.prank(backend);
-        vm.expectRevert(); // call to non-contract
+        // Left without a selector on purpose: the target is an EOA, so the call reverts on the
+        // compiler's extcodesize check with no revert data to match against.
+        vm.expectRevert();
         escrowFactory.approveInvest(investor, reqId);
 
         // Restore original fundraise
@@ -182,10 +184,14 @@ contract FactoryEdgeCaseTest is Setup {
 
         uint256 pid = _createProject(100e6, 10_000e6);
 
-        // invest() reads f.usdc() which now returns newUsdc
-        // safeTransferFrom(investor, escrow, 100e6) on newUsdc will fail because investor has no newUsdc balance
+        // invest() reads f.usdc(), which now returns newUsdc. The approve above was given on the
+        // old token, so the pull stops at the allowance and never reaches the balance check.
         vm.prank(investor);
-        vm.expectRevert(); // ERC20 transfer fails — no balance
+        vm.expectRevert(
+            abi.encodeWithSignature(
+                "ERC20InsufficientAllowance(address,uint256,uint256)", address(escrow), 0, 100e6
+            )
+        );
         escrow.invest(pid, 100e6, inviter);
     }
 }

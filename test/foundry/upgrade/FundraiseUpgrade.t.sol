@@ -66,7 +66,7 @@ contract FundraiseUpgradeTest is Setup {
         Fundraise newImpl = new Fundraise();
 
         vm.prank(attacker);
-        vm.expectRevert();
+        vm.expectRevert(abi.encodeWithSignature("OwnableUnauthorizedAccount(address)", attacker));
         fundraise.upgradeToAndCall(address(newImpl), "");
     }
 

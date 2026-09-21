@@ -80,7 +80,7 @@ contract FundraiseAmlTest is Setup {
         address newGateway = makeAddr("newGateway");
         vm.prank(attacker);
         // OwnableUpgradeable reverts with a custom error OwnableUnauthorizedAccount
-        vm.expectRevert();
+        vm.expectRevert(abi.encodeWithSignature("OwnableUnauthorizedAccount(address)", attacker));
         fundraise.setAmlGateway(newGateway);
     }
 

@@ -145,7 +145,7 @@ contract MaclearBonusTest is Setup {
 
     function test_setBonusAmount_revert_notOwner() public {
         vm.prank(notManager);
-        vm.expectRevert();
+        vm.expectRevert(abi.encodeWithSignature("OwnableUnauthorizedAccount(address)", notManager));
         maclear.setBonusAmount(25e6);
     }
 
@@ -164,7 +164,7 @@ contract MaclearBonusTest is Setup {
 
     function test_withdraw_revert_notOwner() public {
         vm.prank(notManager);
-        vm.expectRevert();
+        vm.expectRevert(abi.encodeWithSignature("OwnableUnauthorizedAccount(address)", notManager));
         maclear.withdraw(address(usdc), 1e6, notManager);
     }
 

@@ -15,7 +15,7 @@ contract Rewards2Test is Setup {
         amounts[0] = 1000e18;
 
         vm.prank(attacker);
-        vm.expectRevert();
+        vm.expectRevert(abi.encodeWithSignature("OwnableUnauthorizedAccount(address)", attacker));
         rewards2.createVesting(users, amounts);
     }
 
@@ -288,7 +288,7 @@ contract Rewards2Test is Setup {
 
     function test_mintRewardsTWAP_onlyOwner() public {
         vm.prank(attacker);
-        vm.expectRevert();
+        vm.expectRevert(abi.encodeWithSignature("OwnableUnauthorizedAccount(address)", attacker));
         rewards2.mintRewardsTWAP(1000e18);
     }
 
@@ -334,7 +334,7 @@ contract Rewards2Test is Setup {
         _createVesting(investor, 1000e18);
 
         vm.prank(attacker);
-        vm.expectRevert();
+        vm.expectRevert(abi.encodeWithSignature("OwnableUnauthorizedAccount(address)", attacker));
         rewards2.deactivateVesting(investor, 0);
     }
 
@@ -360,7 +360,7 @@ contract Rewards2Test is Setup {
 
     function test_withdraw_onlyOwner() public {
         vm.prank(attacker);
-        vm.expectRevert();
+        vm.expectRevert(abi.encodeWithSignature("OwnableUnauthorizedAccount(address)", attacker));
         rewards2.withdraw(address(usdc), 100e6, attacker);
     }
 
@@ -380,7 +380,7 @@ contract Rewards2Test is Setup {
 
     function test_setVestingParameters_onlyOwner() public {
         vm.prank(attacker);
-        vm.expectRevert();
+        vm.expectRevert(abi.encodeWithSignature("OwnableUnauthorizedAccount(address)", attacker));
         rewards2.setVestingParameters(50_000, 20);
     }
 
