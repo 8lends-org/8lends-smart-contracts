@@ -126,18 +126,18 @@
   },
   "Fundraise": {
     "proxy": "0x0De7B7E83F53cc0d0C30b9c3E7489c7daCc75718",
-    "impl": "0x81d8307d7575c66F9395f198Affe2DC01feaCF2e",
-    "buildHash": "0x574dd19a3ba0d9dad08b0c997375b260f59ff672cc9038426b1c04bce0d2a098",
+    "impl": "0x3F95b838C336064FC45A2E3bbe5b1910a5E25069",
+    "buildHash": "0x7ba9836b81290937fdf439d2bda3fcef18211c91f2f2245f93aadafc478d9be7",
     "matchesDeployed": true,
-    "deployedFrom": "ca4db50",
-    "deployedAt": "Jun-09-2026",
+    "deployedFrom": "8713255",
+    "deployedAt": "Sep-22-2026",
     "build": {
       "solc": "v0.8.23+commit.f704f362",
       "optimizer": {
         "enabled": true,
         "runs": 50,
         "details": {
-          "yul": false
+          "yul": true
         }
       },
       "evmVersion": "paris"
@@ -221,11 +221,11 @@
   },
   "ManagerRegistry": {
     "proxy": "0x4A9DAE0F1C76BbD837e31f75FC27425d9aBe1114",
-    "impl": "0x02fAc2389559297Dc9E0df14760a0Cfa65d75B1F",
-    "buildHash": "0x4b39aef1dfcd359fc9f71f98e11a6c98e6074432f0b4d81ff42900e048b1778e",
+    "impl": "0xc6C3091ebf58cbeeD4a063e9269ECf2e1Ed4F467",
+    "buildHash": "0x9c73e9c35e0e83963e29f717439e9f16667042f0655db44d5cb3680a978a277a",
     "matchesDeployed": true,
-    "deployedFrom": "81e2a3a",
-    "deployedAt": "Aug-21-2026",
+    "deployedFrom": "8713255",
+    "deployedAt": "Sep-22-2026",
     "build": {
       "solc": "v0.8.23+commit.f704f362",
       "optimizer": {
@@ -240,18 +240,18 @@
   },
   "Market": {
     "proxy": "0x3f9c2a656db6b93481f9A30add7910c1a6421B0C",
-    "impl": "0x9944d84526C9199A32E4DB2648B9C993967Dd8fb",
-    "buildHash": "0xc0abdc3c822dfbcd1c345e3cd532c3528faa36776e760afee14243e355ddece1",
+    "impl": "0x9a0A5192De1Ea54D67ACE51f7d43724Ba927e072",
+    "buildHash": "0xfed7247e399101368021d66a656caba6a8f5f68b3fa510f1cf19178bea6a493e",
     "matchesDeployed": true,
-    "deployedFrom": "ca4db50",
-    "deployedAt": "Jun-06-2026",
+    "deployedFrom": "8713255",
+    "deployedAt": "Sep-22-2026",
     "build": {
       "solc": "v0.8.23+commit.f704f362",
       "optimizer": {
         "enabled": true,
         "runs": 50,
         "details": {
-          "yul": false
+          "yul": true
         }
       },
       "evmVersion": "paris"
@@ -405,6 +405,63 @@
     "matchesDeployed": true,
     "deployedFrom": "490f810",
     "deployedAt": "Sep-16-2026",
+    "build": {
+      "solc": "v0.8.23+commit.f704f362",
+      "optimizer": {
+        "enabled": true,
+        "runs": 50,
+        "details": {
+          "yul": true
+        }
+      },
+      "evmVersion": "paris"
+    }
+  },
+  "MandateFactory": {
+    "proxy": "0x4dE757CDb889868CA8DD6b03C4261547E14F7C1D",
+    "impl": "0x87F8f89534C376A5B691791986ef4CaeC4989AA7",
+    "buildHash": "0xab812d197f807b7cf1fc2a3529d66d001e8e0d661a5fa6ffa9c7d64283064550",
+    "matchesDeployed": true,
+    "deployedFrom": "8713255",
+    "deployedAt": "Sep-22-2026",
+    "build": {
+      "solc": "v0.8.23+commit.f704f362",
+      "optimizer": {
+        "enabled": true,
+        "runs": 50,
+        "details": {
+          "yul": true
+        }
+      },
+      "evmVersion": "paris"
+    }
+  },
+  "MandateRouter": {
+    "proxy": "0x8A217e4528F0a8747a9983F84Cdb7BC0E2E4541c",
+    "impl": "0x937Ad57177FE4dbb026b6a97223DCceF3b8d39e7",
+    "buildHash": "0xa6dc5ff2be463b7c8bb366b8344ca92958fa3f6954e7c86fed8993462f1dcced",
+    "matchesDeployed": true,
+    "deployedFrom": "8713255",
+    "deployedAt": "Sep-22-2026",
+    "build": {
+      "solc": "v0.8.23+commit.f704f362",
+      "optimizer": {
+        "enabled": true,
+        "runs": 50,
+        "details": {
+          "yul": true
+        }
+      },
+      "evmVersion": "paris"
+    }
+  },
+  "MandateEscrowV1": {
+    "proxy": "0x6449c1A43cCE78B0e7C221e47Dd68d5cd0AeC056",
+    "impl": null,
+    "buildHash": "0x6eabdb12fe47043a776fa772c46869e1599a707dea20dbdb1e08c2fd1a609dc8",
+    "matchesDeployed": true,
+    "deployedFrom": "8713255",
+    "deployedAt": "Sep-22-2026",
     "build": {
       "solc": "v0.8.23+commit.f704f362",
       "optimizer": {
