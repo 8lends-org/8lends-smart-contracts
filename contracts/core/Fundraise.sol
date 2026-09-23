@@ -629,9 +629,8 @@ contract Fundraise is Initializable, UUPSUpgradeable, OwnableUpgradeable {
         IMandateEscrowV1(_escrow).onPayout(
             _projectId,
             _claimable,
-            _invested,
             _claimed,
-            projects[_projectId].investorInterestRate,
+            _positionOwed(_projectId, _invested) - _invested, // the interest part of it
             _marketId
         );
     }
@@ -850,7 +849,8 @@ contract Fundraise is Initializable, UUPSUpgradeable, OwnableUpgradeable {
     /// @param _investor User address
     function availableToClaim(uint256 _projectId, address _investor) public view returns (uint256 claimable) {
         Project memory project = projects[_projectId];
-        if (uint8(project.innerStruct.stage) < 4) {
+        Stage stage = project.innerStruct.stage;
+        if (stage != Stage.Funded && stage != Stage.Repaid) {
             return 0;
         }
 
@@ -872,12 +872,25 @@ contract Fundraise is Initializable, UUPSUpgradeable, OwnableUpgradeable {
     function outstandingPrincipal(address _investor, uint256 _projectId) external view returns (uint256) {
         InvestorInfo storage investor = investorInfo[_investor][_projectId];
         uint256 invested = investor.investedAmount;
+        if (invested == 0) return 0;
 
-        uint256 budget = (invested * projects[_projectId].investorInterestRate) / BASIS_POINTS;
+        uint256 owed = _positionOwed(_projectId, invested);
         uint256 claimed = investor.totalClaimed;
-        uint256 principal = claimed > budget ? claimed - budget : 0;
+        // The cap is the interest-first rule: what is owed beyond the principal is untaken interest.
+        return owed > claimed ? Math.min(invested, owed - claimed) : 0;
+    }
 
-        return invested > principal ? invested - principal : 0;
+    /// @dev Principal plus interest a position is owed, apportioned and floored exactly as a claim
+    ///      is. Through the project's debt on purpose: interest taken from the rate floors at a
+    ///      different scale and can sit a unit above anything the holder can claim, leaving a
+    ///      repaid position reporting principal still out and clearIfEmpty refusing it for good.
+    function _positionOwed(uint256 _projectId, uint256 _invested) internal view returns (uint256) {
+        Project storage project = projects[_projectId];
+        uint256 totalInvested = project.totalInvested;
+        if (totalInvested == 0) return _invested;
+
+        uint256 owed = totalInvested + (totalInvested * project.investorInterestRate) / BASIS_POINTS;
+        return Math.mulDiv(owed, _invested, totalInvested);
     }
 
     function splitSignature(bytes memory sig) public pure returns (bytes32 r, bytes32 s, uint8 v) {

@@ -82,11 +82,12 @@ describe("🔱 Mandate — Base fork", function () {
     const lending = await ethers.getContractAt("contracts/lending/interfaces/ILending8.sol:ILending8", LENDING8);
     const before = await lending.position(MARKET_ID, owner.address);
 
-    // Fundraise is the only caller onPayout accepts; these numbers say "all of this is interest".
+    // Fundraise is the only caller onPayout accepts. Budget equal to the payout says "all of this
+    // is interest", so the whole amount goes to the direction the mandate chose.
     await impersonateAccount(FUNDRAISE);
     await setBalance(FUNDRAISE, ethers.parseEther("1000"));
     const asFundraise = await ethers.getSigner(FUNDRAISE);
-    await escrow.connect(asFundraise).onPayout(1, interest, 1_000_000_000n, interest, 1_000_000n, MARKET_ID);
+    await escrow.connect(asFundraise).onPayout(1, interest, interest, interest, MARKET_ID);
 
     const after = await lending.position(MARKET_ID, owner.address);
     expect(after.supplyShares).to.be.greaterThan(before.supplyShares, "the owner's position grew");

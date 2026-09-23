@@ -136,22 +136,20 @@ contract MandateIntegrationTest is Setup {
         assertEq(room, 0, "and the project is full for this mandate");
     }
 
-    // ── the scale the rate is quoted in ───────────────────────────────────────
+    // ── the size of the interest budget ───────────────────────────────────────
 
-    /// The escrow divides investorInterestRate by a constant of its own. Nothing else holds that
-    /// constant to Fundraise's, and the stub suites cannot: they supply the rate themselves, so
-    /// both sides can be wrong together. Getting it wrong by a factor of a hundred makes the
-    /// waterfall call every payout interest, and under WALLET the principal leaves the mandate.
-    function test_the_interest_budget_uses_fundraise_scale() public {
+    /// The stub suites supply the budget themselves, so they agree with whatever is passed. Here
+    /// the whole cycle runs against the real Fundraise, and a budget off by a factor would call
+    /// every payout interest — under WALLET that sends the principal out of the mandate.
+    function test_the_interest_budget_is_the_whole_interest_and_no_more() public {
         (MandateEscrowV1 e, uint256 pid) = _placedAndFunded(InterestDirection.WALLET);
 
         // one payout larger than the whole interest budget, so the boundary is crossed at once
         _repay(pid, 120_000e6);
         _collect(pid);
 
-        uint256 rate = INVESTOR_INTEREST;
-        assertEq(fundraise.BASIS_POINTS(), 1_000_000, "the scale the rate is quoted in");
-        assertEq(usdc.balanceOf(investor), (CAP * rate) / fundraise.BASIS_POINTS(), "interest");
+        // The mandate holds the whole project, so its share of the debt is all of it.
+        assertEq(usdc.balanceOf(investor), (CAP * INVESTOR_INTEREST) / fundraise.BASIS_POINTS(), "interest");
         assertEq(e.freeBalance(), CAP, "principal");
     }
 

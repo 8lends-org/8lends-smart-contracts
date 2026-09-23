@@ -159,9 +159,9 @@ interface IMandateEscrowV1 {
 
     /// @notice Called by Fundraise right after a payout landed here. Splits it into principal and
     ///         interest and forwards the interest per the mandate's rule.
-    /// @dev The split rule lives in this clone, not in Fundraise, so "how my interest is computed"
-    ///      cannot change by upgrade. Interest-first waterfall: budget = invested * rate / 1_000_000, Fundraise's scale,
-    ///      position before this payout = claimed - fresh.
+    /// @dev The waterfall lives in this clone, so the ORDER — interest first, principal after —
+    ///      cannot change by upgrade. The amount it runs against is an argument: a copy of that
+    ///      arithmetic here could never be corrected. Position before this payout = claimed - fresh.
     /// @dev Called from claimForMandate only, and it must call ONLY when the payout target is this
     ///      escrow by route and the payout is non-zero. Not "target != investor": the compromise
     ///      branch also differs from the investor with no escrow involved, and a void call to an EOA
@@ -170,7 +170,8 @@ interface IMandateEscrowV1 {
     /// @param fresh How much just arrived — only the payer knows it; everyone else sees the
     ///        cumulative total and cannot tell a payout that arrived now from one a month ago
     /// @param claimed Owner's totalClaimed AFTER the increment
-    /// @param rate Project's investorInterestRate, passed because Fundraise already has it
+    /// @param budget Interest this position is owed over its whole life, as its share of the
+    ///        project's debt — see Fundraise._positionOwed for why it is taken that way
     /// @param marketId Lending8 pool for direction 2, ignored under 0 and 1 but always passed
     ///        because the caller does not know the direction. Zero reverts under 2. An argument
     ///        rather than a constant of the clone so a second pool costs nothing on chain; the cost
@@ -178,9 +179,8 @@ interface IMandateEscrowV1 {
     function onPayout(
         uint256 pid,
         uint256 fresh,
-        uint256 invested,
         uint256 claimed,
-        uint256 rate,
+        uint256 budget,
         bytes32 marketId
     ) external;
 }

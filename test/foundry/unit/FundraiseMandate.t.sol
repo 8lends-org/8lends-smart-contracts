@@ -31,25 +31,22 @@ contract EscrowStub {
     uint256 public calls;
     uint256 public lastPid;
     uint256 public lastFresh;
-    uint256 public lastInvested;
     uint256 public lastClaimed;
-    uint256 public lastRate;
+    uint256 public lastBudget;
     bytes32 public lastMarketId;
 
     function onPayout(
         uint256 pid,
         uint256 fresh,
-        uint256 invested,
         uint256 claimed,
-        uint256 rate,
+        uint256 budget,
         bytes32 marketId
     ) external {
         calls++;
         lastPid = pid;
         lastFresh = fresh;
-        lastInvested = invested;
         lastClaimed = claimed;
-        lastRate = rate;
+        lastBudget = budget;
         lastMarketId = marketId;
     }
 
@@ -178,6 +175,30 @@ contract FundraiseMandateTest is Setup {
 
         assertGt(claimed, AMOUNT, "more was claimed than was put in");
         assertEq(fundraise.outstandingPrincipal(investor, pid), 0, "and the principal is all back");
+    }
+
+    /// Once the borrower has paid the debt in full, no share of it reads as outstanding — and
+    /// guaranteed rather than likely: the stage flips at totalRepaid >= the debt, and the budget is
+    /// a share of that same figure. With the budget taken from the rate instead, over half of all
+    /// splits leave a holder a unit short: 49 900.060001 against 49 900.002155 is one such pair,
+    /// and the holder's route could then never be cleared.
+    function testFuzz_full_repayment_leaves_nothing_outstanding(uint256 a, uint256 b) public {
+        a = bound(a, 1e6, 50_000e6);
+        b = bound(b, 1e6, 50_000e6);
+
+        uint256 pid = _createProject(a + b, a + b);
+        _investAs(investor, pid, a, address(0));
+        _investAs(investor2, pid, b, address(0));
+        _fundProject(pid);
+        _repayFull(pid);
+
+        vm.prank(investor);
+        fundraise.claim(pid, investor);
+        vm.prank(investor2);
+        fundraise.claim(pid, investor2);
+
+        assertEq(fundraise.outstandingPrincipal(investor, pid), 0, "a");
+        assertEq(fundraise.outstandingPrincipal(investor2, pid), 0, "b");
     }
 
     /// Nothing caps a repayment at what is owed, so the claim counter can pass principal plus
@@ -362,9 +383,9 @@ contract FundraiseMandateTest is Setup {
         assertEq(escrow.calls(), 1);
         assertEq(escrow.lastPid(), pid);
         assertEq(escrow.lastFresh(), claimed, "first payout, so fresh is the whole of it");
-        assertEq(escrow.lastInvested(), AMOUNT);
         assertEq(escrow.lastClaimed(), claimed, "after the increment, not before");
-        assertEq(escrow.lastRate(), INVESTOR_INTEREST);
+        // The position's whole interest entitlement, not the rate: it is the only position here.
+        assertEq(escrow.lastBudget(), (AMOUNT * INVESTOR_INTEREST) / BASIS_POINTS);
         assertEq(escrow.lastMarketId(), MARKET_ID);
     }
 

@@ -440,32 +440,31 @@ contract MandateEscrowV1Test is Test {
 
     function test_onPayout_is_fundraise_only() public {
         vm.expectRevert(MandateEscrowV1.NotFundraise.selector);
-        escrow.onPayout(PID, 1, 1, 1, 0, bytes32(0));
+        escrow.onPayout(PID, 1, 1, 0, bytes32(0));
     }
 
-    /// @dev Interest budget = invested * rate / 1e6, Fundraise's scale. Interest is paid first,
-    ///      so a payout is interest until the budget is exhausted, then principal.
+    /// @dev Interest is paid first: a payout is interest until the budget is spent, then principal.
     function test_waterfall_pays_interest_first_then_principal() public {
         uint256 invested = 1_000e6;
-        uint256 rate = 150_000; // 15% in Fundraise scale → budget 150
+        uint256 budget = 150e6; // the position's whole interest entitlement, handed in by Fundraise
 
         // First payout of 100: entirely interest.
         vm.expectEmit(true, false, false, true, address(escrow));
         emit IMandateEscrowV1.PayoutSplit(PID, 0, 100e6);
         vm.prank(address(fundraise));
-        escrow.onPayout(PID, 100e6, invested, 100e6, rate, bytes32(0));
+        escrow.onPayout(PID, 100e6, 100e6, budget, bytes32(0));
 
         // Second payout of 100 with 100 already claimed: 50 finishes the budget, 50 is principal.
         vm.expectEmit(true, false, false, true, address(escrow));
         emit IMandateEscrowV1.PayoutSplit(PID, 50e6, 50e6);
         vm.prank(address(fundraise));
-        escrow.onPayout(PID, 100e6, invested, 200e6, rate, bytes32(0));
+        escrow.onPayout(PID, 100e6, 200e6, budget, bytes32(0));
 
         // Third payout: budget spent, all principal.
         vm.expectEmit(true, false, false, true, address(escrow));
         emit IMandateEscrowV1.PayoutSplit(PID, 100e6, 0);
         vm.prank(address(fundraise));
-        escrow.onPayout(PID, 100e6, invested, 300e6, rate, bytes32(0));
+        escrow.onPayout(PID, 100e6, 300e6, budget, bytes32(0));
     }
 
     /// The split is a function of the cumulative claimed, not of how the claims were chunked: over
@@ -473,8 +472,7 @@ contract MandateEscrowV1Test is Test {
     /// the boundary, which is the only one that gets divided.
     function testFuzz_waterfall_totals_do_not_depend_on_the_chunking(uint256 seed) public {
         uint256 invested = 1_000e6;
-        uint256 rate = 150_000; // 15% in Fundraise scale → budget 150e6
-        uint256 budget = (invested * rate) / 1_000_000;
+        uint256 budget = 150e6;
         uint256 owed = invested + budget;
 
         MandateEscrowV1 e = MandateEscrowV1(Clones.clone(address(impl)));
@@ -491,7 +489,7 @@ contract MandateEscrowV1Test is Test {
             // what actually stayed, not what was pre-funded.
             usdc.mint(address(e), fresh);
             vm.prank(address(fundraise));
-            e.onPayout(PID, fresh, invested, claimed, rate, bytes32(0));
+            e.onPayout(PID, fresh, claimed, budget, bytes32(0));
         }
 
         assertEq(usdc.balanceOf(owner), Math.min(claimed, budget), "interest paid out");
@@ -501,7 +499,7 @@ contract MandateEscrowV1Test is Test {
     function test_direction_zero_keeps_interest_on_the_balance() public {
         _fund(500e6);
         vm.prank(address(fundraise));
-        escrow.onPayout(PID, 100e6, 1_000e6, 100e6, 150_000, bytes32(0));
+        escrow.onPayout(PID, 100e6, 100e6, 150e6, bytes32(0));
         assertEq(escrow.freeBalance(), 500e6, "nothing leaves under direction 0");
     }
 
@@ -511,7 +509,7 @@ contract MandateEscrowV1Test is Test {
         usdc.mint(address(e), 100e6);
 
         vm.prank(address(fundraise));
-        e.onPayout(PID, 100e6, 1_000e6, 100e6, 150_000, bytes32(0));
+        e.onPayout(PID, 100e6, 100e6, 150e6, bytes32(0));
         assertEq(usdc.balanceOf(owner), 100e6, "interest goes out, principal would stay");
         assertEq(e.freeBalance(), 0);
     }
@@ -523,7 +521,7 @@ contract MandateEscrowV1Test is Test {
 
         vm.expectRevert(MandateEscrowV1.ZeroMarketId.selector);
         vm.prank(address(fundraise));
-        e.onPayout(PID, 100e6, 1_000e6, 100e6, 150_000, bytes32(0));
+        e.onPayout(PID, 100e6, 100e6, 150e6, bytes32(0));
     }
 
     /// Happy path of direction 2 — previously only its revert branches were covered.
@@ -543,7 +541,7 @@ contract MandateEscrowV1Test is Test {
         vm.expectEmit(false, false, false, true, address(e));
         emit IMandateEscrowV1.InterestForwarded(2, 100e6, address(lending));
         vm.prank(address(fundraise));
-        e.onPayout(PID, 100e6, 1_000e6, 100e6, 150_000, marketId);
+        e.onPayout(PID, 100e6, 100e6, 150e6, marketId);
 
         assertEq(lending.supplyCalls(), 1);
         assertEq(lending.lastAssets(), 100e6, "interest only");
@@ -573,7 +571,7 @@ contract MandateEscrowV1Test is Test {
             abi.encodeWithSelector(MandateEscrowV1.MarketLoanTokenNotUsdc.selector, weth)
         );
         vm.prank(address(fundraise));
-        e.onPayout(PID, 100e6, 1_000e6, 100e6, 150_000, marketId);
+        e.onPayout(PID, 100e6, 100e6, 150e6, marketId);
     }
 
     /// The allowance is opened and closed inside the same call, so nothing is left standing.
@@ -591,7 +589,7 @@ contract MandateEscrowV1Test is Test {
         }));
 
         vm.prank(address(fundraise));
-        e.onPayout(PID, 100e6, 1_000e6, 100e6, 150_000, marketId);
+        e.onPayout(PID, 100e6, 100e6, 150e6, marketId);
         assertEq(usdc.allowance(address(e), address(lending)), 0);
     }
 
@@ -755,7 +753,7 @@ contract MandateEscrowV1Test is Test {
         // Budget already exhausted, so the whole payout is principal — the lending branch, which
         // would revert on the zero market id, must not be reached at all.
         vm.prank(address(fundraise));
-        e.onPayout(PID, 100e6, 1_000e6, 5_000e6, 150_000, bytes32(0));
+        e.onPayout(PID, 100e6, 5_000e6, 150e6, bytes32(0));
         assertEq(e.freeBalance(), 100e6);
     }
 }

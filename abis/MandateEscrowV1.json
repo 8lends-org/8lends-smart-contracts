@@ -524,17 +524,12 @@
       },
       {
         "internalType": "uint256",
-        "name": "invested",
-        "type": "uint256"
-      },
-      {
-        "internalType": "uint256",
         "name": "claimed",
         "type": "uint256"
       },
       {
         "internalType": "uint256",
-        "name": "rate",
+        "name": "budget",
         "type": "uint256"
       },
       {
