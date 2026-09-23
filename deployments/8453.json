@@ -126,18 +126,18 @@
   },
   "Fundraise": {
     "proxy": "0xf435A133D6cDCb81061F18a4763560f9931DB57D",
-    "impl": "0x18D88FCec3A48B7e3D748F001E2fc6f2eB85e6EE",
-    "buildHash": "0x574dd19a3ba0d9dad08b0c997375b260f59ff672cc9038426b1c04bce0d2a098",
+    "impl": "0x0dB9586EaAC48F993ED2cD2646Aa16599A8E45EB",
+    "buildHash": "0xb292138ec27905ff384e425792fa1eb5afdb1b78dec09bf6399a519119364552",
     "matchesDeployed": true,
-    "deployedFrom": "ca4db50",
-    "deployedAt": "Jun-06-2026",
+    "deployedFrom": "c141525",
+    "deployedAt": "Sep-23-2026",
     "build": {
       "solc": "v0.8.23+commit.f704f362",
       "optimizer": {
         "enabled": true,
         "runs": 50,
         "details": {
-          "yul": false
+          "yul": true
         }
       },
       "evmVersion": "paris"
