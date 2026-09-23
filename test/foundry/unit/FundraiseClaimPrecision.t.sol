@@ -95,4 +95,25 @@ contract FundraiseClaimPrecisionTest is Setup {
         // Two floors, so at most two units can stay behind.
         assertGe(paid + 2, repaid, "and essentially all of it");
     }
+
+    // ── the ceiling agrees with the claim ───────────────────────────────────────
+
+    /// @notice positionOwed is what a claim actually pays once the whole debt is back.
+    /// @dev Stated against the money, not against the formula. The same number gates clearIfEmpty
+    ///      through outstandingPrincipal, bounds the interest the escrow forwards, and caps what a
+    ///      lot may be listed for — so a ceiling that sits a unit off anything the holder can
+    ///      reach blocks all three, and nothing but this equality says it does not.
+    function testFuzz_positionOwed_is_what_the_claim_pays_in_the_end(uint256 mine, uint256 theirs) public {
+        mine = bound(mine, 1e6, 100_000e6);
+        theirs = bound(theirs, 1e6, 100_000e6);
+
+        uint256 pid = _pool(mine, theirs);
+        uint256 total = mine + theirs;
+        // Exactly the project's debt, which is also what turns the project Repaid.
+        _repay(pid, total + (total * INVESTOR_INTEREST) / fundraise.BASIS_POINTS());
+
+        assertEq(_claim(pid, investor), fundraise.positionOwed(pid, mine), "the holder's own position");
+        assertEq(_claim(pid, investor2), fundraise.positionOwed(pid, theirs), "and the other one");
+        assertEq(fundraise.outstandingPrincipal(investor, pid), 0, "nothing may read as still out");
+    }
 }

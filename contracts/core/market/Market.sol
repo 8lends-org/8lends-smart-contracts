@@ -116,20 +116,6 @@ contract Market is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentranc
         return IManagerRegistry(managerRegistry).fundraiseAddress();
     }
 
-    /// @notice Claimed watermark attributable to a single position, derived from the holder's
-    ///         aggregate (rounded up). Mirrors Fundraise.transferPosition so the price gate and
-    ///         the actual position transfer agree on how much the position has already claimed.
-    function _derivedPositionClaimed(
-        address fundraiseAddress,
-        address holder,
-        uint256 projectId,
-        uint256 posInvested
-    ) internal view returns (uint256) {
-        IFundraise.InvestorInfo memory agg = IFundraise(fundraiseAddress).investorInfo(holder, projectId);
-        if (agg.investedAmount == 0) return 0;
-        return Math.mulDiv(agg.totalClaimed, posInvested, agg.investedAmount, Math.Rounding.Ceil);
-    }
-
     /// @notice Sell a specific investment position on the secondary market
     /// @param _projectId Project ID
     /// @param _price Price in loan tokens
@@ -182,11 +168,8 @@ contract Market is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentranc
             uint256 posInvested = positions[_positionIndex].investedAmount;
             // Fundraise's ceiling, not the rate applied here: the two floor at different scales.
             maxReturn = IFundraise(fundraiseAddress).positionOwed(_projectId, posInvested);
-            // Derive how much this position has effectively claimed from the seller's aggregate
-            // watermark — claim() never updates the per-position field, so the stored value is
-            // stale and an already-claimed position would otherwise list at full maxReturn.
-            // Round up so a drained position can never be priced as if untouched. See finding #2.
-            posClaimed = _derivedPositionClaimed(fundraiseAddress, msg.sender, _projectId, posInvested);
+            // The same watermark transferPosition will hand the buyer, so the two cannot disagree.
+            posClaimed = IFundraise(fundraiseAddress).positionClaimed(msg.sender, _projectId, posInvested);
             // Clamped, not asserted: the watermark rounds up and the ceiling floors, so on a
             // claimed-out position the two can cross. That is a lot with nothing left to sell.
             uint256 room = maxReturn > posClaimed ? maxReturn - posClaimed : 0;

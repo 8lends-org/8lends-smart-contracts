@@ -4,18 +4,16 @@ pragma solidity ^0.8.23;
 import "../Setup.sol";
 import "../../../contracts/core/market/Market.sol";
 
-/// @notice Regression suite for CRITICAL finding #1 + HIGH finding #2 (.docs/findings.md),
-///         locking in fix variant A (single source of truth for the claimed watermark).
+/// @notice Regression suite for the double-claim across the secondary market, locking in a
+///         single source of truth for the claimed watermark.
 ///
-/// Fix A: `Fundraise.transferPosition` derives the claimed watermark a position carries from
-/// the holder's aggregate (`aggClaimed * posAmount / aggInvested`, rounded up) instead of
-/// reading the stale per-position field that `claim()` never updates. The Market price gate
-/// derives the same value, and `claim()` enforces a per-project solvency backstop
-/// (`projectTotalClaimed[pid] <= totalRepaid`).
+/// `Fundraise.positionClaimed` derives what a position has claimed from the holder's aggregate,
+/// rounded up, instead of reading the stale per-position field that `claim()` never updates.
+/// The transfer and the Market price gate both read it, and `claim()` keeps a per-project
+/// solvency backstop (`projectTotalClaimed[pid] <= totalRepaid`).
 ///
-/// These tests assert the SECURE (post-fix) behavior: a buyer of an already-claimed position
-/// inherits the correct watermark and can claim nothing extra. If finding #1 is ever
-/// reintroduced, they go red.
+/// These tests assert the post-fix behaviour: a buyer of an already-claimed position inherits
+/// the correct watermark and can claim nothing extra. Reintroduce the bug and they go red.
 contract DoubleClaimMarketTest is Setup {
     Market public market;
 
@@ -273,7 +271,7 @@ contract DoubleClaimMarketTest is Setup {
     }
 
     // ═══════════════════════════════════════════════════════════════════
-    //  Mandatory CI invariant (findings.md): invest→repay→claim→sell→buy→claim
+    //  Mandatory CI invariant: invest→repay→claim→sell→buy→claim
     //  never pays out more than totalRepaid.
     // ═══════════════════════════════════════════════════════════════════
 

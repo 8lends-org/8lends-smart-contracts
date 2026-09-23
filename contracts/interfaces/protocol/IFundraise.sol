@@ -52,6 +52,13 @@ interface IFundraise {
     ///         computed from the rate: the two floor at different scales and disagree by a unit.
     function positionOwed(uint256 _projectId, uint256 _invested) external view returns (uint256);
 
+    /// @notice What a position of this size has effectively claimed: the holder's aggregate
+    ///         watermark apportioned to it, rounded up. The per-position field is stale.
+    function positionClaimed(address _investor, uint256 _projectId, uint256 _invested)
+        external
+        view
+        returns (uint256);
+
     /// @notice Places `amount` of the caller's USDC into `pid`, recording `owner` as the investor.
     /// @dev Callable only by an escrow of `owner`, which Fundraise checks against the factory in the
     ///      registry. The escrow approves exactly `amount` immediately before the call and resets

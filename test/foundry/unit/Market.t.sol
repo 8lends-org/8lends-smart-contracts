@@ -124,6 +124,13 @@ contract MockFundraise_MKT {
         return p;
     }
 
+    /// @dev Mirrors Fundraise.positionClaimed, where the market now reads the watermark from.
+    function positionClaimed(address investor, uint256 pid, uint256 invested) external view returns (uint256) {
+        MockInvestorInfo memory agg = mockInvestorInfo[investor][pid];
+        if (agg.investedAmount == 0) return 0;
+        return Math.mulDiv(agg.totalClaimed, invested, agg.investedAmount, Math.Rounding.Ceil);
+    }
+
     /// @dev Mirrors Fundraise.positionOwed, where the market now reads its ceiling from.
     function positionOwed(uint256 pid, uint256 invested) external view returns (uint256) {
         MockProject memory mp = mockProjects[pid];

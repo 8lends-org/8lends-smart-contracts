@@ -480,14 +480,8 @@ contract Fundraise is Initializable, UUPSUpgradeable, OwnableUpgradeable {
         uint256 posAmount = pos.investedAmount;
         if (posAmount == 0) revert PositionHasZeroAmount();
 
-        // Derive the claimed watermark this position carries from the aggregate.
-        // claim() is aggregate-based and never writes per-position totalClaimed, so the
-        // stored per-position value can be stale (=0 even after a full claim). Apportion the
-        // aggregate watermark pro-rata to the position size (rounded up, in the pool's favor)
-        // so the watermark survives the transfer and the buyer cannot re-claim an
-        // already-claimed share. See finding #1.
         InvestorInfo storage fromAgg = investorInfo[_from][_projectId];
-        uint256 posClaimed = Math.mulDiv(fromAgg.totalClaimed, posAmount, fromAgg.investedAmount, Math.Rounding.Ceil);
+        uint256 posClaimed = positionClaimed(_from, _projectId, posAmount);
 
         // Update aggregate mappings
         fromAgg.investedAmount -= posAmount;
@@ -659,7 +653,7 @@ contract Fundraise is Initializable, UUPSUpgradeable, OwnableUpgradeable {
 
         // Defense-in-depth: cumulative payouts on a project can never exceed what was repaid.
         // Correct per-investor watermarks already guarantee this; the guard is a backstop that
-        // trips if watermark accounting ever regresses (e.g. the finding #1 double-claim).
+        // trips if watermark accounting ever regresses into a double-claim.
         uint256 newProjectClaimed = projectTotalClaimed[_projectId] + claimable;
         if (newProjectClaimed > project.innerStruct.totalRepaid) revert ProjectPayoutExceedsRepaid();
         projectTotalClaimed[_projectId] = newProjectClaimed;
@@ -878,6 +872,21 @@ contract Fundraise is Initializable, UUPSUpgradeable, OwnableUpgradeable {
         uint256 claimed = investor.totalClaimed;
         // The cap is the interest-first rule: what is owed beyond the principal is untaken interest.
         return owed > claimed ? Math.min(invested, owed - claimed) : 0;
+    }
+
+    /// @notice What a position of this size has effectively claimed: the holder's aggregate
+    ///         watermark apportioned to it. Nowhere in storage — claim() never writes the
+    ///         per-position field, so that one is stale.
+    /// @dev Rounded up, in the pool's favour, so a drained position is never taken for untouched
+    ///      on a transfer, nor priced as if it were on a listing.
+    function positionClaimed(address _investor, uint256 _projectId, uint256 _invested)
+        public
+        view
+        returns (uint256)
+    {
+        InvestorInfo storage investor = investorInfo[_investor][_projectId];
+        if (investor.investedAmount == 0) return 0;
+        return Math.mulDiv(investor.totalClaimed, _invested, investor.investedAmount, Math.Rounding.Ceil);
     }
 
     /// @notice Everything a position of this size can ever claim: its share of the project's debt,

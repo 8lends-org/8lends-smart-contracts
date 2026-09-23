@@ -315,12 +315,7 @@ contract MandateEscrowV1 is IMandateEscrowV1 {
         uint256 interest = was >= budget ? 0 : Math.min(fresh, budget - was);
 
         emit PayoutSplit(pid, fresh - interest, interest);
-        _forward(interest, marketId);
-    }
 
-    /// @dev Principal takes no part here: it is already on the balance and stays there, which is
-    ///      what the next allocation places.
-    function _forward(uint256 interest, bytes32 marketId) private {
         if (interest == 0) return; // LEND would revert on Lending8's exactlyOneZero
 
         InterestDirection direction = InterestDirection(_interestDirection);
@@ -345,6 +340,9 @@ contract MandateEscrowV1 is IMandateEscrowV1 {
         }
         emit InterestForwarded(uint8(direction), interest, to);
     }
+
+    /// @dev Principal takes no part here: it is already on the balance and stays there, which is
+    ///      what the next allocation places.
 
     // ── internals ───────────────────────────────────────────────────────────────
 

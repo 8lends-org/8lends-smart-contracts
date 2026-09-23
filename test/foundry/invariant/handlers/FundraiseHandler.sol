@@ -36,6 +36,7 @@ contract FundraiseHandler is Test {
     uint256 public calls_fund;
     uint256 public calls_repay;
     uint256 public calls_claim;
+    uint256 public calls_transfer;
 
     constructor(
         Fundraise _fundraise,
@@ -167,5 +168,24 @@ contract FundraiseHandler is Test {
 
         ghost_totalClaimed += claimed;
         calls_claim++;
+    }
+
+    /// @notice Moves a position between holders the way the market does.
+    /// @dev The only action writing the aggregate and the list together, so it is what gives
+    ///      invariant_positionsSumToTheAggregate anything to catch.
+    function transferPosition(uint256 fromIdx, uint256 toIdx, uint256 posIdx) external {
+        fromIdx = bound(fromIdx, 0, investors.length - 1);
+        toIdx = bound(toIdx, 0, investors.length - 1);
+        address from = investors[fromIdx];
+        address to = investors[toIdx];
+        if (from == to) return;
+
+        Fundraise.InvestorInfo[] memory positions = fundraise.getInvestorPositions(from, pid);
+        if (positions.length == 0) return;
+        posIdx = bound(posIdx, 0, positions.length - 1);
+        if (positions[posIdx].investedAmount == 0) return;
+
+        fundraise.transferPosition(pid, from, to, posIdx, calls_transfer);
+        calls_transfer++;
     }
 }
