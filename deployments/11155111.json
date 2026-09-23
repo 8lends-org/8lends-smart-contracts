@@ -126,11 +126,11 @@
   },
   "Fundraise": {
     "proxy": "0x0De7B7E83F53cc0d0C30b9c3E7489c7daCc75718",
-    "impl": "0x3F95b838C336064FC45A2E3bbe5b1910a5E25069",
-    "buildHash": "0x7ba9836b81290937fdf439d2bda3fcef18211c91f2f2245f93aadafc478d9be7",
+    "impl": "0xAe9507681Bbf3a158AE753d5bd5fAA870a821C4B",
+    "buildHash": "0x01c26213ab5f74526a5ad40c38fa45fd8b4aaae209b5781ab0f33d817ad50827",
     "matchesDeployed": true,
-    "deployedFrom": "8713255",
-    "deployedAt": "Sep-22-2026",
+    "deployedFrom": "f045bad",
+    "deployedAt": "Sep-23-2026",
     "build": {
       "solc": "v0.8.23+commit.f704f362",
       "optimizer": {
@@ -240,11 +240,11 @@
   },
   "Market": {
     "proxy": "0x3f9c2a656db6b93481f9A30add7910c1a6421B0C",
-    "impl": "0x9a0A5192De1Ea54D67ACE51f7d43724Ba927e072",
-    "buildHash": "0xfed7247e399101368021d66a656caba6a8f5f68b3fa510f1cf19178bea6a493e",
+    "impl": "0x754786891b57c372Db221dD881C3c4115D179077",
+    "buildHash": "0x2be35b45492696a41ff28e262d1f4dd7ed9e1d2f0bf1364d730052a5b576c69f",
     "matchesDeployed": true,
-    "deployedFrom": "8713255",
-    "deployedAt": "Sep-22-2026",
+    "deployedFrom": "f045bad",
+    "deployedAt": "Sep-23-2026",
     "build": {
       "solc": "v0.8.23+commit.f704f362",
       "optimizer": {
@@ -418,12 +418,12 @@
     }
   },
   "MandateFactory": {
-    "proxy": "0x4dE757CDb889868CA8DD6b03C4261547E14F7C1D",
+    "proxy": "0xD51bf69794E38E97E84F47043B988A55db4ea500",
     "impl": "0x87F8f89534C376A5B691791986ef4CaeC4989AA7",
     "buildHash": "0xab812d197f807b7cf1fc2a3529d66d001e8e0d661a5fa6ffa9c7d64283064550",
     "matchesDeployed": true,
-    "deployedFrom": "8713255",
-    "deployedAt": "Sep-22-2026",
+    "deployedFrom": "f045bad",
+    "deployedAt": "Sep-23-2026",
     "build": {
       "solc": "v0.8.23+commit.f704f362",
       "optimizer": {
@@ -456,12 +456,12 @@
     }
   },
   "MandateEscrowV1": {
-    "proxy": "0x6449c1A43cCE78B0e7C221e47Dd68d5cd0AeC056",
+    "proxy": "0x15A7390D8FaeCE934956C02C2D4867D2388fC46A",
     "impl": null,
-    "buildHash": "0x6eabdb12fe47043a776fa772c46869e1599a707dea20dbdb1e08c2fd1a609dc8",
+    "buildHash": "0xbe64a6fc05399cd35297bcf0e0ad7e972e526b856a708bd6013fe6c2257c3b0c",
     "matchesDeployed": true,
-    "deployedFrom": "8713255",
-    "deployedAt": "Sep-22-2026",
+    "deployedFrom": "f045bad",
+    "deployedAt": "Sep-23-2026",
     "build": {
       "solc": "v0.8.23+commit.f704f362",
       "optimizer": {
