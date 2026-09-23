@@ -141,7 +141,8 @@
         }
       },
       "evmVersion": "paris"
-    }
+    },
+    "pendingImpl": "0x0dB9586EaAC48F993ED2cD2646Aa16599A8E45EB"
   },
   "LeagueBonus": {
     "proxy": "0x1e58bDd25d5c641Cbf5e1E3cCc8D996C7F50cC46",
