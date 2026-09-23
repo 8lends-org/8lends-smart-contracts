@@ -610,11 +610,11 @@ contract Fundraise is Initializable, UUPSUpgradeable, OwnableUpgradeable {
         }
 
         InvestorInfo storage investor = investorInfo[_investor][_projectId];
-        if (investor.investedAmount == 0) revert NoInvestmentFound();
-        uint256 investorShare = (investor.investedAmount * BASIS_POINTS) / project.totalInvested; // Basis points
-        uint256 claimableShare = (project.innerStruct.totalRepaid * investorShare) / BASIS_POINTS; // Numeric
+        uint256 invested = investor.investedAmount;
+        if (invested == 0) revert NoInvestmentFound();
 
-        uint256 claimable = claimableShare > investor.totalClaimed ? claimableShare - investor.totalClaimed : 0; // Numeric
+        uint256 claimableShare = Math.mulDiv(project.innerStruct.totalRepaid, invested, project.totalInvested);
+        uint256 claimable = claimableShare > investor.totalClaimed ? claimableShare - investor.totalClaimed : 0;
 
         investor.totalClaimed += claimable; // Numeric
 
@@ -832,8 +832,8 @@ contract Fundraise is Initializable, UUPSUpgradeable, OwnableUpgradeable {
             return 0;
         }
 
-        uint256 investorShare = (investor.investedAmount * BASIS_POINTS) / project.totalInvested; // Basis points
-        uint256 claimableShare = (project.innerStruct.totalRepaid * investorShare) / BASIS_POINTS; // Numeric
+        uint256 claimableShare =
+            Math.mulDiv(project.innerStruct.totalRepaid, investor.investedAmount, project.totalInvested);
 
         claimable = claimableShare > investor.totalClaimed ? claimableShare - investor.totalClaimed : 0;
     }
