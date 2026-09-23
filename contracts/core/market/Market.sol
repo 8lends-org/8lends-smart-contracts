@@ -180,14 +180,17 @@ contract Market is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentranc
             IFundraise.Project memory project = IFundraise(fundraiseAddress).projects(_projectId);
             require(project.innerStruct.stage == IFundraise.Stage.Funded, "Only funded projects can be sold");
             uint256 posInvested = positions[_positionIndex].investedAmount;
-            maxReturn = posInvested + (posInvested * project.investorInterestRate / BASIS_POINTS);
+            // Fundraise's ceiling, not the rate applied here: the two floor at different scales.
+            maxReturn = IFundraise(fundraiseAddress).positionOwed(_projectId, posInvested);
             // Derive how much this position has effectively claimed from the seller's aggregate
             // watermark — claim() never updates the per-position field, so the stored value is
             // stale and an already-claimed position would otherwise list at full maxReturn.
             // Round up so a drained position can never be priced as if untouched. See finding #2.
             posClaimed = _derivedPositionClaimed(fundraiseAddress, msg.sender, _projectId, posInvested);
-            require(maxReturn >= posClaimed, "Total claimed exceeds max return");
-            require(_price <= maxReturn - posClaimed, "Price exceeds buyer return");
+            // Clamped, not asserted: the watermark rounds up and the ceiling floors, so on a
+            // claimed-out position the two can cross. That is a lot with nothing left to sell.
+            uint256 room = maxReturn > posClaimed ? maxReturn - posClaimed : 0;
+            require(_price <= room, "Price exceeds buyer return");
         }
 
         saleId = ++saleCount;

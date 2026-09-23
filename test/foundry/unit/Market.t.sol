@@ -74,6 +74,7 @@ contract MockFundraise_MKT {
         IFundraise.Stage stage;
         uint256 investorInterestRate;
         IERC20 loanToken;
+        uint256 totalInvested;
     }
 
     mapping(uint256 => MockProject) public mockProjects;
@@ -83,7 +84,13 @@ contract MockFundraise_MKT {
     function setTrustedSigner(address _signer) external { trustedSigner = _signer; }
 
     function setProject(uint256 pid, IFundraise.Stage stage, uint256 interestRate, address _loanToken) external {
-        mockProjects[pid] = MockProject(stage, interestRate, IERC20(_loanToken));
+        mockProjects[pid] = MockProject(stage, interestRate, IERC20(_loanToken), 0);
+    }
+
+    /// @dev Only the apportionment tests set it. At zero, positionOwed treats the position as the
+    ///      whole pool, so the prices the other tests assert on do not move.
+    function setProjectTotalInvested(uint256 pid, uint256 totalInvested) external {
+        mockProjects[pid].totalInvested = totalInvested;
     }
 
     function setInvestorInfo(address investor, uint256 pid, uint256 invested, uint256 claimed) external {
@@ -99,13 +106,31 @@ contract MockFundraise_MKT {
         _positions[investor][pid].push(IFundraise.InvestorInfo(invested, claimed));
     }
 
+    /// @dev Splits a holder's aggregate into positions that sum to it; setInvestorInfo makes one.
+    function setPositions(address investor, uint256 pid, uint256[] memory amounts) external {
+        delete _positions[investor][pid];
+        for (uint256 i = 0; i < amounts.length; i++) {
+            _positions[investor][pid].push(IFundraise.InvestorInfo(amounts[i], 0));
+        }
+    }
+
     function projects(uint256 pid) external view returns (IFundraise.Project memory) {
         MockProject memory mp = mockProjects[pid];
         IFundraise.Project memory p;
         p.investorInterestRate = mp.investorInterestRate;
+        p.totalInvested = mp.totalInvested;
         p.innerStruct.stage = mp.stage;
         p.innerStruct.loanToken = mp.loanToken;
         return p;
+    }
+
+    /// @dev Mirrors Fundraise.positionOwed, where the market now reads its ceiling from.
+    function positionOwed(uint256 pid, uint256 invested) external view returns (uint256) {
+        MockProject memory mp = mockProjects[pid];
+        uint256 total = mp.totalInvested == 0 ? invested : mp.totalInvested;
+        if (total == 0) return 0;
+        uint256 owed = total + (total * mp.investorInterestRate) / 1_000_000;
+        return Math.mulDiv(owed, invested, total);
     }
 
     function investorInfo(address investor, uint256 pid) external view returns (IFundraise.InvestorInfo memory) {
@@ -508,6 +533,73 @@ contract MarketTest is Test {
         vm.prank(investor);
         vm.expectRevert("Price exceeds buyer return");
         market.sell(PID, 36_001e6, 0);
+    }
+
+    // ── the ceiling and the watermark ───────────────────────────────────────────
+    //
+    // maxReturn came from the rate at the position's scale, the watermark it is compared against
+    // from a claim at the project's. A unit apart, and the unit made sell() refuse a claimed-out
+    // position as broken accounting.
+
+    /// @dev Worst case from an exhaustive search: one unit short of repaid, so still Funded, and
+    ///      the holder has claimed all there is. The old ceiling came out a unit under posClaimed.
+    function test_sell_aClaimedOutPositionIsRefusedOnPriceRatherThanAsCorrupt() public {
+        uint256 total = 869_517_314_888;
+        uint256 rate = 224_204;
+        uint256 sellerHolding = 84_195_628_000;
+        uint256 position = 3_265_843_798;
+        uint256 repaid = total + (total * rate) / BASIS_POINTS - 1; // still Funded
+
+        vm.startPrank(owner);
+        mockFundraise.setProject(1, IFundraise.Stage.Funded, rate, address(usdc));
+        mockFundraise.setProjectTotalInvested(1, total);
+        mockFundraise.setInvestorInfo(investor2, 1, sellerHolding, (repaid * sellerHolding) / total);
+        uint256[] memory split = new uint256[](2);
+        (split[0], split[1]) = (position, sellerHolding - position);
+        mockFundraise.setPositions(investor2, 1, split);
+        vm.stopPrank();
+
+        vm.prank(investor2);
+        vm.expectRevert("Price exceeds buyer return");
+        market.sell(1, 1, 0);
+    }
+
+    /// @dev The other half: a lot may not be priced above what its buyer can claim back. The
+    ///      rate-based ceiling sat up to two units over that, and they were sellable.
+    function testFuzz_sell_neverPricesALotAboveWhatTheBuyerCanClaim(
+        uint256 total,
+        uint256 rate,
+        uint256 sellerHolding,
+        uint256 position,
+        uint256 shortfall
+    ) public {
+        total = bound(total, 1_000e6, 1_000_000e6);
+        rate = bound(rate, 0, 300_000);
+        sellerHolding = bound(sellerHolding, 2, total);
+        position = bound(position, 1, sellerHolding - 1);
+        uint256 debt = total + (total * rate) / BASIS_POINTS;
+        // Near the end but not at it: past it the project turns Repaid and cannot be sold, and
+        // this is the only region where the two floors ever met.
+        uint256 repaid = debt - bound(shortfall, 1, 10);
+
+        vm.startPrank(owner);
+        mockFundraise.setProject(1, IFundraise.Stage.Funded, rate, address(usdc));
+        mockFundraise.setProjectTotalInvested(1, total);
+        mockFundraise.setInvestorInfo(investor2, 1, sellerHolding, (repaid * sellerHolding) / total);
+        uint256[] memory split = new uint256[](2);
+        (split[0], split[1]) = (position, sellerHolding - position);
+        mockFundraise.setPositions(investor2, 1, split);
+        vm.stopPrank();
+
+        // What the lot is worth: the position's share of the debt, less the inherited watermark.
+        uint256 carried =
+            Math.mulDiv((repaid * sellerHolding) / total, position, sellerHolding, Math.Rounding.Ceil);
+        uint256 canClaim = Math.mulDiv(debt, position, total);
+        uint256 room = canClaim > carried ? canClaim - carried : 0;
+
+        vm.prank(investor2);
+        vm.expectRevert("Price exceeds buyer return");
+        market.sell(1, room + 1, 0);
     }
 
     function test_sell_revert_notFundedProject() public {

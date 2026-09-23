@@ -48,6 +48,10 @@ interface IFundraise {
     ///         interest-first waterfall the escrow's onPayout splits payouts by.
     function outstandingPrincipal(address _investor, uint256 _projectId) external view returns (uint256);
 
+    /// @notice Everything a position of this size can ever claim. Taken from here rather than
+    ///         computed from the rate: the two floor at different scales and disagree by a unit.
+    function positionOwed(uint256 _projectId, uint256 _invested) external view returns (uint256);
+
     /// @notice Places `amount` of the caller's USDC into `pid`, recording `owner` as the investor.
     /// @dev Callable only by an escrow of `owner`, which Fundraise checks against the factory in the
     ///      registry. The escrow approves exactly `amount` immediately before the call and resets

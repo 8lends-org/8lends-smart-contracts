@@ -630,7 +630,7 @@ contract Fundraise is Initializable, UUPSUpgradeable, OwnableUpgradeable {
             _projectId,
             _claimable,
             _claimed,
-            _positionOwed(_projectId, _invested) - _invested, // the interest part of it
+            positionOwed(_projectId, _invested) - _invested, // the interest part of it
             _marketId
         );
     }
@@ -874,17 +874,17 @@ contract Fundraise is Initializable, UUPSUpgradeable, OwnableUpgradeable {
         uint256 invested = investor.investedAmount;
         if (invested == 0) return 0;
 
-        uint256 owed = _positionOwed(_projectId, invested);
+        uint256 owed = positionOwed(_projectId, invested);
         uint256 claimed = investor.totalClaimed;
         // The cap is the interest-first rule: what is owed beyond the principal is untaken interest.
         return owed > claimed ? Math.min(invested, owed - claimed) : 0;
     }
 
-    /// @dev Principal plus interest a position is owed, apportioned and floored exactly as a claim
-    ///      is. Through the project's debt on purpose: interest taken from the rate floors at a
-    ///      different scale and can sit a unit above anything the holder can claim, leaving a
-    ///      repaid position reporting principal still out and clearIfEmpty refusing it for good.
-    function _positionOwed(uint256 _projectId, uint256 _invested) internal view returns (uint256) {
+    /// @notice Everything a position of this size can ever claim: its share of the project's debt,
+    ///         floored exactly as a claim floors it. The one definition of that ceiling.
+    /// @dev Not the rate applied to the position — that floors at another scale and lands a unit
+    ///      off, which is enough to block clearIfEmpty for good.
+    function positionOwed(uint256 _projectId, uint256 _invested) public view returns (uint256) {
         Project storage project = projects[_projectId];
         uint256 totalInvested = project.totalInvested;
         if (totalInvested == 0) return _invested;
