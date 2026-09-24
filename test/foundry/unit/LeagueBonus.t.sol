@@ -525,4 +525,15 @@ contract LeagueBonusTest is Setup {
         league.sendBonus(user1, LeagueBonus.League.Diamond);
         assertEq(league.paidLeaguesMask(user1), (1 << 0) | (1 << 3));
     }
+
+    // ── boundaries ──────────────────────────────────────────────────────────────
+
+    /// @dev A league whose amount was zeroed is not claimable, and the check that says so is the
+    ///      amount, not the paid flag: the user below has never been paid.
+    function test_qualifiesForBonus_falseForALeagueWithNoAmount() public {
+        league.setBonusAmount(LeagueBonus.League.Bronze, 0);
+
+        assertFalse(league.qualifiesForBonus(user1, LeagueBonus.League.Bronze), "an unfunded league qualified");
+        assertTrue(league.qualifiesForBonus(user1, LeagueBonus.League.Silver), "and the funded one still does");
+    }
 }

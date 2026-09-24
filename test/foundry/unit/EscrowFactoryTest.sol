@@ -563,4 +563,18 @@ contract EscrowFactoryTest is Test {
         factory.setRefundTimeout(365 days);  // boundary should succeed
         assertEq(factory.refundTimeout(), 365 days);
     }
+
+    /// @dev The two bounds may meet: a minimum equal to the maximum pins the ticket to one size,
+    ///      and only past the maximum is it refused.
+    function test_setMinInvestAmount_acceptsExactlyTheMaximum() public {
+        uint256 max = factory.maxInvestAmount();
+
+        vm.prank(owner);
+        factory.setMinInvestAmount(max);
+        assertEq(factory.minInvestAmount(), max);
+
+        vm.prank(owner);
+        vm.expectRevert("Invalid amount");
+        factory.setMinInvestAmount(max + 1);
+    }
 }

@@ -439,4 +439,121 @@ contract Rewards2Test is Setup {
         vm.prank(owner);
         rewards2.createVesting(users, amounts);
     }
+
+    // ── boundaries ──────────────────────────────────────────────────────────────
+
+    /// @dev Both ends of the weekly-unlock band are legal values, and only outside them does the
+    ///      setter refuse. The band is inclusive on purpose: 0.1% a week is a real schedule.
+    function test_setVestingParameters_acceptsBothEndsOfTheBand() public {
+        vm.startPrank(owner);
+        rewards2.setVestingParameters(1_000, 40);
+        assertEq(rewards2.weeklyUnlock(), 1_000, "the lower end was refused");
+
+        rewards2.setVestingParameters(1_000_000, 40);
+        assertEq(rewards2.weeklyUnlock(), 1_000_000, "the upper end was refused");
+
+        vm.expectRevert("Weekly unlock must be between 1000 and 1000000");
+        rewards2.setVestingParameters(999, 40);
+        vm.expectRevert("Weekly unlock must be between 1000 and 1000000");
+        rewards2.setVestingParameters(1_000_001, 40);
+        vm.stopPrank();
+    }
+
+    /// @dev A zero in the amounts array is refused for its own entry, not swallowed as a vesting
+    ///      that can never release anything.
+    function test_createVesting_refusesAZeroAmount() public {
+        address[] memory users = new address[](2);
+        users[0] = investor;
+        users[1] = investor2;
+        uint256[] memory amounts = new uint256[](2);
+        amounts[0] = 100e18;
+        amounts[1] = 0;
+
+        vm.prank(owner);
+        vm.expectRevert("Invalid amount");
+        rewards2.createVesting(users, amounts);
+
+        assertEq(rewards2.userVestingCount(investor), 0, "the first entry was written anyway");
+    }
+
+    /// @dev The batch ceiling is inclusive: exactly the limit goes through, one past it does not.
+    function test_createVesting_acceptsExactlyTheBatchCeiling() public {
+        uint256 ceiling = 2_000;
+        address[] memory users = new address[](ceiling);
+        uint256[] memory amounts = new uint256[](ceiling);
+        for (uint256 i = 0; i < ceiling; i++) {
+            users[i] = address(uint160(i + 1));
+            amounts[i] = 1e18;
+        }
+
+        vm.prank(owner);
+        rewards2.createVesting(users, amounts);
+        assertEq(rewards2.userVestingCount(users[ceiling - 1]), 1, "the last of the batch was dropped");
+
+        address[] memory tooMany = new address[](ceiling + 1);
+        uint256[] memory tooManyAmounts = new uint256[](ceiling + 1);
+        for (uint256 i = 0; i <= ceiling; i++) {
+            tooMany[i] = address(uint160(i + 1));
+            tooManyAmounts[i] = 1e18;
+        }
+        vm.prank(owner);
+        vm.expectRevert("Too many users");
+        rewards2.createVesting(tooMany, tooManyAmounts);
+    }
+
+    /// @dev getVestingsInfo is the view the front end lists a holder's grants with, and nothing
+    ///      called it. Its arrays are sized from the count, so an index walked one too far is a
+    ///      panic rather than a wrong number.
+    function test_getVestingsInfo_listsEveryGrant() public {
+        address[] memory users = new address[](1);
+        users[0] = investor;
+        uint256[] memory amounts = new uint256[](1);
+        amounts[0] = 500e18;
+
+        vm.startPrank(owner);
+        rewards2.createVesting(users, amounts);
+        rewards2.createVesting(users, amounts);
+        vm.stopPrank();
+
+        (
+            uint256[] memory ids,
+            uint256[] memory totals,
+            ,
+            ,
+            uint256[] memory startTimes,
+            bool[] memory active
+        ) = rewards2.getVestingsInfo(investor);
+
+        assertEq(ids.length, 2, "both grants should be listed");
+        assertEq(ids[0], 0);
+        assertEq(ids[1], 1);
+        assertEq(totals[0], 500e18);
+        assertEq(totals[1], 500e18);
+        assertGt(startTimes[0], 0);
+        assertTrue(active[0] && active[1]);
+    }
+    /// @dev claimBatch carries its own ceiling, separate from the one on createVesting above, and
+    ///      it is inclusive too. A batch of exactly the limit pays whoever in it has something.
+    function test_claimBatch_acceptsExactlyTheCeiling() public {
+        uint256 ceiling = 2_000;
+        _createVesting(investor, 10_000e18);
+        vm.prank(owner);
+        token.mint(address(rewards2), 10_000e18);
+        vm.warp(block.timestamp + 10 weeks);
+
+        address[] memory users = new address[](ceiling);
+        users[0] = investor;
+        for (uint256 i = 1; i < ceiling; i++) users[i] = address(uint160(i + 1));
+
+        uint256 before = token.balanceOf(investor);
+        vm.prank(manager);
+        rewards2.claimBatch(users);
+        assertGt(token.balanceOf(investor) - before, 0, "the batch at the ceiling paid nothing");
+
+        address[] memory tooMany = new address[](ceiling + 1);
+        for (uint256 i = 0; i <= ceiling; i++) tooMany[i] = address(uint160(i + 1));
+        vm.prank(manager);
+        vm.expectRevert("Too many users");
+        rewards2.claimBatch(tooMany);
+    }
 }

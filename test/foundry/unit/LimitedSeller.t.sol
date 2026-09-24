@@ -878,4 +878,18 @@ contract LimitedSellerTest is Test {
         LimitedSeller.EstimateResult memory result = limitedSeller.estimateAvailableBuy(investor, pids);
         assertEq(result.availableBuyTokensInUSDC, 600e6);
     }
+
+    /// @dev The bound is inclusive: a hundred per cent is a legitimate setting, and only past it
+    ///      does the setter refuse.
+    function test_setPercent_acceptsExactlyOneHundredPercent() public {
+        uint256 full = limitedSeller.BASIS_POINTS();
+
+        vm.prank(owner);
+        limitedSeller.setPercent(full);
+        assertEq(limitedSeller.percent(), full);
+
+        vm.prank(owner);
+        vm.expectRevert(LimitedSeller.InvalidPercent.selector);
+        limitedSeller.setPercent(full + 1);
+    }
 }

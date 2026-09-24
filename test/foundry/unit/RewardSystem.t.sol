@@ -349,4 +349,61 @@ contract RewardSystemTest is Setup {
         (, uint256 total,,,) = rewardSystem.getProjectRewards(investor, pid);
         assertEq(total, 0, "a rejected batch must not credit anyone");
     }
+
+    // ── boundaries ──────────────────────────────────────────────────────────────
+
+    /// @dev Every percentage band in setParameters is inclusive at both ends. Checked on the burn
+    ///      percentage, the one that decides whether a buy-back runs at all.
+    function test_setParameters_acceptsBothEndsOfTheBurnBand() public {
+        vm.startPrank(manager);
+        rewardSystem.setParameters(60_000, 1_000, 60_000, 0, 1000e6, 25_000, 40);
+        assertEq(rewardSystem.burnPercentage(), 1_000, "the lower end was refused");
+
+        rewardSystem.setParameters(60_000, 1_000_000, 60_000, 0, 1000e6, 25_000, 40);
+        assertEq(rewardSystem.burnPercentage(), 1_000_000, "the upper end was refused");
+
+        vm.expectRevert("Burn percentage must be between 1000 and 1000000");
+        rewardSystem.setParameters(60_000, 999, 60_000, 0, 1000e6, 25_000, 40);
+        vm.stopPrank();
+    }
+
+    /// @dev An empty batch is refused rather than quietly doing nothing — a manager who passed the
+    ///      wrong slice should hear about it.
+    function test_sendUSDCForProjectToUserBatch_refusesEmptyArrays() public {
+        vm.prank(manager);
+        vm.expectRevert("Empty arrays");
+        rewardSystem.sendUSDCForProjectToUserBatch(new address[](0), new uint256[](0));
+    }
+
+    /// @dev claimUSDCForProjectBatch had no test at all: its loop walks the caller's project ids
+    ///      and pays each. One id is enough to make the walk observable.
+    function test_claimUSDCForProjectBatch_paysEachProject() public {
+        _investAs(investor, pid, 25_000e6, inviter);
+        _fundProject(pid);
+
+        uint256[] memory pids = new uint256[](1);
+        pids[0] = pid;
+
+        uint256 before = usdc.balanceOf(inviter);
+        vm.prank(inviter);
+        rewardSystem.claimUSDCForProjectBatch(pids);
+
+        assertGt(usdc.balanceOf(inviter) - before, 0, "the batch claim paid nothing");
+    }
+
+    /// @dev The project-count ceiling is inclusive, and the view is the one the sell screen reads.
+    function test_getClaimAndSellAmounts_acceptsExactlyTheCeiling() public {
+        _investAs(investor, pid, 25_000e6, inviter);
+        _fundProject(pid);
+
+        uint256[] memory atCeiling = new uint256[](500);
+        for (uint256 i = 0; i < 500; i++) atCeiling[i] = pid;
+        (uint256 tokens,,) = rewardSystem.getClaimAndSellAmounts(investor, atCeiling);
+        assertGt(tokens, 0, "the ceiling-sized request returned nothing");
+
+        uint256[] memory tooMany = new uint256[](501);
+        for (uint256 i = 0; i < 501; i++) tooMany[i] = pid;
+        vm.expectRevert("Too many projects");
+        rewardSystem.getClaimAndSellAmounts(investor, tooMany);
+    }
 }

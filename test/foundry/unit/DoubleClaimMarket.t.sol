@@ -216,13 +216,14 @@ contract DoubleClaimMarketTest is Setup {
         assertEq(sale.maxReturn, 36_000e6, "maxReturn unchanged");
     }
 
-    /// The watermark a position carries is derived twice from the same aggregate: Market works it
-    /// out to gate the price, Fundraise works it out again to write it on transfer. The comment on
-    /// Market._derivedPositionClaimed says the two must agree; nothing held them to it, and the
-    /// test above cannot — one position holding the whole aggregate makes the apportioning an
-    /// identity and the rounding a no-op. Here the seller holds three positions and the division
-    /// leaves a remainder, so both the pro rata and the direction of rounding are measured.
-    function test_marketAndFundraiseDeriveTheSameClaimedWatermark() public {
+    /// The watermark a position carries is apportioned from the holder's aggregate and rounded UP,
+    /// in the pool's favour. This is the only place that direction is measured: the test above
+    /// cannot, because one position holding the whole aggregate makes the apportioning an identity
+    /// and the rounding a no-op, and the invariant suite bounds the excess a round-up creates —
+    /// rounding down makes less of it, not more. Here the seller holds three positions and the
+    /// division leaves a remainder, so the pro rata and its direction are both pinned, read off
+    /// the price gate and off what the buyer ends up carrying.
+    function test_theCarriedWatermarkIsApportionedAndRoundedUp() public {
         uint256 pid = _createProject(10_000e6, 30_000e6);
         _investAs(investor, pid, 10_000e6, inviter);
         _investAs(investor, pid, 7_000e6, inviter); // the one that gets sold
@@ -243,6 +244,8 @@ contract DoubleClaimMarketTest is Setup {
         // Strict, so the division really left a remainder and the rounding direction is measured.
         assertGt(expected * aggInvested, aggClaimed * posInvested, "the case is degenerate, Ceil never bites");
 
+        // Stated independently of positionOwed, so a regression there cannot hide here. The two
+        // scales coincide in this fixture because the seller is the whole pool.
         uint256 maxReturn = posInvested + (posInvested * INVESTOR_INTEREST) / BASIS_POINTS;
 
         // Market's number, read off the bound it enforces and off the snapshot it stores.
@@ -322,5 +325,42 @@ contract DoubleClaimMarketTest is Setup {
         fundraise.claim(pid, investor2);
         assertEq(fundraise.projectTotalClaimed(pid), 20_000e6, "counter tracks second round");
         assertLe(fundraise.projectTotalClaimed(pid), _totalRepaid(pid), "still never exceeds repaid");
+    }
+
+    /// @dev transferPosition takes index 0 out of the market cell on every buy, and the cell is
+    ///      derived from the sale id, so each lot has its own holding exactly one position. Two
+    ///      lots from the same project prove it: the buyer of the second must get the second
+    ///      position, not whatever sits at index 0 of the seller's own list.
+    function test_buy_theSecondLotDeliversTheSecondPosition() public {
+        uint256 pid = _createProject(10_000e6, 30_000e6);
+        _investAs(investor, pid, 10_000e6, inviter);
+        _investAs(investor, pid, 7_000e6, inviter);
+        _investAs(investor, pid, 3_000e6, inviter);
+        _fundProject(pid);
+
+        vm.startPrank(investor);
+        uint256 first = market.sell(pid, 1_000e6, 1); // the 7 000 position
+        uint256 second = market.sell(pid, 500e6, 2); // the 3 000 position
+        vm.stopPrank();
+        assertTrue(market.getSale(first).marketCell != market.getSale(second).marketCell, "one cell for two lots");
+
+        vm.prank(owner);
+        usdc.mint(investor2, 500e6);
+        bytes memory sig = _signMarketBuy(investor2, second);
+        vm.startPrank(investor2);
+        usdc.approve(address(market), 500e6);
+        market.buy(second, sig);
+        vm.stopPrank();
+
+        Fundraise.InvestorInfo[] memory bought = fundraise.getInvestorPositions(investor2, pid);
+        assertEq(bought.length, 1, "the buyer got more than the lot");
+        assertEq(bought[0].investedAmount, 3_000e6, "the buyer got the wrong position");
+
+        // And the first lot is untouched, still sitting in its own cell.
+        assertEq(
+            fundraise.getInvestorPositions(market.getSale(first).marketCell, pid)[0].investedAmount,
+            7_000e6,
+            "the other lot moved"
+        );
     }
 }
