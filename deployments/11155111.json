@@ -221,11 +221,11 @@
   },
   "ManagerRegistry": {
     "proxy": "0x4A9DAE0F1C76BbD837e31f75FC27425d9aBe1114",
-    "impl": "0xc6C3091ebf58cbeeD4a063e9269ECf2e1Ed4F467",
-    "buildHash": "0x9c73e9c35e0e83963e29f717439e9f16667042f0655db44d5cb3680a978a277a",
+    "impl": "0x2e68B6C1f3Bbe54D22cCB944CCabb5127f3947D1",
+    "buildHash": "0xad93d69041af539baafbee6ae258ba70ba4201c9ef896a49666ed95b206e72f4",
     "matchesDeployed": true,
-    "deployedFrom": "8713255",
-    "deployedAt": "Sep-22-2026",
+    "deployedFrom": "9434eeb",
+    "deployedAt": "Sep-24-2026",
     "build": {
       "solc": "v0.8.23+commit.f704f362",
       "optimizer": {
