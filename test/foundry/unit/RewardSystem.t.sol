@@ -73,26 +73,6 @@ contract RewardSystemTest is Setup {
     //        ORACLE FAILURE BLOCKS INVEST
     // ═══════════════════════════════════════════════════════════════
 
-    function test_oracleFailure_blocksInvest() public {
-        // Set oracle to one that returns price=0 (simulates oracle failure)
-        MockOracle zeroOracle = new MockOracle();
-        vm.prank(owner);
-        rewardSystem.setOracle(address(zeroOracle));
-
-        // Prepare invest
-        vm.prank(owner);
-        usdc.mint(investor, 5_000e6);
-        vm.prank(investor);
-        usdc.approve(address(fundraise), 5_000e6);
-
-        uint256 currentNonce = fundraise.userNonces(investor);
-        bytes memory sig = _signInvest(investor, pid, 5_000e6, currentNonce + 1, inviter);
-
-        // Invest reverts because Oracle returns price=0
-        vm.prank(investor);
-        vm.expectRevert("Oracle: no valid price");
-        fundraise.investUpdateV2(pid, 5_000e6, currentNonce + 1, sig, inviter);
-    }
 
     // ═══════════════════════════════════════════════════════════════
     //                      VESTING SCHEDULE

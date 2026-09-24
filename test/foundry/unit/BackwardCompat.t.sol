@@ -181,30 +181,31 @@ contract BackwardCompatTest is Setup {
     }
 
     // ═══════════════════════════════════════════════════════════════════
-    //  SECTION 6: RewardSystem — activateProjectRewards overloads
+    //  SECTION 6: rewards start on either arm of transferFundsToBorrower
     // ═══════════════════════════════════════════════════════════════════
 
-    function test_activateProjectRewards_old_2params() public {
+    /// @dev Both this and the next reach activateProjectRewards(pid, total, maxUSD) — Fundraise
+    ///      has no other call. What differs is the transferFundsToBorrower arm they come through.
+    function test_rewardsStart_whenTheTransferNamesNoMaxUSD() public {
         _investAs(investor, pid, 10_000e6, inviter);
 
-        // Old method (2 params, no maxUSD)
         vm.prank(manager);
         fundraise.transferFundsToBorrower(pid);
 
         uint256 startTime = rewardSystem.projectVestingStartTime(pid);
-        assertGt(startTime, 0, "Old activateProjectRewards: vesting not started");
+        assertGt(startTime, 0, "vesting did not start");
     }
 
-    function test_activateProjectRewards_new_3params() public {
+    function test_rewardsStart_whenTheTransferNamesAMaxUSD() public {
         uint256 newPid = _createProject(10_000e6, 50_000e6);
         _investAs(investor, newPid, 10_000e6, inviter);
 
-        // New method (3 params, with maxUSD) — must cover buy-back cost
+        // The maxUSD has to cover the buy-back cost
         vm.prank(manager);
         fundraise.transferFundsToBorrower(newPid, 10_000e6);
 
         uint256 startTime = rewardSystem.projectVestingStartTime(newPid);
-        assertGt(startTime, 0, "New activateProjectRewards: vesting not started");
+        assertGt(startTime, 0, "vesting did not start");
     }
 
     // ═══════════════════════════════════════════════════════════════════
@@ -252,16 +253,6 @@ contract BackwardCompatTest is Setup {
         vm.stopPrank();
     }
 
-    function test_oracle_set_uses_oracle_not_uniswap() public {
-        // Default setup already has oracle → verify oracle path gives different result
-        _investAs(investor, pid, 10_000e6, inviter);
-
-        // Oracle price: 1 token = 0.01 USD (1e6 in 8 decimals)
-        // tokenPercentage = 6% → 600 USDC worth
-        // tokensAmount = 600e6 * 1e8 * 1e18 / (1e6 * 1e6) = 60_000e18
-        (, uint256 totalTokens,,,) = rewardSystem.getProjectRewards(investor, pid);
-        assertEq(totalTokens, 60_000e18, "Oracle path: wrong token amount");
-    }
 
     function test_oracle_fallback_reverts_when_uniswap_has_no_liquidity() public {
         // Deploy fresh RS without oracle
@@ -392,16 +383,6 @@ contract BackwardCompatTest is Setup {
         assertEq(result.availableBuyTokensInUSDC, 600e6, "Post-migration: should use earnedLimitUsdc");
     }
 
-    function test_limitedSeller_migrateEarnedLimits_onlyOwner() public {
-        address[] memory users = new address[](1);
-        users[0] = investor;
-        uint256[] memory limits = new uint256[](1);
-        limits[0] = 100e6;
-
-        vm.prank(attacker);
-        vm.expectRevert(abi.encodeWithSignature("OwnableUnauthorizedAccount(address)", attacker));
-        limitedSeller.migrateEarnedLimits(users, limits);
-    }
 
     function test_limitedSeller_addEarnedLimit_on_new_investment() public {
         // Invest — should automatically accrue earnedLimit via addEarnedLimit

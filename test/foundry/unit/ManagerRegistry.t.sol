@@ -181,17 +181,21 @@ contract ManagerRegistryTest is Setup {
         assertFalse(managerRegistry.isCompromised(attacker));
     }
 
-    /// getInvestorClaimAddress has deployed call sites; the chain must not change what they read.
-    function test_getInvestorClaimAddress_unchangedByChain() public {
+    /// getInvestorClaimAddress is an alias for recipientOf, so the chain resolves the same way
+    /// through either name. It used to answer b for b and c for c — the two links that were
+    /// superseded — and the contracts paying through it would have paid into a stolen wallet.
+    function test_getInvestorClaimAddress_resolvesTheWholeChain() public {
         (address b, address c, address d) = _chain();
 
         assertEq(managerRegistry.getInvestorClaimAddress(investor), d);
+        assertEq(managerRegistry.getInvestorClaimAddress(b), d, "a superseded link still paid out");
+        assertEq(managerRegistry.getInvestorClaimAddress(c), d, "a superseded link still paid out");
         assertEq(managerRegistry.getInvestorClaimAddress(d), d);
         assertEq(managerRegistry.getInvestorClaimAddress(attacker), attacker);
-        // b and c never became keys, so they fall back to themselves — exactly as before the chain
-        // existed. That is why the new resolver is a separate function.
-        assertEq(managerRegistry.getInvestorClaimAddress(b), b);
-        assertEq(managerRegistry.getInvestorClaimAddress(c), c);
+
+        // And the two names cannot drift apart.
+        assertEq(managerRegistry.getInvestorClaimAddress(b), managerRegistry.recipientOf(b));
+        assertEq(managerRegistry.getInvestorClaimAddress(attacker), managerRegistry.recipientOf(attacker));
     }
 
     function test_setClaimAddress_rejectsAddressAlreadyInAChain() public {

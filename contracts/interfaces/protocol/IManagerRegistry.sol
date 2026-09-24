@@ -20,6 +20,7 @@ interface IManagerRegistry {
     function setPoolStatus(address _pool, bool _status) external;
     function setPoolStatusForReward(address _pool, bool _status) external;
     function setInvestorClaimAddress(address _investor, address _claimAddress) external;
+    /// @notice An alias for recipientOf, kept for deployed call sites.
     function getInvestorClaimAddress(address _investor) external view returns (address);
 
     function mandateFactory() external view returns (address);

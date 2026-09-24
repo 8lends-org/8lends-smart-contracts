@@ -150,17 +150,17 @@ contract ManagerRegistry is Initializable, OwnableUpgradeable, UUPSUpgradeable {
         emit Rewards2AddressSet(_rewards2Address);
     }
 
-    /// @notice Get investor claim address (returns original address if not set)
-    /// @param _investor Investor address
-    /// @return Address for receiving payouts
+    /// @notice The old name for recipientOf, kept because deployed call sites read it.
+    /// @dev An alias, not a second rule: it used to follow one link and answer B for A -> B -> C,
+    ///      which is the address that was superseded. Rewards2, RewardSystem and LimitedSeller all
+    ///      pay through this getter, and paying into a link of a compromise chain is the thing the
+    ///      chain exists to prevent.
     function getInvestorClaimAddress(address _investor) public view returns (address) {
-        address claimAddress = investorClaimAddresses[_investor];
-        return claimAddress != address(0) ? claimAddress : _investor;
+        return recipientOf(_investor);
     }
 
     /// @notice Where payouts for this user must go; the user's own address if nothing was overridden.
-    /// @dev Unlike getInvestorClaimAddress it accepts any address of a chain: A -> B -> C returns C
-    ///      for all three. The old getter is untouched — deployed call sites read it.
+    /// @dev Accepts any address of a chain: A -> B -> C returns C for all three.
     function recipientOf(address _user) public view returns (address) {
         address canonical = _canonical(_user);
         address claimAddress = investorClaimAddresses[canonical];
