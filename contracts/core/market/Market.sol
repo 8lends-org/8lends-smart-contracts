@@ -122,7 +122,24 @@ contract Market is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentranc
     /// @param _positionIndex Index of the position to sell in seller's positions array
     /// @return saleId Created sale ID
     function sell(uint256 _projectId, uint256 _price, uint256 _positionIndex) external nonReentrant returns (uint256 saleId) {
-        return _executeSell(_projectId, _price, _positionIndex, msg.sender);
+        return _executeSell(msg.sender, _projectId, _price, _positionIndex, msg.sender);
+    }
+
+    /// @notice List a position held by an address that was compromised, called from its recovery address.
+    /// @dev The position stays recorded under `_owner` in Fundraise, so the sale is booked there too
+    ///      and nothing downstream has to know a recovery chain exists. No proceeds parameter: for a
+    ///      compromised seller the buy path pays recipientOf regardless of what was recorded.
+    function sellFor(address _owner, uint256 _projectId, uint256 _price, uint256 _positionIndex)
+        external
+        nonReentrant
+        returns (uint256 saleId)
+    {
+        // Only the live end of _owner's chain. For an address that was never in one this is _owner
+        // themselves, so the function reaches nothing `sell` does not already reach.
+        require(
+            IManagerRegistry(managerRegistry).recipientOf(_owner) == msg.sender, "Not the recovery address"
+        );
+        return _executeSell(_owner, _projectId, _price, _positionIndex, msg.sender);
     }
 
     /// @notice Sell a position and name where the proceeds go.
@@ -133,7 +150,7 @@ contract Market is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentranc
         returns (uint256 saleId)
     {
         _requireOwnPayee(_proceedsTo);
-        return _executeSell(_projectId, _price, _positionIndex, _proceedsTo);
+        return _executeSell(msg.sender, _projectId, _price, _positionIndex, _proceedsTo);
     }
 
     /// @dev Ownership is derived from the address, not asked of it — a look-alike would answer
@@ -147,16 +164,20 @@ contract Market is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentranc
         require(IMandateFactory(factory).isEscrowOf(msg.sender, _proceedsTo), "Not an escrow of the seller");
     }
 
-    function _executeSell(uint256 _projectId, uint256 _price, uint256 _positionIndex, address _proceedsTo)
-        internal
-        returns (uint256 saleId)
-    {
+    /// @param _owner The address the position is recorded under; `msg.sender` unless called via sellFor.
+    function _executeSell(
+        address _owner,
+        uint256 _projectId,
+        uint256 _price,
+        uint256 _positionIndex,
+        address _proceedsTo
+    ) internal returns (uint256 saleId) {
         address fundraiseAddress = getFundraise();
-        require(IManagerRegistry(managerRegistry).recipientOf(msg.sender) == msg.sender, "Seller is compromised");
-        require(activePositionSaleIds[msg.sender][_projectId][_positionIndex] == 0, "Active sale exists for position");
+        require(!IManagerRegistry(managerRegistry).isCompromised(msg.sender), "Seller is compromised");
+        require(activePositionSaleIds[_owner][_projectId][_positionIndex] == 0, "Active sale exists for position");
         require(_price > 0, "Price must be greater than zero");
 
-        IFundraise.InvestorInfo[] memory positions = IFundraise(fundraiseAddress).getInvestorPositions(msg.sender, _projectId);
+        IFundraise.InvestorInfo[] memory positions = IFundraise(fundraiseAddress).getInvestorPositions(_owner, _projectId);
         require(_positionIndex < positions.length, "Position index out of bounds");
         require(positions[_positionIndex].investedAmount > 0, "No investment in position");
 
@@ -169,7 +190,7 @@ contract Market is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentranc
             // Fundraise's ceiling, not the rate applied here: the two floor at different scales.
             maxReturn = IFundraise(fundraiseAddress).positionOwed(_projectId, posInvested);
             // The same watermark transferPosition will hand the buyer, so the two cannot disagree.
-            posClaimed = IFundraise(fundraiseAddress).positionClaimed(msg.sender, _projectId, posInvested);
+            posClaimed = IFundraise(fundraiseAddress).positionClaimed(_owner, _projectId, posInvested);
             // Clamped, not asserted: the watermark rounds up and the ceiling floors, so on a
             // claimed-out position the two can cross. That is a lot with nothing left to sell.
             uint256 room = maxReturn > posClaimed ? maxReturn - posClaimed : 0;
@@ -180,17 +201,17 @@ contract Market is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentranc
 
         address marketCell;
         {
-            bytes32 hash = keccak256(abi.encodePacked(saleId, msg.sender, _projectId, address(this), block.chainid));
+            bytes32 hash = keccak256(abi.encodePacked(saleId, _owner, _projectId, address(this), block.chainid));
             marketCell = address(uint160(
                 (uint256(saleId) << 128) | (uint256(hash) & 0xFFFFFFFFFFFFFFFFFFFFFFFF)
             ));
         }
         require(marketCell != address(0), "Market cell address cannot be zero");
-        IFundraise(fundraiseAddress).transferPosition(_projectId, msg.sender, marketCell, _positionIndex, saleId);
+        IFundraise(fundraiseAddress).transferPosition(_projectId, _owner, marketCell, _positionIndex, saleId);
 
         Sale storage sale = sales[saleId];
         sale.saleId = saleId;
-        sale.seller = msg.sender;
+        sale.seller = _owner;
         sale.projectId = _projectId;
         sale.marketCell = marketCell;
         sale.price = _price;
@@ -201,8 +222,8 @@ contract Market is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentranc
         sale.positionIndex = _positionIndex;
         sale.proceedsTo = _proceedsTo;
 
-        activePositionSaleIds[msg.sender][_projectId][_positionIndex] = saleId;
-        emit SaleCreated(saleId, msg.sender, _projectId, marketCell, _price);
+        activePositionSaleIds[_owner][_projectId][_positionIndex] = saleId;
+        emit SaleCreated(saleId, _owner, _projectId, marketCell, _price);
     }
 
     /// @notice Buy with KYC - verifies trustedSigner signature then calls buy(_saleId)
@@ -235,9 +256,8 @@ contract Market is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentranc
         IERC20 loanToken = project.innerStruct.loanToken;
         uint256 feeAmount = (sale.price * sale.fee) / BASIS_POINTS;
         uint256 sellerAmount = sale.price - feeAmount;
-        // The flag outranks the recorded payee, chosen with a key that is no longer the owner's.
-        // Blocking the buy instead would shut their secondary exit for good — relisting is refused
-        // to them, and nobody can list on their behalf.
+        // The chain outranks the recorded payee, which a key that is no longer the owner's may have
+        // chosen. Buys stay open so a lot listed before the theft still settles.
         address recipient = IManagerRegistry(managerRegistry).recipientOf(sale.seller);
         if (recipient == sale.seller && sale.proceedsTo != address(0)) recipient = sale.proceedsTo;
         loanToken.safeTransferFrom(msg.sender, address(this), feeAmount);
@@ -278,13 +298,9 @@ contract Market is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentranc
         require(_saleId > 0 && _saleId <= saleCount, "Invalid sale ID");
         address fundraiseAddress = getFundraise();
         Sale storage sale = sales[_saleId];
-        // The recovery address too: a compromised seller cannot relist, so returning the position
-        // is all that is left to them.
-        require(
-            msg.sender == sale.seller
-                || msg.sender == IManagerRegistry(managerRegistry).recipientOf(sale.seller),
-            "Not seller"
-        );
+        // Same gate as listing. The superseded address gets no proceeds either way, but left in it
+        // could cancel every relisting for the price of gas and keep the position unsellable.
+        require(msg.sender == IManagerRegistry(managerRegistry).recipientOf(sale.seller), "Not seller");
         require(sale.status == SaleStatus.Active, "Sale not active");
         // Market cell always has the position at index 0
         IFundraise(fundraiseAddress).transferPosition(sale.projectId, sale.marketCell, sale.seller, 0, _saleId);

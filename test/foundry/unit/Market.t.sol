@@ -34,18 +34,34 @@ contract MockManagerRegistry_MKT {
     function isMarket(address addr) external view returns (bool) { return marketContracts[addr]; }
     function fundraiseAddress() external view returns (address) { return fundraiseAddr; }
 
+    mapping(address => address) public canonicalOf;
+
+    /// @dev Mirrors ManagerRegistry including the flattening: canonicalOf names the address the
+    ///      chain started from, never the previous link, so A -> B -> C stays one hop. A mock that
+    ///      stored the previous link would make the chain test pass for the wrong reason.
     function setInvestorClaimAddress(address investor, address claim) external {
-        claimAddresses[investor] = claim;
+        address canonical = _canonical(investor);
+        claimAddresses[canonical] = claim;
+        canonicalOf[claim] = canonical;
     }
 
     function getInvestorClaimAddress(address investor) external view returns (address) {
-        address addr = claimAddresses[investor];
-        return addr != address(0) ? addr : investor;
+        return recipientOf(investor);
     }
 
-    function recipientOf(address investor) external view returns (address) {
-        address addr = claimAddresses[investor];
-        return addr != address(0) ? addr : investor;
+    function recipientOf(address investor) public view returns (address) {
+        address canonical = _canonical(investor);
+        address addr = claimAddresses[canonical];
+        return addr != address(0) ? addr : canonical;
+    }
+
+    function isCompromised(address investor) external view returns (bool) {
+        return recipientOf(investor) != investor;
+    }
+
+    function _canonical(address user) private view returns (address) {
+        address canonical = canonicalOf[user];
+        return canonical != address(0) ? canonical : user;
     }
 
     address public mandateFactory;
@@ -407,8 +423,7 @@ contract MarketTest is Test {
         assertEq(market.getSale(b).proceedsTo, investor);
     }
 
-    /// Blocking the buy would close their secondary exit for good: relisting is refused to them,
-    /// and the recovery address cannot list on their behalf — the position is the seller's.
+    /// The lot listed before the chain was set still settles, and settles to the recovery address.
     function test_buy_fromACompromisedSeller_paysTheRecoveryAddress() public {
         vm.prank(investor);
         uint256 saleId = market.sell(PID, 25_000e6, 0);
@@ -450,6 +465,138 @@ contract MarketTest is Test {
         vm.expectRevert("Seller is compromised");
         vm.prank(investor);
         market.sell(PID, 25_000e6, 0);
+    }
+
+    /// ...but the recovery address may list in their place. The position is still recorded under
+    /// the wallet that bought it, so the sale is booked there too: one owner in the ledger, and
+    /// nothing downstream has to learn that a chain exists.
+    function test_sell_byTheRecoveryAddress_listsTheCompromisedPosition() public {
+        address recovery = makeAddr("recovery");
+        vm.prank(owner);
+        mockRegistry.setInvestorClaimAddress(investor, recovery);
+
+        vm.prank(recovery);
+        uint256 saleId = market.sellFor(investor, PID, 25_000e6, 0);
+
+        assertEq(market.getSale(saleId).seller, investor, "booked under the position holder");
+        assertEq(market.activePositionSaleIds(investor, PID, 0), saleId, "and keyed under them");
+        assertEq(market.activePositionSaleIds(recovery, PID, 0), 0, "not under the caller");
+    }
+
+    /// A lot the attacker put up before the chain was set still occupies the slot. Keying the guard
+    /// on the position holder rather than the caller is what makes the two addresses collide here.
+    function test_sell_byTheRecoveryAddress_collidesWithAnEarlierListing() public {
+        vm.prank(investor);
+        market.sell(PID, 25_000e6, 0);
+
+        address recovery = makeAddr("recovery");
+        vm.prank(owner);
+        mockRegistry.setInvestorClaimAddress(investor, recovery);
+
+        vm.expectRevert("Active sale exists for position");
+        vm.prank(recovery);
+        market.sellFor(investor, PID, 20_000e6, 0);
+    }
+
+    /// A -> B -> C: only the live end may list. B is a superseded link and gets the same refusal as
+    /// the original wallet, and the sale is still booked under A.
+    function test_sell_inAChain_onlyTheLiveEndMayList() public {
+        address b = makeAddr("recoveryB");
+        address c = makeAddr("recoveryC");
+        vm.startPrank(owner);
+        mockRegistry.setInvestorClaimAddress(investor, b);
+        mockRegistry.setInvestorClaimAddress(b, c);
+        vm.stopPrank();
+
+        vm.expectRevert("Seller is compromised");
+        vm.prank(investor);
+        market.sell(PID, 25_000e6, 0);
+
+        vm.expectRevert("Not the recovery address");
+        vm.prank(b);
+        market.sellFor(investor, PID, 25_000e6, 0);
+
+        vm.prank(c);
+        uint256 saleId = market.sellFor(investor, PID, 25_000e6, 0);
+        assertEq(market.getSale(saleId).seller, investor, "still the position holder");
+    }
+
+    /// The attacker must not be able to unwind what the recovery address put up. They gain nothing
+    /// by it — the proceeds are not theirs either way — but for the price of gas they could cancel
+    /// every relisting and keep the position permanently unsellable.
+    function test_cancel_isRefusedToACompromisedSeller() public {
+        address recovery = makeAddr("recovery");
+        vm.prank(owner);
+        mockRegistry.setInvestorClaimAddress(investor, recovery);
+
+        vm.prank(recovery);
+        uint256 saleId = market.sellFor(investor, PID, 25_000e6, 0);
+
+        vm.expectRevert("Not seller");
+        vm.prank(investor);
+        market.cancel(saleId);
+
+        vm.prank(recovery);
+        market.cancel(saleId);
+        assertEq(market.activePositionSaleIds(investor, PID, 0), 0, "the live end still can");
+    }
+
+    /// Being someone's recovery address must not cost you your own secondary exit. `sell` still
+    /// means "mine", so a recovery address that keeps using the platform is unaffected — and the
+    /// position index it passes is read against itself, never against the address it recovered.
+    function test_sell_byARecoveryAddress_ofTheirOwnPosition() public {
+        address recovery = makeAddr("recovery");
+        vm.prank(owner);
+        mockRegistry.setInvestorClaimAddress(investor, recovery);
+
+        // Acquired after the chain was set: the reverse index is permanent, so this is the case
+        // that matters — the recovery address goes on investing from its new wallet.
+        mockFundraise.setInvestorInfo(recovery, PID, 12_000e6, 0);
+
+        vm.prank(recovery);
+        uint256 saleId = market.sell(PID, 9_000e6, 0);
+
+        assertEq(market.getSale(saleId).seller, recovery, "their own lot, booked to them");
+        assertEq(market.activePositionSaleIds(recovery, PID, 0), saleId);
+        assertEq(market.activePositionSaleIds(investor, PID, 0), 0, "the recovered position untouched");
+    }
+
+    /// A -> B -> C: positions may sit on both A and B, because the user invested from each before
+    /// losing it. Naming the owner is what lets the live end reach either one.
+    function test_sellFor_inAChain_reachesPositionsOfEveryLink() public {
+        address b = makeAddr("recoveryB");
+        address c = makeAddr("recoveryC");
+        vm.startPrank(owner);
+        mockRegistry.setInvestorClaimAddress(investor, b);
+        mockRegistry.setInvestorClaimAddress(b, c);
+        vm.stopPrank();
+
+        mockFundraise.setInvestorInfo(b, PID, 18_000e6, 0);
+
+        vm.startPrank(c);
+        uint256 fromA = market.sellFor(investor, PID, 25_000e6, 0);
+        uint256 fromB = market.sellFor(b, PID, 14_000e6, 0);
+        vm.stopPrank();
+
+        assertEq(market.getSale(fromA).seller, investor, "booked under the first link");
+        assertEq(market.getSale(fromB).seller, b, "and under the second, not merged into the first");
+    }
+
+    /// End to end: the recovery address lists, a buyer takes the lot, and the money lands on the
+    /// recovery address. The stolen wallet never touches the proceeds of its own position.
+    function test_sell_byTheRecoveryAddress_thenBuy_paysTheRecoveryAddress() public {
+        address recovery = makeAddr("recovery");
+        vm.prank(owner);
+        mockRegistry.setInvestorClaimAddress(investor, recovery);
+
+        vm.prank(recovery);
+        uint256 saleId = market.sellFor(investor, PID, 25_000e6, 0);
+
+        mockFundraise.setInvestorInfo(market.getSale(saleId).marketCell, PID, 30_000e6, 0);
+        _buy(saleId, investor2);
+
+        assertEq(usdc.balanceOf(recovery), 25_000e6, "paid to the recovery address");
+        assertEq(usdc.balanceOf(investor), 0, "the stolen wallet is never paid");
     }
 
     // ═══════════════════════════════════════════════════════════════
