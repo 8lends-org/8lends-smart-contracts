@@ -43,7 +43,7 @@ const main = async () => {
     // price, reserve0, reserve1
 
     const factoryContract = new ethers.Contract(config.uniswapV2Factory, UNISWAP_FACTORY_ABI, ethers.provider);
-    const pool = await factoryContract.getPair(config.token, config.USDC);
+    const pool = await factoryContract.getPair(config.Token, config.USDC);
 
     const poolContract = new ethers.Contract(pool, POOL_ABI, ethers.provider);
 
@@ -55,12 +55,12 @@ const main = async () => {
 
     const reserves = await poolContract.getReserves();
 
-    const reserve0 = formatUnits(reserves[0], token1 === config.token ? 6 : 18);
-    const reserve1 = formatUnits(reserves[1], token1 === config.token ? 18 : 6);
+    const reserve0 = formatUnits(reserves[0], token1 === config.Token ? 6 : 18);
+    const reserve1 = formatUnits(reserves[1], token1 === config.Token ? 18 : 6);
     const price = Number(reserve0) / Number(reserve1);
     console.log("price: ", price.toString());
-    console.log("token0: ", token1 === config.token ? "USDC" : "TOKEN", reserve0);
-    console.log("token1: ", token1 === config.token ? "TOKEN" : "USDC", reserve1);
+    console.log("token0: ", token1 === config.Token ? "USDC" : "TOKEN", reserve0);
+    console.log("token1: ", token1 === config.Token ? "TOKEN" : "USDC", reserve1);
 
 }
 

@@ -473,5 +473,24 @@
       },
       "evmVersion": "paris"
     }
+  },
+  "Token": {
+    "proxy": "0xdC29006cC9cc1BAF77333AF31D6BA441884737C1",
+    "impl": null,
+    "buildHash": "0x9825781d686212f62b14402cf18dadc70b8f169f53f80aac1b8214802460c0c6",
+    "matchesDeployed": false,
+    "deployedFrom": null,
+    "deployedAt": null,
+    "build": {
+      "solc": "v0.8.27+commit.40a35a09",
+      "optimizer": {
+        "enabled": true,
+        "runs": 0,
+        "details": {
+          "yul": false
+        }
+      },
+      "evmVersion": "cancun"
+    }
   }
 }

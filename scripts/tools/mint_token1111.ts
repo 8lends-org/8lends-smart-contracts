@@ -20,11 +20,11 @@ async function main() {
   console.log("Signer native balance:", ethers.formatEther(signerBalance));
 
   // Check if token address exists in config
-  if (!config.token) {
+  if (!config.Token) {
     throw new Error("Token address not found in config");
   }
 
-  console.log("Token address:", config.token);
+  console.log("Token address:", config.Token);
 
   const TO_ADDRESS = process.env.TO_ADDRESS;
   const AMOUNT = process.env.AMOUNT;
@@ -32,8 +32,8 @@ async function main() {
     throw new Error("TO_ADDRESS or AMOUNT not found in env");
   }
   // Connect to Token contract
-  const token = await ethers.getContractAt("Token", config.token);
-  await requireOwner(config.token, "Token");
+  const token = await ethers.getContractAt("Token", config.Token);
+  await requireOwner(config.Token, "Token");
 
   // Get command line arguments
 

@@ -40,7 +40,7 @@ async function main(): Promise<void> {
     const config: {
         uniswapV2Router: string;
         USDC: string;
-        token: string;
+        Token: string;
         RewardSystem: string;
     } = loadConfig(net.chainId);
 
@@ -50,7 +50,7 @@ async function main(): Promise<void> {
     if (!config.USDC) {
         throw new Error("❌ USDC address not found in config");
     }
-    if (!config.token) {
+    if (!config.Token) {
         throw new Error("❌ Token address not found in config");
     }
 
@@ -58,7 +58,7 @@ async function main(): Promise<void> {
     console.log(`🌐 Network: ${net.name} (chainId: ${net.chainId})`);
     console.log(`📍 Uniswap Router: ${config.uniswapV2Router}`);
     console.log(`📍 USDC: ${config.USDC}`);
-    console.log(`📍 Token: ${config.token}`);
+    console.log(`📍 Token: ${config.Token}`);
     console.log("=".repeat(80) + "\n");
 
     const [signer] = await ethers.getSigners();
@@ -70,7 +70,7 @@ async function main(): Promise<void> {
     // Connect to the contracts
     const uniswapRouter = new ethers.Contract(config.uniswapV2Router, UNISWAP_ROUTER_ABI, signer);
     const usdcContract = new ethers.Contract(config.USDC, ERC20_ABI, signer);
-    const tokenContract = new ethers.Contract(config.token, ERC20_ABI, signer);
+    const tokenContract = new ethers.Contract(config.Token, ERC20_ABI, signer);
 
     // Fetch token information
     const usdcDecimals = await usdcContract.decimals();
@@ -104,7 +104,7 @@ async function main(): Promise<void> {
         
 
         // Prepare token swap path (USDC -> TOKEN)
-        const path = [config.USDC, config.token];
+        const path = [config.USDC, config.Token];
         console.log("path:", path);
         console.log("amountOut:", amountOut);
 
@@ -167,7 +167,7 @@ async function main(): Promise<void> {
         console.log("=".repeat(80) + "\n");
     }else if(USDC_AMOUNT_TO_BUY) {
         const amountIn = ethers.parseUnits(USDC_AMOUNT_TO_BUY, usdcDecimals);
-        const path = [config.USDC, config.token];
+        const path = [config.USDC, config.Token];
         console.log("path:", path);
         console.log("amountIn:", amountIn);
 

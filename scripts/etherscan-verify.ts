@@ -54,7 +54,7 @@ async function main() {
   }
 
   const contractsToVerify = [
-    { name: "Token", address: config.token, args: [] },
+    { name: "Token", address: config.Token, args: [] },
     ...[...implByName].map(([name, address]) => ({ name, address, args: [] })),
   ].filter(c => onlyOne ? c.name === onlyOne : true);
 

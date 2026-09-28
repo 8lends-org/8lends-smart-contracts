@@ -113,10 +113,10 @@ const DEPLOY_DESCRIPTORS: Record<string, DeployDescriptor> = {
     useProxy: true,
     initializer: "initialize",
     getProxyArgs: (config) => {
-      if (!config.ManagerRegistry || !config.token || !config.USDC || !config.uniswapV2Router) {
+      if (!config.ManagerRegistry || !config.Token || !config.USDC || !config.uniswapV2Router) {
         throw new Error("ManagerRegistry, token, USDC, uniswapV2Router required in config");
       }
-      return [config.ManagerRegistry, config.token, config.USDC, config.uniswapV2Router];
+      return [config.ManagerRegistry, config.Token, config.USDC, config.uniswapV2Router];
     },
     configKey: "RewardSystem",
     configKeyImpl: "RewardSystem_impl",
@@ -125,10 +125,10 @@ const DEPLOY_DESCRIPTORS: Record<string, DeployDescriptor> = {
     useProxy: true,
     initializer: "initialize",
     getProxyArgs: (config) => {
-      if (!config.ManagerRegistry || !config.token || !config.USDC || !config.uniswapV2Router) {
+      if (!config.ManagerRegistry || !config.Token || !config.USDC || !config.uniswapV2Router) {
         throw new Error("ManagerRegistry, token, USDC, uniswapV2Router required in config");
       }
-      return [config.ManagerRegistry, config.token, config.USDC, config.uniswapV2Router];
+      return [config.ManagerRegistry, config.Token, config.USDC, config.uniswapV2Router];
     },
     configKey: "Rewards2",
     configKeyImpl: "Rewards2_impl",
@@ -152,13 +152,13 @@ const DEPLOY_DESCRIPTORS: Record<string, DeployDescriptor> = {
         !config.ManagerRegistry ||
         !config.uniswapV2Router ||
         !config.USDC ||
-        !config.token
+        !config.Token
       ) {
         console.log("Fundraise:", config.Fundraise);
         console.log("ManagerRegistry:", config.ManagerRegistry);
         console.log("uniswapV2Router:", config.uniswapV2Router);
         console.log("USDC:", config.USDC);
-        console.log("token:", config.token);
+        console.log("token:", config.Token);
         throw new Error(
           "Fundraise, ManagerRegistry, uniswapV2Router, USDC, token required in config"
         );
@@ -168,7 +168,7 @@ const DEPLOY_DESCRIPTORS: Record<string, DeployDescriptor> = {
         config.Fundraise,
         config.uniswapV2Router,
         config.USDC,
-        config.token,
+        config.Token,
         percent,
         config.ManagerRegistry,
       ];
