@@ -122,11 +122,18 @@ contract Market is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentranc
     }
 
     /// @notice Sell first investment position (backward-compatible overload)
-    /// @dev TODO: remove after frontend migrates to sell(uint256,uint256,uint256)
+    /// @dev TODO: remove after frontend migrates to sell(uint256,uint256,uint256,uint256,bytes)
     /// @param _projectId Project ID
     /// @param _price Price in loan tokens
+    /// @param _deadline Last timestamp the signature is good for
+    /// @param _sig Signature from backend (trustedSigner)
     /// @return saleId Created sale ID
-    function sell(uint256 _projectId, uint256 _price) external nonReentrant returns (uint256 saleId) {
+    function sell(uint256 _projectId, uint256 _price, uint256 _deadline, bytes memory _sig)
+        external
+        nonReentrant
+        returns (uint256 saleId)
+    {
+        _verifySellSignature(getFundraise(), _projectId, _price, 0, _deadline, _sig);
         return _executeSell(_projectId, _price, 0);
     }
 
@@ -134,9 +141,51 @@ contract Market is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentranc
     /// @param _projectId Project ID
     /// @param _price Price in loan tokens
     /// @param _positionIndex Index of the position to sell in seller's positions array
+    /// @param _deadline Last timestamp the signature is good for
+    /// @param _sig Signature from backend (trustedSigner)
     /// @return saleId Created sale ID
-    function sell(uint256 _projectId, uint256 _price, uint256 _positionIndex) external nonReentrant returns (uint256 saleId) {
+    function sell(uint256 _projectId, uint256 _price, uint256 _positionIndex, uint256 _deadline, bytes memory _sig)
+        external
+        nonReentrant
+        returns (uint256 saleId)
+    {
+        _verifySellSignature(getFundraise(), _projectId, _price, _positionIndex, _deadline, _sig);
         return _executeSell(_projectId, _price, _positionIndex);
+    }
+
+    /// @notice The backend's approval of one listing.
+    /// @dev No nonce: listing empties the position the signature names, and a cancelled lot comes
+    ///      back under a new index, so the same approval cannot be spent twice. A signature that
+    ///      stops naming a position, or an index that can be refilled, brings the nonce back.
+    function _verifySellSignature(
+        address _fundraise,
+        uint256 _projectId,
+        uint256 _price,
+        uint256 _positionIndex,
+        uint256 _deadline,
+        bytes memory _sig
+    ) internal view {
+        require(block.timestamp <= _deadline, "Signature expired");
+        // abi.encode, not encodePacked: seven fixed words, a layout no other signature of this key
+        // repeats. address(this) and chainid keep the approval to this deployment.
+        bytes32 messageHash = keccak256(
+            abi.encode(block.chainid, address(this), msg.sender, _projectId, _price, _positionIndex, _deadline)
+        );
+        _requireTrustedSigner(_fundraise, messageHash, _sig);
+    }
+
+    /// @dev Shared by listing and buy, so the two cannot drift apart.
+    function _requireTrustedSigner(address _fundraise, bytes32 _messageHash, bytes memory _sig) internal view {
+        address trustedSignerAddr = IFundraise(_fundraise).trustedSigner();
+        require(trustedSignerAddr != address(0), "Trusted signer not set");
+        bytes32 ethSignedMessageHash = keccak256(
+            abi.encodePacked("\x19Ethereum Signed Message:\n32", _messageHash)
+        );
+        (bytes32 r, bytes32 s, uint8 v) = _splitSignature(_sig);
+        require(uint256(s) <= 0x7FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF5D576E7357A4501DDFE92F46681B20A0, "Invalid signature s");
+        address signer = ecrecover(ethSignedMessageHash, v, r, s);
+        require(signer != address(0), "Invalid signature");
+        require(signer == trustedSignerAddr, "Not trusted signer");
     }
 
     function _executeSell(uint256 _projectId, uint256 _price, uint256 _positionIndex) internal returns (uint256 saleId) {
@@ -199,17 +248,7 @@ contract Market is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentranc
     function buy(uint256 _saleId, bytes memory _sig) external nonReentrant {
         require(_saleId > 0 && _saleId <= saleCount, "Invalid sale ID");
         address fundraiseAddress = getFundraise();
-        address trustedSignerAddr = IFundraise(fundraiseAddress).trustedSigner();
-        require(trustedSignerAddr != address(0), "Trusted signer not set");
-        bytes32 messageHash = keccak256(abi.encodePacked(msg.sender, _saleId));
-        bytes32 ethSignedMessageHash = keccak256(
-            abi.encodePacked("\x19Ethereum Signed Message:\n32", messageHash)
-        );
-        (bytes32 r, bytes32 s, uint8 v) = _splitSignature(_sig);
-        require(uint256(s) <= 0x7FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF5D576E7357A4501DDFE92F46681B20A0, "Invalid signature s");
-        address signer = ecrecover(ethSignedMessageHash, v, r, s);
-        require(signer != address(0), "Invalid signature");
-        require(signer == trustedSignerAddr, "Not trusted signer");
+        _requireTrustedSigner(fundraiseAddress, keccak256(abi.encodePacked(msg.sender, _saleId)), _sig);
         _executeBuy(_saleId, fundraiseAddress);
     }
 
