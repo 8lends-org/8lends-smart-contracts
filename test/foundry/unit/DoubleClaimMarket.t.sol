@@ -49,6 +49,35 @@ contract DoubleClaimMarketTest is Setup {
         sig = abi.encodePacked(r, s, v);
     }
 
+    // ── Backend (trustedSigner) approval of one listing, as Market.sell expects ──
+    function _signMarketSell(
+        address seller,
+        uint256 projectId,
+        uint256 price,
+        uint256 positionIndex,
+        uint256 deadline
+    ) internal view returns (bytes memory sig) {
+        bytes32 messageHash = keccak256(
+            abi.encode(block.chainid, address(market), seller, projectId, price, positionIndex, deadline)
+        );
+        bytes32 ethSignedMessageHash = keccak256(
+            abi.encodePacked("\x19Ethereum Signed Message:\n32", messageHash)
+        );
+        (uint8 v, bytes32 r, bytes32 s) = vm.sign(backendPk, ethSignedMessageHash);
+        sig = abi.encodePacked(r, s, v);
+    }
+
+    /// @notice List a position as `seller`, with a fresh backend approval.
+    function _sellAs(address seller, uint256 projectId, uint256 price, uint256 positionIndex)
+        internal
+        returns (uint256 saleId)
+    {
+        uint256 deadline = block.timestamp + 15 minutes;
+        bytes memory sig = _signMarketSell(seller, projectId, price, positionIndex, deadline);
+        vm.prank(seller);
+        return market.sell(projectId, price, positionIndex, deadline, sig);
+    }
+
     /// @notice One hop: `seller` sells position `posIndex`, `buyer` buys it with a valid KYC
     ///         signature, then `buyer` claims. Returns how much `buyer` was paid on claim.
     function _sellBuyClaim(uint256 pid, address seller, address buyer, uint256 posIndex)
@@ -57,8 +86,7 @@ contract DoubleClaimMarketTest is Setup {
     {
         uint256 price = 1_000e6;
 
-        vm.prank(seller);
-        uint256 saleId = market.sell(pid, price, posIndex);
+        uint256 saleId = _sellAs(seller, pid, price, posIndex);
 
         vm.prank(owner);
         usdc.mint(buyer, price);
@@ -102,8 +130,7 @@ contract DoubleClaimMarketTest is Setup {
 
         // ── A lists the drained position; the gate now derives the claimed watermark ──
         uint256 price = 1_000e6;
-        vm.prank(investor);
-        uint256 saleId = market.sell(pid1, price, 0);
+        uint256 saleId = _sellAs(investor, pid1, price, 0);
 
         // ── Honest buyer B buys with a valid backend KYC signature ──
         vm.prank(owner);
@@ -180,8 +207,7 @@ contract DoubleClaimMarketTest is Setup {
         vm.prank(investor);
         fundraise.claim(pid, investor); // A claims R
 
-        vm.prank(investor);
-        uint256 saleId = market.sell(pid, 1_000e6, 0);
+        uint256 saleId = _sellAs(investor, pid, 1_000e6, 0);
         vm.prank(investor);
         market.cancel(saleId);
 
@@ -206,13 +232,14 @@ contract DoubleClaimMarketTest is Setup {
         fundraise.claim(pid, investor);
 
         // Listing above the derived bound now reverts (previously it allowed the full 36k).
+        uint256 dl = block.timestamp + 15 minutes;
+        bytes memory sellSig = _signMarketSell(investor, pid, 26_000e6 + 1, 0, dl);
         vm.prank(investor);
         vm.expectRevert("Price exceeds buyer return");
-        market.sell(pid, 26_000e6 + 1, 0);
+        market.sell(pid, 26_000e6 + 1, 0, dl, sellSig);
 
         // At the bound it succeeds, and the snapshot reflects the derived claimed value.
-        vm.prank(investor);
-        uint256 saleId = market.sell(pid, 26_000e6, 0);
+        uint256 saleId = _sellAs(investor, pid, 26_000e6, 0);
         Market.Sale memory sale = market.getSale(saleId);
         assertEq(sale.totalClaimed, 10_000e6, "sale snapshot uses derived claimed");
         assertEq(sale.maxReturn, 36_000e6, "maxReturn unchanged");
