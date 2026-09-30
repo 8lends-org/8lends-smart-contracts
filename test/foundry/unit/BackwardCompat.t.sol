@@ -95,7 +95,7 @@ contract BackwardCompatTest is Setup {
         });
 
         vm.prank(manager);
-        uint256 newPid = fundraise.createProject(proj, 99);
+        uint256 newPid = fundraise.createProject(proj, _nextProjectHash());
 
         (uint256 hardCap,,,,,,, ) = fundraise.projects(newPid);
         assertEq(hardCap, 30_000e6, "New createProject: hardCap mismatch");
@@ -448,7 +448,7 @@ contract BackwardCompatTest is Setup {
             })
         });
         vm.prank(manager);
-        uint256 e2ePid = fundraise.createProject(proj, 777);
+        uint256 e2ePid = fundraise.createProject(proj, _nextProjectHash());
 
         // 2. Investor1 invests
         _investAs(investor, e2ePid, 6_000e6, inviter);

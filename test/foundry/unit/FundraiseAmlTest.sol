@@ -200,7 +200,7 @@ contract FundraiseAmlTest is Setup {
             })
         });
         vm.prank(manager);
-        uint256 pid = fundraise.createProject(proj, 1);
+        uint256 pid = fundraise.createProject(proj, _nextProjectHash());
 
         AmlEscrow escrow = _createEscrow(investor);
         uint256 reqId = _escrowInvest(escrow, investor, pid, 100e6, inviter);
@@ -234,7 +234,7 @@ contract FundraiseAmlTest is Setup {
             })
         });
         vm.prank(manager);
-        uint256 pid = fundraise.createProject(proj, 1);
+        uint256 pid = fundraise.createProject(proj, _nextProjectHash());
 
         AmlEscrow escrow = _createEscrow(investor);
         uint256 reqId = _escrowInvest(escrow, investor, pid, 100e6, inviter);

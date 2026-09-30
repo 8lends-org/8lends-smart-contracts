@@ -108,7 +108,7 @@ contract TryToUSDTest is Setup {
             })
         });
         vm.prank(manager);
-        uint256 pid = fundraise.createProject(proj, 1);
+        uint256 pid = fundraise.createProject(proj, _nextProjectHash());
 
         vm.prank(owner);
         otherToken.mint(investor, 100e6);

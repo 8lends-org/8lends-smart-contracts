@@ -55,6 +55,7 @@ contract Fundraise is Initializable, UUPSUpgradeable, OwnableUpgradeable {
     error InvalidStageForClaiming();
     error NoInvestmentFound();
     error CantUpdateFundedProject();
+    error ProjectHashAlreadyUsed();
     error OpenStageExtensionTooLong();
     error WrongPercents();
     error ZeroAddress();
@@ -205,6 +206,9 @@ contract Fundraise is Initializable, UUPSUpgradeable, OwnableUpgradeable {
     /// @notice Router holding the payout routes of mandates.
     /// @dev While zero every project reads as unrouted, so this can be deployed ahead of the router.
     address public mandateRouter;
+
+    /// @notice Off-chain ids already spent by createProject, so one project cannot be released twice.
+    mapping(uint256 => bool) public projectHashUsed;
 
     /// @custom:oz-upgrades-unsafe-allow constructor
     constructor() {
@@ -667,10 +671,13 @@ contract Fundraise is Initializable, UUPSUpgradeable, OwnableUpgradeable {
     /// @dev Only standard ERC20 tokens are supported as loanToken.
     /// Fee-on-transfer, rebasing, and deflationary tokens will cause accounting errors.
     /// @param _project Project info
-    /// @param _projectHash project hash, for event
+    /// @param _projectHash Off-chain id of the project. Emitted, and spent: a second release of the
+    ///        same project reverts, whichever tab or admin sends it.
     function createProject(Project memory _project, uint256 _projectHash) external returns (uint256) {
         if (!IManagerRegistry(managerRegistry).isManager(msg.sender)) revert NotAManager();
         _validateProject(_project);
+        if (projectHashUsed[_projectHash]) revert ProjectHashAlreadyUsed();
+        projectHashUsed[_projectHash] = true;
 
         uint256 projectId = projectCount++;
         projects[projectId] = _project;
@@ -705,6 +712,9 @@ contract Fundraise is Initializable, UUPSUpgradeable, OwnableUpgradeable {
     /// @param _project new project info
     function setProject(uint256 _projectId, Project memory _project) external {
         if (!IManagerRegistry(managerRegistry).isManager(msg.sender)) revert NotAManager();
+        // A number that was never created reads as stage ComingSoon, so without this the write
+        // below would mint a project with no event and no hash.
+        if (_projectId >= projectCount) revert ProjectDoesNotExist();
         if (
             !(
                 projects[_projectId].innerStruct.stage == Stage.ComingSoon ||

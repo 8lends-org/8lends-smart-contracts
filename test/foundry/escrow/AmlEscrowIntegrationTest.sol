@@ -95,7 +95,7 @@ contract AmlEscrowIntegrationTest is Setup {
             })
         });
         vm.prank(manager);
-        projectId = fundraise.createProject(proj, 1);
+        projectId = fundraise.createProject(proj, _nextProjectHash());
     }
 
     /// @notice Build a project with a custom loanToken
@@ -121,7 +121,7 @@ contract AmlEscrowIntegrationTest is Setup {
             })
         });
         vm.prank(manager);
-        projectId = fundraise.createProject(proj, 1);
+        projectId = fundraise.createProject(proj, _nextProjectHash());
     }
 
     // ─────────────────────────────────────────────────────────────────────────

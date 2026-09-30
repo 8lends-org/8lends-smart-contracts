@@ -103,7 +103,7 @@ contract FundraiseTest is Setup {
         });
 
         vm.prank(manager);
-        uint256 futurePid = fundraise.createProject(proj, 2);
+        uint256 futurePid = fundraise.createProject(proj, _nextProjectHash());
 
         uint256 nonceBefore = fundraise.userNonces(investor);
 
@@ -292,7 +292,7 @@ contract FundraiseTest is Setup {
 
         vm.prank(attacker);
         vm.expectRevert(Fundraise.NotAManager.selector);
-        fundraise.createProject(proj, 1);
+        fundraise.createProject(proj, _nextProjectHash());
     }
 
     function test_cancelProject_nonManager_reverts() public {
@@ -469,7 +469,7 @@ contract FundraiseTest is Setup {
 
         vm.prank(manager);
         vm.expectRevert(Fundraise.SoftCapMustBePositive.selector);
-        fundraise.createProject(proj, 1);
+        fundraise.createProject(proj, _nextProjectHash());
     }
 
     function test_createProject_revertsOnSoftCapGtHardCap() public {
@@ -479,7 +479,7 @@ contract FundraiseTest is Setup {
 
         vm.prank(manager);
         vm.expectRevert(Fundraise.SoftCapExceedsHardCap.selector);
-        fundraise.createProject(proj, 1);
+        fundraise.createProject(proj, _nextProjectHash());
     }
 
     function test_createProject_revertsOnNonZeroTotalInvested() public {
@@ -488,7 +488,7 @@ contract FundraiseTest is Setup {
 
         vm.prank(manager);
         vm.expectRevert(Fundraise.TotalInvestedMustBeZero.selector);
-        fundraise.createProject(proj, 1);
+        fundraise.createProject(proj, _nextProjectHash());
     }
 
     function test_createProject_revertsOnZeroBorrower() public {
@@ -497,7 +497,7 @@ contract FundraiseTest is Setup {
 
         vm.prank(manager);
         vm.expectRevert(Fundraise.BorrowerMustBeSet.selector);
-        fundraise.createProject(proj, 1);
+        fundraise.createProject(proj, _nextProjectHash());
     }
 
     function test_createProject_revertsOnZeroLoanToken() public {
@@ -506,18 +506,61 @@ contract FundraiseTest is Setup {
 
         vm.prank(manager);
         vm.expectRevert(Fundraise.LoanTokenMustBeSet.selector);
-        fundraise.createProject(proj, 1);
+        fundraise.createProject(proj, _nextProjectHash());
     }
 
     function test_createProject_validProject_succeeds() public {
         Fundraise.Project memory proj = _buildValidProject();
 
         vm.prank(manager);
-        uint256 newPid = fundraise.createProject(proj, 1);
+        uint256 newPid = fundraise.createProject(proj, _nextProjectHash());
 
         (uint256 hardCap, uint256 softCap,,,,,,) = fundraise.projects(newPid);
         assertEq(hardCap, 40_000e6);
         assertEq(softCap, 20_000e6);
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    //              PROJECT HASH IS SPENT ONCE (EL-2016)
+    // ═══════════════════════════════════════════════════════════════
+
+    function test_createProject_sameHashTwice_reverts() public {
+        uint256 hash = _nextProjectHash();
+        assertFalse(fundraise.projectHashUsed(hash));
+
+        vm.prank(manager);
+        fundraise.createProject(_buildValidProject(), hash);
+        assertTrue(fundraise.projectHashUsed(hash));
+
+        vm.prank(manager);
+        vm.expectRevert(Fundraise.ProjectHashAlreadyUsed.selector);
+        fundraise.createProject(_buildValidProject(), hash);
+    }
+
+    /// @dev Re-releasing the same project would collide with the cancelled copy in the indexer,
+    ///      so a cancelled project does not give its hash back.
+    function test_createProject_hashStaysSpentAfterCancel() public {
+        uint256 hash = _nextProjectHash();
+
+        vm.prank(manager);
+        uint256 pid = fundraise.createProject(_buildValidProject(), hash);
+
+        vm.prank(manager);
+        fundraise.cancelProject(pid);
+
+        vm.prank(manager);
+        vm.expectRevert(Fundraise.ProjectHashAlreadyUsed.selector);
+        fundraise.createProject(_buildValidProject(), hash);
+    }
+
+    function test_setProject_nonExistentId_reverts() public {
+        uint256 unusedId = fundraise.projectCount();
+
+        vm.prank(manager);
+        vm.expectRevert(Fundraise.ProjectDoesNotExist.selector);
+        fundraise.setProject(unusedId, _buildValidProject());
+
+        assertEq(fundraise.projectCount(), unusedId);
     }
 
     function test_invest_cannotSelfRefer() public {

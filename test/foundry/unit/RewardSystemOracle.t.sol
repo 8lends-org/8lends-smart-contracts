@@ -171,7 +171,7 @@ contract RewardSystemOracleTest is Setup {
         });
 
         vm.prank(manager);
-        projectId = fundraise.createProject(proj, 1);
+        projectId = fundraise.createProject(proj, _nextProjectHash());
     }
 
     /// @notice Helper to invest with a custom loanToken
