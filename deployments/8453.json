@@ -255,7 +255,8 @@
         }
       },
       "evmVersion": "paris"
-    }
+    },
+    "pendingImpl": "0x02fAc2389559297Dc9E0df14760a0Cfa65d75B1F"
   },
   "Oracle": {
     "proxy": "0x3E7fA4be80EeC9549E26D51aDb74365684F8eB5F",
