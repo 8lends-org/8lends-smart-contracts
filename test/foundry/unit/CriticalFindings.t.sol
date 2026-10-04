@@ -18,8 +18,6 @@ contract CriticalFindingsTest is Setup {
             1_000_000,  // referralPercentage = 100% (max allowed)
             60_000,     // burnPercentage
             60_000,     // tokenPercentage
-            30e6,       // welcomeBonus
-            1000e6,     // minInvestment
             25_000,     // weeklyUnlock
             40          // vestingWeeks
         );

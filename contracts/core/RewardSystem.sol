@@ -30,13 +30,12 @@ contract RewardSystem is Initializable, UUPSUpgradeable, OwnableUpgradeable, Ree
 
     // Reward system parameters (changeable)
     uint256 public referralPercentage; // 6% USDC for inviter
-    /// @notice DEPRECATED, read by nothing. WelcomeBonus is what pays the welcome bonus; the
-    ///         branch that credited it here as well is gone.
-    /// @dev Still settable through setParameters, whose signature is kept so the backend does not
-    ///      have to change; the value is simply never read. Both variables hold their slots.
-    uint256 public welcomeBonusAmount;
-    /// @notice DEPRECATED with welcomeBonusAmount — it only ever gated that branch.
-    uint256 public minInvestmentForBonus;
+    /// @dev Held to keep the storage slot. The welcome bonus is paid by WelcomeBonus; the branch
+    ///      that paid a second one from here is gone, and so is the only gate minInvestmentForBonus
+    ///      ever had.
+    uint256 private __deprecated_welcomeBonusAmount;
+    uint256 private __deprecated_minInvestmentForBonus;
+
     uint256 public tokenPercentage; // 6% tokens for investor
     /// @notice When > 0, enables buy-back-and-burn during reward activation. Value represents the burn percentage in BASIS_POINTS.
     uint256 public burnPercentage;
@@ -48,7 +47,11 @@ contract RewardSystem is Initializable, UUPSUpgradeable, OwnableUpgradeable, Ree
     // Structures
     struct UserInfo {
         address inviter;
-        bool isNewUser;
+        /// @dev DEPRECATED, and not merely unmaintained: the welcome bonus was the only thing
+        ///      that ever cleared it, so stored values mean different things depending on whether
+        ///      their owner caught the bonus before it was zeroed. Nothing writes false any more,
+        ///      and getUserInfo no longer returns it. Held to keep the slot.
+        bool __deprecated_isNewUser;
     }
 
     struct ReferralData {
@@ -80,7 +83,6 @@ contract RewardSystem is Initializable, UUPSUpgradeable, OwnableUpgradeable, Ree
     event ProjectRewardsActivated(uint256 indexed projectId, uint256 timestamp);
     event BonusUSDCClaimed(address indexed user, uint256 amount, uint256 projectId);
     event VestingTokensClaimed(address indexed user, uint256 amount, uint256 projectId);
-    event WelcomeBonusRecorded(address indexed user, uint256 amount);
     event ReferralBonusRecorded(address indexed user, uint256 amount, address indexed child, uint256 projectId);
     event ProjectRewardsDeactivated(uint256 indexed projectId);
     event AdditionalUnlockSet(uint256 percentage);
@@ -135,9 +137,6 @@ contract RewardSystem is Initializable, UUPSUpgradeable, OwnableUpgradeable, Ree
 
         // Initialize reward system parameters
         referralPercentage = 6e4; // 6% USDC for inviter (6e4/1e6*100=6)
-        uint8 usdcDecimals = IERC20Metadata(_usdc).decimals();
-        welcomeBonusAmount = 30 * 10**usdcDecimals; // 30 USDC for investor
-        minInvestmentForBonus = 1000 * 10**usdcDecimals; // Minimum 1000 USDC for bonus
         tokenPercentage = 6e4; // 6% tokens for investor (6e4/1e6*100=6)
         burnPercentage = 6e4; // 6% tokens for burning (6e4/1e6*100=6). When > 0, enables buy-back-and-burn.
         // Initialize vesting parameters
@@ -152,7 +151,7 @@ contract RewardSystem is Initializable, UUPSUpgradeable, OwnableUpgradeable, Ree
         require(_inviter != _user, "Cannot invite yourself");
         require(users[_user].inviter == address(0), "User already registered");
 
-        users[_user] = UserInfo({inviter: _inviter, isNewUser: true});
+        users[_user] = UserInfo({inviter: _inviter, __deprecated_isNewUser: true});
 
         inviterStats[_inviter]++;
         userReferrals[_inviter].push(_user);
@@ -160,8 +159,6 @@ contract RewardSystem is Initializable, UUPSUpgradeable, OwnableUpgradeable, Ree
         emit UserRegistered(_user, _inviter);
     }
 
-    /// @notice Backward-compatible overload for old Fundraise contract (before upgrade).
-    /// @dev TODO: remove with the next upgrade. Assumes loanToken = USDC.
     function recordInvestment(address _user, uint256 _amount, address _inviter, uint256 _projectId)
         external
         onlyFundraise
@@ -174,7 +171,8 @@ contract RewardSystem is Initializable, UUPSUpgradeable, OwnableUpgradeable, Ree
     /// @param _amount Investment amount
     /// @param _inviter Inviter address (if first investment)
     /// @param _projectId Project ID
-    /// @param _loanToken Loan token address for price conversion
+    /// @param _loanToken Ignored since rewards stopped depending on the loan token's USD value.
+    ///        Kept so Fundraise keeps calling the same signature.
     function recordInvestment(address _user, uint256 _amount, address _inviter, uint256 _projectId, address _loanToken)
         external
         onlyFundraise
@@ -182,7 +180,7 @@ contract RewardSystem is Initializable, UUPSUpgradeable, OwnableUpgradeable, Ree
         _recordInvestment(_user, _amount, _inviter, _projectId, _loanToken);
     }
 
-    function _recordInvestment(address _user, uint256 _amount, address _inviter, uint256 _projectId, address _loanToken)
+    function _recordInvestment(address _user, uint256 _amount, address _inviter, uint256 _projectId, address)
         internal
     {
         require(_amount > 0, "Invalid amount");
@@ -249,33 +247,6 @@ contract RewardSystem is Initializable, UUPSUpgradeable, OwnableUpgradeable, Ree
 
 
 
-    /// @notice Convert a token amount to its USD equivalent (in USDC decimals)
-    /// @dev Uses Oracle when available; falls back to 1:1 for USDC or reverts for non-USDC without oracle
-    /// @param _amount Raw amount in token units
-    /// @param _loanToken Token address to get the price for
-    /// @return USD value normalized to USDC decimals
-    function _convertToUSD(uint256 _amount, address _loanToken) internal view returns (uint256) {
-        if (oracle != address(0)) {
-            // Oracle path: full price conversion
-            IOracle.PriceResult memory loanPriceResult = IOracle(oracle).getPrice(_loanToken);
-            uint8 loanTokenDecimals = IERC20Metadata(_loanToken).decimals();
-            uint8 _usdcDecimals = IERC20Metadata(address(usdc)).decimals();
-            uint8 _priceDecimals = IOracle(oracle).priceDecimals();
-            if (loanTokenDecimals >= _usdcDecimals) {
-                return Math.mulDiv(_amount, loanPriceResult.price, 10**_priceDecimals * 10**(loanTokenDecimals - _usdcDecimals));
-            } else {
-                return Math.mulDiv(_amount * 10**(_usdcDecimals - loanTokenDecimals), loanPriceResult.price, 10**_priceDecimals);
-            }
-        } else {
-            // Legacy fallback: if loanToken is USDC, amount is already in USD
-            if (_loanToken == address(usdc)) {
-                return _amount;
-            }
-            // Non-USDC tokens require oracle for price conversion
-            revert("Oracle required for non-USDC loan tokens");
-        }
-    }
-
     /// @notice Activate project rewards (called when transitioning to Stage.Funded)
     /// @param _projectId Project ID
     function activateProjectRewards(uint256 _projectId, uint256 _totalInvested) external onlyFundraise {
@@ -298,10 +269,9 @@ contract RewardSystem is Initializable, UUPSUpgradeable, OwnableUpgradeable, Ree
 
    
 
-    /// @notice Get user information
-    function getUserInfo(address _user) external view returns (address inviter, bool isNewUser) {
-        UserInfo storage userInfo = users[_user];
-        return (userInfo.inviter, userInfo.isNewUser);
+    /// @notice Get the inviter a user was registered with.
+    function getUserInfo(address _user) external view returns (address inviter) {
+        return users[_user].inviter;
     }
 
     /// @notice Get inviter statistics
@@ -340,8 +310,6 @@ contract RewardSystem is Initializable, UUPSUpgradeable, OwnableUpgradeable, Ree
     /// @param _referralPercentage referral percentage 60000 is 6%
     /// @param _burnPercentage burn percentage 60000 is 6%
     /// @param _tokenPercentage token percentage 60000 is 6%
-    /// @param _welcomeBonusAmount DEPRECATED, pass zero. Kept only to preserve the signature.
-    /// @param _minInvestmentForBonus min investment for bonus in USDC-decimal units (dynamic, not hardcoded to 6 decimals)
     /// @param _weeklyUnlock weekly unlock 25000 is 2.5%
     /// @param _vestingWeeks vesting weeks 40 is 40 weeks
     /// @dev all percentage parameters must be less or equal to 1_000_000 (100e4 = 100%)
@@ -349,8 +317,6 @@ contract RewardSystem is Initializable, UUPSUpgradeable, OwnableUpgradeable, Ree
         uint256 _referralPercentage,
         uint256 _burnPercentage,
         uint256 _tokenPercentage,
-        uint256 _welcomeBonusAmount,
-        uint256 _minInvestmentForBonus,
         uint256 _weeklyUnlock,
         uint256 _vestingWeeks
     ) external onlyManager {
@@ -367,8 +333,6 @@ contract RewardSystem is Initializable, UUPSUpgradeable, OwnableUpgradeable, Ree
             _burnPercentage >= 1_000 && _burnPercentage <= 1_000_000, "Burn percentage must be between 1000 and 1000000"
         );
         referralPercentage = _referralPercentage;
-        welcomeBonusAmount = _welcomeBonusAmount;
-        minInvestmentForBonus = _minInvestmentForBonus;
         tokenPercentage = _tokenPercentage;
         vestingWeeks = _vestingWeeks;
         weeklyUnlock = _weeklyUnlock;

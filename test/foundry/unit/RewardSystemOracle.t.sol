@@ -194,5 +194,4 @@ contract RewardSystemOracleTest is Setup {
         vm.prank(_investor);
         fundraise.investUpdateV2(_pid, _amount, nonceForSig, sig, _inviter);
     }
-
 }

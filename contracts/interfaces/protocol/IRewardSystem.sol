@@ -11,7 +11,7 @@ interface IRewardSystem {
     function sendUSDCForProjectToUser(address _user, uint256 _projectId) external;
     function sendTokensForProjectToUser(address _user, uint256 _projectId) external;
 
-    function getUserInfo(address _user) external view returns (address inviter, bool isNewUser);
+    function getUserInfo(address _user) external view returns (address inviter);
 
     function getVestingInfoForProject(address _user, uint256 _projectId)
         external

@@ -37,18 +37,6 @@ contract RewardSystemTest is Setup {
         assertEq(inviterUSDC, 1_500e6, "Inviter USDC reward incorrect");
     }
 
-    /// @dev The welcome bonus is gone from this contract — WelcomeBonus pays it. The setter still
-    ///      takes the argument, so the test sets it and proves it buys nothing.
-    function test_noWelcomeBonusIsCreditedWhateverTheParameterSays() public {
-        vm.prank(manager);
-        rewardSystem.setParameters(40_000, 100_000, 40_000, 1_000_000e6, 0, 25_000, 40);
-
-        uint256 pid = _createProject(500e6, 5_000e6);
-        _investAs(investor, pid, 1_000e6, inviter);
-
-        (uint256 investorUSDC,,,,) = rewardSystem.getProjectRewards(investor, pid);
-        assertEq(investorUSDC, 0, "nothing is credited from here");
-    }
 
     // ═══════════════════════════════════════════════════════════════
     //        ORACLE FAILURE BLOCKS INVEST
@@ -185,7 +173,7 @@ contract RewardSystemTest is Setup {
     function test_setParameters_onlyManager() public {
         vm.prank(attacker);
         vm.expectRevert("Not a manager");
-        rewardSystem.setParameters(60_000, 60_000, 60_000, 30e6, 1000e6, 25_000, 40);
+        rewardSystem.setParameters(60_000, 60_000, 60_000, 25_000, 40);
     }
 
     function test_claimBeforeActivation_reverts() public {

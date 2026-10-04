@@ -101,4 +101,5 @@ contract RewardOracleFuzzTest is Setup {
         assertGe(tokensLowPrice, tokensHighPrice, "Lower price must yield >= tokens");
     }
 
+    /// @notice Bonus threshold works correctly with different loanToken decimals
 }
