@@ -112,13 +112,12 @@ abstract contract Setup is Test, Eip712Signing {
             rewardSystem = RewardSystem(address(proxy));
         }
 
-        // ── Deploy MockOracle and configure on RewardSystem ──
+        // ── Deploy MockOracle — still priced for Fundraise, no longer read by RewardSystem ──
         mockOracle = new MockOracle();
         // 1 token = 0.01 USD → price = 0.01 * 1e8 = 1_000_000 (8 decimals)
         mockOracle.setPrice(address(token), 1_000_000);
         // USDC = 1.00 USD → price = 1e8 (8 decimals)
         mockOracle.setPrice(address(usdc), 1e8);
-        rewardSystem.setOracle(address(mockOracle));
 
         // ── Deploy Fundraise (UUPS proxy) ──
         {
@@ -292,5 +291,23 @@ abstract contract Setup is Test, Eip712Signing {
 
         vm.prank(borrower);
         fundraise.makeRepayment(_pid, _amount);
+    }
+
+    /// @dev Investing no longer accrues token rewards, and nothing mints against them either, so
+    ///      vesting that predates the switch has to be seeded the way it now exists on chain: the
+    ///      obligation written by the owner, the tokens already sitting on the contract.
+    function _seedVesting(address _user, uint256 _pid, uint256 _amount) internal {
+        vm.prank(owner);
+        token.mint(address(rewardSystem), _amount);
+
+        address[] memory users = new address[](1);
+        uint256[] memory amounts = new uint256[](1);
+        uint256[] memory pids = new uint256[](1);
+        users[0] = _user;
+        amounts[0] = _amount;
+        pids[0] = _pid;
+
+        vm.prank(owner);
+        rewardSystem.distributeVestingTokens(users, amounts, pids);
     }
 }

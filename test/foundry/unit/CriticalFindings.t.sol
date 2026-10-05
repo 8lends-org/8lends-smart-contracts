@@ -16,8 +16,6 @@ contract CriticalFindingsTest is Setup {
         vm.prank(manager);
         rewardSystem.setParameters(
             1_000_000,  // referralPercentage = 100% (max allowed)
-            60_000,     // burnPercentage
-            60_000,     // tokenPercentage
             25_000,     // weeklyUnlock
             40          // vestingWeeks
         );

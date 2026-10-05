@@ -12,21 +12,21 @@ contract RewardSystemTest is Setup {
         pid = _createProject(20_000e6, 40_000e6);
     }
 
+    /// @dev Vesting is redeemed for USDC at $0.02, so a claim needs the rate written first.
+    function _setRate() internal {
+        vm.prank(owner);
+        rewardSystem.setRedemptionRate(20_000);
+    }
+
     // ═══════════════════════════════════════════════════════════════
     //                  recordInvestment
     // ═══════════════════════════════════════════════════════════════
 
-    function test_recordInvestment_calculatesTokenRewards() public {
+    function test_recordInvestment_accruesNoTokenRewards() public {
         _investAs(investor, pid, 25_000e6, inviter);
 
-        // tokenPercentage = 6% → 1500 USDC worth of tokens
-        // At 1 USDC = 100 tokens: 1500 * 100 = 150,000 tokens
         (,uint256 totalTokens,,,) = rewardSystem.getProjectRewards(investor, pid);
-        assertGt(totalTokens, 0, "Should have token rewards");
-
-        // Expected: 25000e6 * 60000 / 1000000 = 1500e6 USDC worth
-        // 1500e6 USDC → 1500e6 * 100 * 1e12 = 150_000e18 tokens
-        assertEq(totalTokens, 150_000e18, "Token reward amount incorrect");
+        assertEq(totalTokens, 0, "Token cashback is off: investing must not accrue tokens");
     }
 
     function test_recordInvestment_calculatesReferralRewards() public {
@@ -73,20 +73,6 @@ contract RewardSystemTest is Setup {
         assertEq(claimable, totalTokens, "After full vesting, should get all tokens");
     }
 
-    function test_vesting_claimTokens_transfersCorrectAmount() public {
-        _investAs(investor, pid, 25_000e6, inviter);
-        _fundProject(pid);
-
-        // Warp 10 weeks
-        vm.warp(block.timestamp + 10 weeks);
-
-        uint256 balBefore = token.balanceOf(investor);
-        vm.prank(investor);
-        rewardSystem.claimTokensForProject(pid);
-        uint256 received = token.balanceOf(investor) - balBefore;
-
-        assertGt(received, 0, "Should receive tokens");
-    }
 
     // ═══════════════════════════════════════════════════════════════
     //              USDC REWARD CLAIMS
@@ -123,20 +109,14 @@ contract RewardSystemTest is Setup {
     //          VULNERABILITY #7: POOL STATUS TOGGLE
     // ═══════════════════════════════════════════════════════════════
 
-    function test_poolStatusToggle_normalFlow() public {
-        _investAs(investor, pid, 25_000e6, inviter);
-        _fundProject(pid);
-        vm.warp(block.timestamp + 5 weeks);
-
-        // Before claim: investor is NOT a pool
+    /// @dev Claims pay USDC and pass no gate. The toggle survives where the token still moves:
+    ///      distributeVestingTokens, which has to get past the transfer gate to seed a user.
+    function test_poolStatusToggle_onDistribution() public {
         assertFalse(managerRegistry.pools(investor));
 
-        // Claim tokens (this toggles pool status)
-        vm.prank(investor);
-        rewardSystem.claimTokensForProject(pid);
+        _seedVesting(investor, pid, 150_000e18);
 
-        // After claim: investor should NOT be a pool anymore (toggled back)
-        assertFalse(managerRegistry.pools(investor), "Pool status should be reset after claim");
+        assertFalse(managerRegistry.pools(investor), "Pool status should be reset after distribution");
     }
 
     // ═══════════════════════════════════════════════════════════════
@@ -148,6 +128,8 @@ contract RewardSystemTest is Setup {
 
         _investAs(investor, pid, 25_000e6, inviter);
         _investAs(investor, pid2, 15_000e6, inviter);
+        _seedVesting(investor, pid, 150_000e18);
+        _seedVesting(investor, pid2, 90_000e18);
 
         _fundProject(pid);
         _fundProject(pid2);
@@ -158,12 +140,13 @@ contract RewardSystemTest is Setup {
         pids[0] = pid;
         pids[1] = pid2;
 
-        uint256 balBefore = token.balanceOf(investor);
+        _setRate();
+        uint256 balBefore = usdc.balanceOf(investor);
         vm.prank(investor);
         rewardSystem.claimTokensForProjectBatch(pids);
-        uint256 received = token.balanceOf(investor) - balBefore;
 
-        assertGt(received, 0, "Should receive tokens from both projects");
+        assertGt(usdc.balanceOf(investor) - balBefore, 0, "Should receive USDC from both projects");
+        assertEq(token.balanceOf(investor), 0, "no tokens must move");
     }
 
     // ═══════════════════════════════════════════════════════════════
@@ -173,7 +156,7 @@ contract RewardSystemTest is Setup {
     function test_setParameters_onlyManager() public {
         vm.prank(attacker);
         vm.expectRevert("Not a manager");
-        rewardSystem.setParameters(60_000, 60_000, 60_000, 25_000, 40);
+        rewardSystem.setParameters(60_000, 25_000, 40);
     }
 
     function test_claimBeforeActivation_reverts() public {

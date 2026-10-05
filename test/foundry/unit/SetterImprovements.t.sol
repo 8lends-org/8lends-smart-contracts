@@ -169,14 +169,6 @@ contract SetterImprovementsTest is Setup {
         rewardSystem.updateTokenAddress(newToken);
     }
 
-    function test_rewardSystem_updateUniswapRouterAddress_emitsEvent() public {
-        address newRouter = makeAddr("newRouter");
-        vm.expectEmit(false, false, false, true, address(rewardSystem));
-        emit RewardSystem.UniswapRouterUpdated(newRouter);
-        vm.prank(owner);
-        rewardSystem.updateUniswapRouterAddress(newRouter);
-    }
-
     // ═══════════════════════════════════════════════════════════════
     //                    REWARD SYSTEM — ZERO-ADDRESS CHECKS
     // ═══════════════════════════════════════════════════════════════
@@ -191,12 +183,6 @@ contract SetterImprovementsTest is Setup {
         vm.prank(owner);
         vm.expectRevert("Zero address");
         rewardSystem.updateTokenAddress(address(0));
-    }
-
-    function test_rewardSystem_updateUniswapRouterAddress_revertsOnZeroAddress() public {
-        vm.prank(owner);
-        vm.expectRevert("Zero address");
-        rewardSystem.updateUniswapRouterAddress(address(0));
     }
 
     // ═══════════════════════════════════════════════════════════════

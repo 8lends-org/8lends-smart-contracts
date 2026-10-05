@@ -10,9 +10,7 @@ import "@openzeppelin/contracts-upgradeable/utils/ReentrancyGuardUpgradeable.sol
 import "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 import "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
 import "../interfaces/protocol/IManagerRegistry.sol";
-import "../interfaces/external/IUniswapV2Router02.sol";
 import "../interfaces/protocol/IToken.sol";
-import "../interfaces/protocol/IOracle.sol";
 
 contract RewardSystem is Initializable, UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuardUpgradeable {
     using SafeERC20 for IERC20;
@@ -22,23 +20,23 @@ contract RewardSystem is Initializable, UUPSUpgradeable, OwnableUpgradeable, Ree
     address public token;
     IERC20 public usdc;
 
-    // Uniswap contracts
-    IUniswapV2Router02 public uniswapRouter;
+    /// @dev Slot held. Nothing swaps any more: vesting is redeemed at a fixed rate.
+    address private __deprecated_uniswapRouter;
 
     // 1% = 10000
     uint256 public constant BASIS_POINTS = 1e6;
 
     // Reward system parameters (changeable)
-    uint256 public referralPercentage; // 6% USDC for inviter
+    uint256 public referralPercentage; // USDC for the inviter, 4% since 21.09.2026
     /// @dev Held to keep the storage slot. The welcome bonus is paid by WelcomeBonus; the branch
     ///      that paid a second one from here is gone, and so is the only gate minInvestmentForBonus
     ///      ever had.
     uint256 private __deprecated_welcomeBonusAmount;
     uint256 private __deprecated_minInvestmentForBonus;
 
-    uint256 public tokenPercentage; // 6% tokens for investor
-    /// @notice When > 0, enables buy-back-and-burn during reward activation. Value represents the burn percentage in BASIS_POINTS.
-    uint256 public burnPercentage;
+    /// @dev Slots held. Token cashback is off: nothing accrues, mints or burns against it.
+    uint256 private __deprecated_tokenPercentage;
+    uint256 private __deprecated_burnPercentage;
 
     // Vesting parameters
     uint256 public vestingWeeks; // 40 weeks vesting
@@ -69,15 +67,21 @@ contract RewardSystem is Initializable, UUPSUpgradeable, OwnableUpgradeable, Ree
     mapping(uint256 => uint256) public rewardTokensAmount; // projectId -> available token amount for claim
     mapping(uint256 => uint256) public rewardTokensClaimedAmount; // projectId -> claimed token amount
     
-    // Additional unlock for sell operations (added at the end to preserve storage layout)
-    uint256 public additionalUnlockPercentage; // Additional unlock percentage for sell operations (in BASIS_POINTS)
-    mapping(address => mapping(uint256 => uint256)) public userMaxAdditionalUnlockUsed; // user -> projectId -> max additional unlock used
+    /// @dev Slot held. The bonus paid for an exit through the pool, which no longer exists.
+    uint256 private __deprecated_additionalUnlockPercentage;
+    /// @notice What the bonus unlocked before it was withdrawn, kept so those curves stay put.
+    ///         Read-only now, and unreachable once the last such project ends on 2026-11-04.
+    mapping(address => mapping(uint256 => uint256)) public userMaxAdditionalUnlockUsed;
 
     // Oracle for manipulation-resistant pricing
-    address public oracle;
+    /// @dev Slot held. Priced the token cashback, which is gone.
+    address private __deprecated_oracle;
+
+    /// @notice USDC per 1e18 tokens of vesting. Zero blocks every claim — there is no token
+    ///         payout left to fall back on.
+    uint256 public redemptionRate;
 
     // Events
-    event OracleUpdated(address oracle);
     event UserRegistered(address indexed user, address indexed inviter);
     event InvestmentRecorded(address indexed user, uint256 amount, uint256 projectId);
     event ProjectRewardsActivated(uint256 indexed projectId, uint256 timestamp);
@@ -85,12 +89,10 @@ contract RewardSystem is Initializable, UUPSUpgradeable, OwnableUpgradeable, Ree
     event VestingTokensClaimed(address indexed user, uint256 amount, uint256 projectId);
     event ReferralBonusRecorded(address indexed user, uint256 amount, address indexed child, uint256 projectId);
     event ProjectRewardsDeactivated(uint256 indexed projectId);
-    event AdditionalUnlockSet(uint256 percentage);
-    event TokensSold(address indexed sender, uint256 tokensSold, uint256 usdcReceived, address indexed recipient);
+    event RedemptionRateSet(uint256 rate);
     event ContractsUpdated(address managerRegistry, address token, address usdc);
     event USDCAddressUpdated(address usdc);
     event TokenAddressUpdated(address token);
-    event UniswapRouterUpdated(address router);
 
     event ReferralUSDCReduced(
         address indexed inviter,
@@ -124,7 +126,7 @@ contract RewardSystem is Initializable, UUPSUpgradeable, OwnableUpgradeable, Ree
         address _managerRegistry,
         address _token,
         address _usdc,
-        address _uniswapRouter
+        address
     ) public initializer {
         __Ownable_init(msg.sender);
         __ReentrancyGuard_init();
@@ -133,12 +135,9 @@ contract RewardSystem is Initializable, UUPSUpgradeable, OwnableUpgradeable, Ree
         managerRegistry = _managerRegistry;
         token = _token;
         usdc = IERC20(_usdc);
-        uniswapRouter = IUniswapV2Router02(_uniswapRouter);
 
         // Initialize reward system parameters
         referralPercentage = 6e4; // 6% USDC for inviter (6e4/1e6*100=6)
-        tokenPercentage = 6e4; // 6% tokens for investor (6e4/1e6*100=6)
-        burnPercentage = 6e4; // 6% tokens for burning (6e4/1e6*100=6). When > 0, enables buy-back-and-burn.
         // Initialize vesting parameters
         vestingWeeks = 40; // 40 weeks vesting
         weeklyUnlock = 25e3; // 2.5% per week (25e3/1e6*100=2.5)
@@ -191,56 +190,12 @@ contract RewardSystem is Initializable, UUPSUpgradeable, OwnableUpgradeable, Ree
 
         UserInfo storage userInfo = users[_user];
 
-        // Initialize ReferralData for project if it doesn't exist
-        ReferralData storage refData = projectReferrals[_user][_projectId];
-
         // Calculate rewards for inviter
         if (_inviter != address(0) && userInfo.inviter == _inviter) {
             uint256 inviterUSDC = (_amount * referralPercentage) / BASIS_POINTS;
             projectReferrals[_inviter][_projectId].totalRewardsUSDC += inviterUSDC;
             emit ReferralBonusRecorded(_inviter, inviterUSDC, _user, _projectId);
         }
-
-        // Calculate rewards for investor (tokens)
-        uint256 usdcRewardAmount = (_amount * tokenPercentage) / BASIS_POINTS;
-
-        if (usdcRewardAmount == 0) revert("Invalid reward amount");
-        if (token == address(0)) revert("Token not set");
-        if (address(usdc) == address(0)) revert("USDC not set");
-
-        uint256 tokensAmount;
-        if (oracle != address(0)) {
-            // New path: manipulation-resistant price from Oracle (Pyth + TWAP)
-            IOracle.PriceResult memory priceResult = IOracle(oracle).getPrice(token);
-            require(priceResult.price > 0, "Oracle: no valid price");
-            uint8 tokenDecimals = IERC20Metadata(token).decimals();
-            uint8 usdcDecimals = IERC20Metadata(address(usdc)).decimals();
-            uint8 priceDecimals = IOracle(oracle).priceDecimals();
-            // Convert usdcRewardAmount to token amount using oracle price
-            // tokensAmount = usdcRewardAmount * 10^priceDecimals * 10^tokenDecimals / (price * 10^usdcDecimals)
-            tokensAmount = Math.mulDiv(
-                Math.mulDiv(usdcRewardAmount, 10**priceDecimals, priceResult.price),
-                10**tokenDecimals,
-                10**usdcDecimals
-            );
-        } else {
-            // Legacy fallback: Uniswap V2 spot price (used before Oracle is deployed)
-            require(address(uniswapRouter) != address(0), "Uniswap router address is not set");
-            address[] memory path = new address[](2);
-            path[0] = address(usdc);
-            path[1] = token;
-            uint256[] memory amounts;
-            try uniswapRouter.getAmountsOut(usdcRewardAmount, path) returns (uint256[] memory _amounts) {
-                amounts = _amounts;
-            } catch {
-                revert("Uniswap pool does not exist or has no liquidity");
-            }
-            tokensAmount = amounts[1];
-        }
-        require(tokensAmount > 0, "Invalid token amount");
-
-        refData.totalRewardsTokens += tokensAmount;
-        rewardTokensAmount[_projectId] += tokensAmount;
 
         emit InvestmentRecorded(_user, _amount, _projectId);
     }
@@ -257,13 +212,10 @@ contract RewardSystem is Initializable, UUPSUpgradeable, OwnableUpgradeable, Ree
         _activateProjectRewards(_projectId, _totalInvested, _maxUSDNeeded);
     }
 
-    function _activateProjectRewards(uint256 _projectId, uint256 _totalInvested, uint256 _maxUSDNeeded) internal {
+    function _activateProjectRewards(uint256 _projectId, uint256, uint256) internal {
         if(projectVestingStartTime[_projectId] == 0) {
             projectVestingStartTime[_projectId] = block.timestamp;
             emit ProjectRewardsActivated(_projectId, block.timestamp);
-            if (_totalInvested > 0) {
-                _mintRewardsForProject(_projectId, _maxUSDNeeded);
-            }
         }
     }
 
@@ -298,25 +250,22 @@ contract RewardSystem is Initializable, UUPSUpgradeable, OwnableUpgradeable, Ree
         emit ContractsUpdated(_managerRegistry, _token, _usdc);
     }
 
-    /// @notice Set oracle address for manipulation-resistant pricing
-    /// @param _oracle Oracle contract address
-    function setOracle(address _oracle) external onlyOwner {
-        require(_oracle != address(0), "Invalid address");
-        oracle = _oracle;
-        emit OracleUpdated(_oracle);
+    /// @notice Set the rate vesting is redeemed at.
+    /// @param _rate USDC per 1e18 tokens — 20000 is $0.02 against six-decimal USDC. Zero is
+    ///        rejected so it keeps meaning "never set" and cannot be used to stop claims.
+    function setRedemptionRate(uint256 _rate) external onlyOwner {
+        require(_rate > 0, "Invalid rate");
+        redemptionRate = _rate;
+        emit RedemptionRateSet(_rate);
     }
 
     /// @notice set parameters
     /// @param _referralPercentage referral percentage 60000 is 6%
-    /// @param _burnPercentage burn percentage 60000 is 6%
-    /// @param _tokenPercentage token percentage 60000 is 6%
     /// @param _weeklyUnlock weekly unlock 25000 is 2.5%
     /// @param _vestingWeeks vesting weeks 40 is 40 weeks
     /// @dev all percentage parameters must be less or equal to 1_000_000 (100e4 = 100%)
     function setParameters(
         uint256 _referralPercentage,
-        uint256 _burnPercentage,
-        uint256 _tokenPercentage,
         uint256 _weeklyUnlock,
         uint256 _vestingWeeks
     ) external onlyManager {
@@ -324,27 +273,17 @@ contract RewardSystem is Initializable, UUPSUpgradeable, OwnableUpgradeable, Ree
             _referralPercentage >= 1_000 && _referralPercentage <= 1_000_000,
             "Referral percentage must be between 1000 and 1000000"
         );
-        require(
-            _tokenPercentage >= 1_000 && _tokenPercentage <= 1_000_000,
-            "Token percentage must be between 1000 and 1000000"
-        );
         require(_weeklyUnlock >= 1_000 && _weeklyUnlock <= 1_000_000, "Weekly unlock must be between 1000 and 1000000");
-        require(
-            _burnPercentage >= 1_000 && _burnPercentage <= 1_000_000, "Burn percentage must be between 1000 and 1000000"
-        );
         referralPercentage = _referralPercentage;
-        tokenPercentage = _tokenPercentage;
         vestingWeeks = _vestingWeeks;
         weeklyUnlock = _weeklyUnlock;
-        burnPercentage = _burnPercentage;
     }
 
     /// @notice Calculate claimable vesting tokens for project
     /// @notice Calculate claimable vesting tokens
     /// @param _user User address
     /// @param _projectId Project ID
-    /// @param _includeCurrentBonus If true, uses current additionalUnlockPercentage for sell operation
-    function _calculateVestingAmountForProject(address _user, uint256 _projectId, bool _includeCurrentBonus) internal view returns (uint256) {
+    function _calculateVestingAmountForProject(address _user, uint256 _projectId) internal view returns (uint256) {
         ReferralData storage refData = projectReferrals[_user][_projectId];
         uint256 vestingStartTime = projectVestingStartTime[_projectId];
         if (vestingStartTime == 0) return 0;
@@ -360,20 +299,11 @@ contract RewardSystem is Initializable, UUPSUpgradeable, OwnableUpgradeable, Ree
 
         uint256 totalUnlocked = (refData.totalRewardsTokens * weeksUnlocked * weeklyUnlock) / BASIS_POINTS;
         
-        // Calculate effective additional unlock
-        uint256 maxUsedAdditionalUnlock = userMaxAdditionalUnlockUsed[_user][_projectId];
-        uint256 effectiveAdditionalUnlock = maxUsedAdditionalUnlock;
-        
-        // If including current bonus (for sell operation), use max of current and saved
-        if (_includeCurrentBonus && additionalUnlockPercentage > maxUsedAdditionalUnlock) {
-            effectiveAdditionalUnlock = additionalUnlockPercentage;
+        uint256 usedAdditionalUnlock = userMaxAdditionalUnlockUsed[_user][_projectId];
+        if (usedAdditionalUnlock > 0) {
+            totalUnlocked += (refData.totalRewardsTokens * usedAdditionalUnlock) / BASIS_POINTS;
         }
-        
-        if (effectiveAdditionalUnlock > 0) {
-            uint256 additionalUnlock = (refData.totalRewardsTokens * effectiveAdditionalUnlock) / BASIS_POINTS;
-            totalUnlocked += additionalUnlock;
-        }
-        
+
         if (totalUnlocked > refData.totalRewardsTokens) {
             totalUnlocked = refData.totalRewardsTokens;
         }
@@ -383,11 +313,6 @@ contract RewardSystem is Initializable, UUPSUpgradeable, OwnableUpgradeable, Ree
         }
 
         return totalUnlocked - refData.vestingClaimedAmount;
-    }
-
-    /// @notice Calculate claimable vesting tokens (regular claim)
-    function _calculateVestingAmountForProject(address _user, uint256 _projectId) internal view returns (uint256) {
-        return _calculateVestingAmountForProject(_user, _projectId, false);
     }
 
     /// @notice Get vesting information for project
@@ -476,12 +401,6 @@ contract RewardSystem is Initializable, UUPSUpgradeable, OwnableUpgradeable, Ree
         emit TokenAddressUpdated(_token);
     }
 
-    function updateUniswapRouterAddress(address _uniswapRouter) external onlyOwner {
-        require(_uniswapRouter != address(0), "Zero address");
-        uniswapRouter = IUniswapV2Router02(_uniswapRouter);
-        emit UniswapRouterUpdated(_uniswapRouter);
-    }
-
     /// @notice Distribute vesting tokens to multiple users (owner only)
     /// @param _users Array of user addresses
     /// @param _amounts Array of token amounts to distribute
@@ -551,15 +470,6 @@ contract RewardSystem is Initializable, UUPSUpgradeable, OwnableUpgradeable, Ree
         }
     }
 
-    /// @notice Set additional unlock percentage for sell operations
-    /// @param _percentage Additional unlock percentage (in BASIS_POINTS, e.g., 300000 = 30%)
-    /// @dev This percentage is only applied when using claimAndSellTokensForProjectBatch
-    function setAdditionalUnlock(uint256 _percentage) external onlyManager {
-        require(_percentage <= BASIS_POINTS, "Percentage cannot exceed 100%");
-        additionalUnlockPercentage = _percentage;
-        emit AdditionalUnlockSet(_percentage);
-    }
-
     function distributeTokens(address[] calldata _users, uint256[] calldata _amounts) external onlyOwner {
         require(_users.length == _amounts.length, "Users and amounts length mismatch");
         require(_users.length > 0, "Empty arrays");
@@ -578,7 +488,14 @@ contract RewardSystem is Initializable, UUPSUpgradeable, OwnableUpgradeable, Ree
     function withdraw(address _token, uint256 _amount, address _recipient) external onlyOwner nonReentrant {
         require(_token != address(0), "Invalid token");
         require(_recipient != address(0), "Invalid recipient");
+
+        // The token only transfers to a pool. Flag the recipient for it, unless it already is one
+        // — clearing the flag afterwards would then break it.
+        IManagerRegistry registry = IManagerRegistry(managerRegistry);
+        bool gate = _token == token && !registry.isPool(_recipient);
+        if (gate) registry.setPoolStatusForReward(_recipient, true);
         IERC20(_token).safeTransfer(_recipient, _amount);
+        if (gate) registry.setPoolStatusForReward(_recipient, false);
     }
 
 
@@ -612,19 +529,23 @@ contract RewardSystem is Initializable, UUPSUpgradeable, OwnableUpgradeable, Ree
 
         ReferralData storage refData = projectReferrals[_user][_projectId];
         require(refData.totalRewardsTokens > 0, "No token rewards for this project");
+        require(redemptionRate > 0, "Redemption rate not set");
 
         uint256 claimableAmount = _calculateVestingAmountForProject(_user, _projectId);
         require(claimableAmount > 0, "No tokens to claim");
-        require(IToken(token).balanceOf(address(this)) >= claimableAmount, "Not enough tokens to claim");
 
         refData.vestingClaimedAmount += claimableAmount;
+        rewardTokensClaimedAmount[_projectId] += claimableAmount;
 
         address claimAddress = IManagerRegistry(managerRegistry).getInvestorClaimAddress(_user);
-        IManagerRegistry(managerRegistry).setPoolStatusForReward(claimAddress, true);
-        IERC20(address(token)).safeTransfer(claimAddress, claimableAmount);
-        IManagerRegistry(managerRegistry).setPoolStatusForReward(claimAddress, false);
 
-        rewardTokensClaimedAmount[_projectId] += claimableAmount;
+        uint256 usdcAmount = Math.mulDiv(claimableAmount, redemptionRate, 1e18);
+        require(usdcAmount > 0, "No USDC to claim");
+        require(usdc.balanceOf(address(this)) >= usdcAmount, "Not enough USDC to claim");
+
+        usdc.safeTransfer(claimAddress, usdcAmount);
+        // Reports the vesting claimed, as it always did. What it was paid in is the USDC Transfer
+        // next to it, and redemptionRate converts one into the other.
         emit VestingTokensClaimed(_user, claimableAmount, _projectId);
     }
 
@@ -681,204 +602,5 @@ contract RewardSystem is Initializable, UUPSUpgradeable, OwnableUpgradeable, Ree
         for (uint256 i = 0; i < _projectIds.length; i++) {
             _sendUSDCForProjectToUser(msg.sender, _projectIds[i]);
         }
-    }
-
-    /// @notice Calculate claimable tokens for sell operation for a single project (internal helper)
-    /// @param _user User address
-    /// @param _projectId Project ID
-    /// @param _currentTotalClaimed Already claimed tokens in current batch (for balance check)
-    /// @return claimableAmount Tokens available for claim and sell for this project
-    function _calculateClaimableForSellForProject(
-        address _user, 
-        uint256 _projectId,
-        uint256 _currentTotalClaimed
-    ) 
-        internal 
-        view 
-        returns (uint256 claimableAmount) 
-    {
-        // Check if vesting has started
-        if (projectVestingStartTime[_projectId] == 0) return 0;
-        
-        // Check if user has rewards for this project
-        ReferralData storage refData = projectReferrals[_user][_projectId];
-        if (refData.totalRewardsTokens == 0) return 0;
-        
-        // Calculate claimable amount WITH additional unlock
-        claimableAmount = _calculateVestingAmountForProject(_user, _projectId, true);
-        if (claimableAmount == 0) return 0;
-        
-        // Check if contract has enough balance
-        if (IToken(token).balanceOf(address(this)) < _currentTotalClaimed + claimableAmount) return 0;
-        
-        return claimableAmount;
-    }
-
-    /// @notice Calculate expected USDC amount for token swap (internal helper)
-    /// @param _tokenAmount Amount of tokens to swap
-    /// @return expectedUsdcAmount Expected USDC amount to receive (before slippage)
-    /// @return minUsdcAmount Minimum USDC amount with 5% slippage protection
-    function _calculateExpectedUsdcForTokens(uint256 _tokenAmount)
-        internal
-        view
-        returns (uint256 expectedUsdcAmount, uint256 minUsdcAmount)
-    {
-
-        address[] memory path = new address[](2);
-        path[0] = address(token);
-        path[1] = address(usdc);
-
-        if (_tokenAmount == 0) {
-            return (0, 0);
-        }
-
-        try uniswapRouter.getAmountsOut(_tokenAmount, path) returns (uint256[] memory amounts) {
-            expectedUsdcAmount = amounts[1];
-            minUsdcAmount = (expectedUsdcAmount * 95) / 100; // 5% slippage tolerance
-        } catch {
-            // If pool doesn't exist or has no liquidity, return 0
-            expectedUsdcAmount = 0;
-            minUsdcAmount = 0;
-        }
-    }
-
-    /// @notice Calculate amounts for claim and sell batch operation
-    /// @param _user User address
-    /// @param _projectIds Array of project IDs
-    /// @return totalTokensAmount Total tokens that will be claimed and sold
-    /// @return expectedUsdcAmount Expected USDC amount to receive (before slippage)
-    /// @return minUsdcAmount Minimum USDC amount with 5% slippage protection
-    function getClaimAndSellAmounts(address _user, uint256[] calldata _projectIds)
-        external
-        view
-        returns (uint256 totalTokensAmount, uint256 expectedUsdcAmount, uint256 minUsdcAmount)
-    {
-        require(_projectIds.length > 0, "Empty array");
-        require(_projectIds.length <= 500, "Too many projects");
-        
-        // Calculate total claimable tokens for all projects
-        totalTokensAmount = 0;
-        for (uint256 i = 0; i < _projectIds.length; i++) {
-            uint256 claimable = _calculateClaimableForSellForProject(_user, _projectIds[i], totalTokensAmount);
-            totalTokensAmount += claimable;
-        }
-        
-        // Calculate expected USDC amount for token swap (ignore path)
-        (expectedUsdcAmount, minUsdcAmount ) = _calculateExpectedUsdcForTokens(totalTokensAmount);
-    }
-
-    /// @notice Claim vesting tokens and sell them for USDC (with additional unlock bonus)
-    /// @param _projectIds Array of project IDs
-    /// @param _minUsdcAmount Minimum USDC amount to receive (slippage protection)
-    /// @dev Uses additionalUnlockPercentage bonus and updates userMaxAdditionalUnlockUsed
-    /// @dev Claims tokens in loop, then sells total amount in one swap for better price
-    function claimAndSellTokensForProjectBatch(uint256[] calldata _projectIds, uint256 _minUsdcAmount) external nonReentrant {
-        require(_projectIds.length > 0, "Empty array");
-        require(_projectIds.length <= 500, "Too many projects");
-        
-        address claimAddress = IManagerRegistry(managerRegistry).getInvestorClaimAddress(msg.sender);
-        uint256 totalClaimableAmount = 0;
-        
-        // Claim tokens for all projects
-        for (uint256 i = 0; i < _projectIds.length; i++) {
-            uint256 projectId = _projectIds[i];
-            
-            // Calculate claimable amount using helper function
-            uint256 claimableAmount = _calculateClaimableForSellForProject(msg.sender, projectId, totalClaimableAmount);
-            if (claimableAmount == 0) continue;
-            
-            // Update state
-            ReferralData storage refData = projectReferrals[msg.sender][projectId];
-            refData.vestingClaimedAmount += claimableAmount;
-            rewardTokensClaimedAmount[projectId] += claimableAmount;
-            
-            // Update userMaxAdditionalUnlockUsed
-            if (additionalUnlockPercentage > userMaxAdditionalUnlockUsed[msg.sender][projectId]) {
-                userMaxAdditionalUnlockUsed[msg.sender][projectId] = additionalUnlockPercentage;
-            }
-            
-            totalClaimableAmount += claimableAmount;
-            emit VestingTokensClaimed(msg.sender, claimableAmount, projectId);
-        }
-        
-        // Sell all claimed tokens in one swap
-        if (totalClaimableAmount > 0) {
-            // Calculate expected USDC amount with slippage protection and get swap path
-            address[] memory path = new address[](2);
-            path[0] = address(token);
-            path[1] = address(usdc);
-            
-            // Approve tokens for Uniswap router
-            IERC20(address(token)).approve(address(uniswapRouter), totalClaimableAmount);
-            
-            // Swap tokens for USDC with slippage protection
-            uint256[] memory amounts = uniswapRouter.swapExactTokensForTokens(
-                totalClaimableAmount,
-                _minUsdcAmount, // Minimum USDC to receive (5% slippage protection)
-                path,
-                claimAddress,
-                block.timestamp
-            );
-            
-            // Reset approval for security
-            IERC20(address(token)).approve(address(uniswapRouter), 0);
-            
-            emit TokensSold(msg.sender, totalClaimableAmount, amounts[1], claimAddress);
-        }
-    }
-
-    function mintRewardsTWAP(uint256 _amount, uint256 _maxUSDNeeded) external onlyOwner {
-        _mintRewards(_amount, _maxUSDNeeded);
-    }
-
-    function _mintRewards(uint256 tokensForMint, uint256 maxUSDNeeded) internal {
-        IToken(token).mintReward(address(this), tokensForMint);
-        
-        // Buy back tokens from pool (USDC -> Token) and burn them
-        // Burn exactly the same amount as minted to keep totalSupply unchanged
-        if (burnPercentage > 0) {
-            address[] memory path = new address[](2);
-            path[0] = address(usdc);
-            path[1] = address(token);
-            
-            // Calculate how much USDC is needed to buy tokensForMint tokens
-            uint256 exactUSDNeeded;
-            try uniswapRouter.getAmountsIn(tokensForMint, path) returns (uint256[] memory _amounts) {
-                exactUSDNeeded = _amounts[0];
-            } catch {
-                revert("Failed to calculate USDC needed for tokens");
-            }
-
-            // Check if maxUSDNeeded is set, if not, set it to 1% more than exactUSDNeeded
-            if(maxUSDNeeded == 0)  maxUSDNeeded = (exactUSDNeeded * 101) / 100;
-            
-            // Check if exactUSDNeeded is greater than maxUSDNeeded, if so, revert
-            if (exactUSDNeeded > maxUSDNeeded) revert("Exceeds max USDC needed");
-            
-            // Check if maxUSDNeeded is greater than the balance of USDC in the contract, if so, revert
-            if (maxUSDNeeded > usdc.balanceOf(address(this))) revert("Not enough USDC to buy tokens");
-            
-            
-            usdc.approve(address(uniswapRouter), maxUSDNeeded);
-            
-            // Buy exact amount of tokens from pool (USDC -> Token)
-            try uniswapRouter.swapTokensForExactTokens(tokensForMint, maxUSDNeeded, path, address(this), block.timestamp) returns (uint256[] memory) {
-                // Burn received tokens to keep totalSupply unchanged
-                IToken(token).burn(tokensForMint);
-            } catch {
-                revert("Failed to buy back tokens: pool has no liquidity");
-            }
-        }
-    }
-
-    function _mintRewardsForProject(uint256 _projectId, uint256 _maxUSDNeeded) internal {
-        uint256 tokensForMint = rewardTokensAmount[_projectId];
-        if (tokensForMint > 0) {
-            _mintRewards(tokensForMint, _maxUSDNeeded);
-        }
-    }
-
-    function mintRewardsForProject(uint256 _projectId, uint256 _maxUSDNeeded) external onlyOwner {
-        _mintRewardsForProject(_projectId, _maxUSDNeeded);
     }
 }

@@ -443,6 +443,7 @@ contract RewardSystemReduceReferralUSDCTest is Setup {
 
     function test_doesNotAffectTokenVesting() public {
         _investAs(investor, pid, INVEST_AMOUNT, inviter);
+        _seedVesting(investor, pid, 1_000e18);
         uint256 tokensBefore = _refTokens(investor, pid);
         assertGt(tokensBefore, 0);
 
