@@ -44,52 +44,7 @@ contract BackwardCompatTest is Setup {
     // ═══════════════════════════════════════════════════════════════════
 
     /// @notice Build old-style signature (includes rootHash)
-    function _signInvestOld(
-        address _investor,
-        uint256 _pid,
-        uint256 _amount,
-        bytes32 _rootHash,
-        uint256 _nonce,
-        address _inviter
-    ) internal view returns (bytes memory sig) {
-        bytes32 innerHash = keccak256(abi.encodePacked(_investor, _pid, _amount, _rootHash, _nonce, _inviter));
-        bytes32 ethSignedHash = keccak256(abi.encodePacked("\x19Ethereum Signed Message:\n32", innerHash));
-        (uint8 v, bytes32 r, bytes32 s) = vm.sign(backendPk, ethSignedHash);
-        sig = abi.encodePacked(r, s, v);
-    }
 
-    /// @notice Invest using old investUpdate (rootHash in signature, global nonce).
-    function _investOldAs(address _investor, uint256 _pid, uint256 _amount, address _inviter) internal {
-        vm.prank(owner);
-        usdc.mint(_investor, _amount);
-
-        vm.prank(_investor);
-        usdc.approve(address(fundraise), _amount);
-
-        uint256 currentGlobalNonce = fundraise.nonce();
-        uint256 nonceForSig = currentGlobalNonce + 1;
-        bytes32 rootHash = bytes32(0); // dummy rootHash
-        bytes memory sig = _signInvestOld(_investor, _pid, _amount, rootHash, nonceForSig, _inviter);
-
-        vm.prank(_investor);
-        fundraise.investUpdate(_pid, _amount, rootHash, nonceForSig, sig, _inviter);
-    }
-
-    function test_investUpdate_old_works() public {
-        uint256 amount = 5_000e6;
-        uint256 globalNonceBefore = fundraise.nonce();
-        uint256 userNonceBefore = fundraise.userNonces(investor);
-
-        _investOldAs(investor, pid, amount, inviter);
-
-        // Verify investment recorded
-        (uint256 invested,) = fundraise.investorInfo(investor, pid);
-        assertEq(invested, amount, "Old investUpdate: investment not recorded");
-
-        // Old investUpdate still uses the legacy global nonce.
-        assertEq(fundraise.nonce(), globalNonceBefore + 1, "Old investUpdate: global nonce not incremented");
-        assertEq(fundraise.userNonces(investor), userNonceBefore, "Old investUpdate: user nonce should stay unchanged");
-    }
 
     function test_investUpdateV2_new_works() public {
         uint256 amount = 5_000e6;
@@ -103,47 +58,6 @@ contract BackwardCompatTest is Setup {
 
         // Verify per-user nonce incremented
         assertEq(fundraise.userNonces(investor), userNonceBefore + 1, "V2 investUpdate: user nonce not incremented");
-    }
-
-    function test_old_and_new_invest_do_not_conflict() public {
-        // First: invest via old method (rootHash signature)
-        _investOldAs(investor, pid, 3_000e6, inviter);
-
-        // Second: invest via new method (no rootHash) — same investor
-        _investAs(investor, pid, 2_000e6, address(0));
-
-        // Third: different investor uses old method
-        _investOldAs(investor2, pid, 4_000e6, inviter);
-
-        // Fourth: different investor uses new method
-        _investAs(investor2, pid, 1_000e6, address(0));
-
-        // Verify both accumulated correctly
-        (uint256 inv1,) = fundraise.investorInfo(investor, pid);
-        assertEq(inv1, 5_000e6, "Investor1 total should be 3000+2000");
-
-        (uint256 inv2,) = fundraise.investorInfo(investor2, pid);
-        assertEq(inv2, 5_000e6, "Investor2 total should be 4000+1000");
-
-        // Old invests use the legacy global nonce; new invests use per-user nonce.
-        assertEq(fundraise.nonce(), 2, "Global nonce should count the two old invests");
-        assertEq(fundraise.userNonces(investor), 1, "Investor1 user nonce should count only the new invest");
-        assertEq(fundraise.userNonces(investor2), 1, "Investor2 user nonce should count only the new invest");
-    }
-
-    function test_old_investUpdate_wrong_nonce_reverts() public {
-        vm.prank(owner);
-        usdc.mint(investor, 5_000e6);
-        vm.prank(investor);
-        usdc.approve(address(fundraise), 5_000e6);
-
-        uint256 wrongNonce = fundraise.userNonces(investor) + 2; // skip one
-        bytes32 rootHash = bytes32(0);
-        bytes memory sig = _signInvestOld(investor, pid, 5_000e6, rootHash, wrongNonce, inviter);
-
-        vm.prank(investor);
-        vm.expectRevert(Fundraise.IncorrectNonce.selector);
-        fundraise.investUpdate(pid, 5_000e6, rootHash, wrongNonce, sig, inviter);
     }
 
     // ═══════════════════════════════════════════════════════════════════
@@ -529,10 +443,10 @@ contract BackwardCompatTest is Setup {
     }
 
     // ═══════════════════════════════════════════════════════════════════
-    //  SECTION 9: End-to-end — full lifecycle with both old and new paths
+    //  SECTION 9: End-to-end — full lifecycle
     // ═══════════════════════════════════════════════════════════════════
 
-    function test_e2e_mixed_old_new_full_lifecycle() public {
+    function test_e2e_full_lifecycle() public {
         // 1. Create project
         Fundraise.Project memory proj = Fundraise.Project({
             hardCap: 20_000e6,
@@ -554,10 +468,10 @@ contract BackwardCompatTest is Setup {
         vm.prank(manager);
         uint256 e2ePid = fundraise.createProject(proj, _nextProjectHash());
 
-        // 2. Investor1 invests via OLD investUpdate
-        _investOldAs(investor, e2ePid, 6_000e6, inviter);
+        // 2. Investor1 invests
+        _investAs(investor, e2ePid, 6_000e6, inviter);
 
-        // 3. Investor2 invests via NEW investUpdateV2
+        // 3. Investor2 invests
         _investAs(investor2, e2ePid, 6_000e6, inviter);
 
         // 4. Verify both investments recorded

@@ -41,11 +41,8 @@ contract DoubleClaimMarketTest is Setup {
 
     // ── Backend (trustedSigner) KYC signature over (buyer, saleId), as Market.buy expects ──
     function _signMarketBuy(address buyer, uint256 saleId) internal view returns (bytes memory sig) {
-        bytes32 messageHash = keccak256(abi.encodePacked(buyer, saleId));
-        bytes32 ethSignedMessageHash = keccak256(
-            abi.encodePacked("\x19Ethereum Signed Message:\n32", messageHash)
-        );
-        (uint8 v, bytes32 r, bytes32 s) = vm.sign(backendPk, ethSignedMessageHash);
+        bytes32 structHash = keccak256(abi.encode(BUY_TYPEHASH, buyer, saleId));
+        (uint8 v, bytes32 r, bytes32 s) = vm.sign(backendPk, _eip712(address(market), structHash));
         sig = abi.encodePacked(r, s, v);
     }
 
@@ -57,13 +54,9 @@ contract DoubleClaimMarketTest is Setup {
         uint256 positionIndex,
         uint256 deadline
     ) internal view returns (bytes memory sig) {
-        bytes32 messageHash = keccak256(
-            abi.encode(block.chainid, address(market), seller, projectId, price, positionIndex, deadline)
-        );
-        bytes32 ethSignedMessageHash = keccak256(
-            abi.encodePacked("\x19Ethereum Signed Message:\n32", messageHash)
-        );
-        (uint8 v, bytes32 r, bytes32 s) = vm.sign(backendPk, ethSignedMessageHash);
+        bytes32 structHash =
+            keccak256(abi.encode(SELL_TYPEHASH, seller, projectId, price, positionIndex, deadline));
+        (uint8 v, bytes32 r, bytes32 s) = vm.sign(backendPk, _eip712(address(market), structHash));
         sig = abi.encodePacked(r, s, v);
     }
 

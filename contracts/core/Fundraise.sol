@@ -8,6 +8,8 @@ import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import "@openzeppelin/contracts/token/ERC20/extensions/IERC20Metadata.sol";
 import "@openzeppelin/contracts/utils/math/Math.sol";
+import {ECDSA} from "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
+import {MessageHashUtils} from "@openzeppelin/contracts/utils/cryptography/MessageHashUtils.sol";
 import "../interfaces/protocol/IManagerRegistry.sol";
 import "../interfaces/protocol/IRewardSystem.sol";
 import "../interfaces/protocol/ILimitedSeller.sol";
@@ -27,8 +29,6 @@ contract Fundraise is Initializable, UUPSUpgradeable, OwnableUpgradeable {
     using SafeERC20 for IERC20;
 
     error IncorrectNonce();
-    error InvalidSignatureSValue();
-    error InvalidSignature();
     error NotTrustedSigner();
     error InviterCannotBeInvestor();
     error ProjectNotFound();
@@ -70,7 +70,6 @@ contract Fundraise is Initializable, UUPSUpgradeable, OwnableUpgradeable {
     error InvestorHasClaimed();
     error AmountMustBePositive();
     error SumMismatchWithAggregate();
-    error InvalidSignatureLength();
     error OracleNotSet();
     error LoanTokenPriceZero();
     error ArrayLengthMismatch();
@@ -107,6 +106,14 @@ contract Fundraise is Initializable, UUPSUpgradeable, OwnableUpgradeable {
     event AmlGatewayUpdated(address indexed oldGateway, address indexed newGateway);
     event OracleUpdated(address oracle);
     event AllTimeInvestedUSDMigrated(uint256 count);
+
+    /// @dev EIP-712 with the smallest domain that still pins the deployment: no name or version,
+    ///      because the backend signs these and nobody reads them in a wallet. The typehash is what
+    ///      keeps this message apart from the ones the same key signs for Market and LimitedSeller.
+    bytes32 private constant DOMAIN_TYPEHASH =
+        keccak256("EIP712Domain(uint256 chainId,address verifyingContract)");
+    bytes32 private constant INVEST_TYPEHASH =
+        keccak256("Invest(address investor,uint256 projectId,uint256 amount,uint256 nonce,address inviter)");
 
     uint256 public constant BASIS_POINTS = 1000000; // 1% = 10000
     uint256 public constant MAX_KYC_LESS_INVEST_USD = 500 * BASIS_POINTS; // 500_000_000 = 500 USD
@@ -159,8 +166,9 @@ contract Fundraise is Initializable, UUPSUpgradeable, OwnableUpgradeable {
     address public treasury;
     address public managerRegistry;
 
-    /// @dev Deprecated: global nonce replaced by per-user userNonces. Slot preserved for upgrade safety.
-    /// TODO: remove after frontend migrates to investUpdateV2 (read userNonces instead of nonce).
+    /// @dev Deprecated: the global counter went with investUpdate, which was the only thing that
+    ///      ever read or raised it. Slot preserved, and the getter with it — the admin panel reads
+    ///      it, and it costs nothing to keep answering.
     uint256 public nonce;
 
     address public trustedSigner;
@@ -223,39 +231,7 @@ contract Fundraise is Initializable, UUPSUpgradeable, OwnableUpgradeable {
 
     function _authorizeUpgrade(address) internal override onlyOwner {}
 
-    /// @notice LEGACY — old frontend/backend use global nonce + rootHash in signature.
-    /// @dev TODO: remove after frontend migrates to investUpdateV2.
-    /// @param _pid Project Id
-    /// @param _amount Amount of loan token for invest
-    /// @param _rootHash Included in signature verification for backward compat
-    /// @param _nonce Global nonce for replay protection (legacy)
-    /// @param _sig Signature of a trusted signer
-    /// @param _inviter Inviter address
-    function investUpdate(
-        uint256 _pid,
-        uint256 _amount,
-        bytes32 _rootHash,
-        uint256 _nonce,
-        bytes memory _sig,
-        address _inviter
-    ) external {
-        if (_nonce != nonce + 1) revert IncorrectNonce();
-
-        bytes32 ethSignedMessageHash = keccak256(
-            abi.encodePacked(
-                "\x19Ethereum Signed Message:\n32",
-                keccak256(abi.encodePacked(msg.sender, _pid, _amount, _rootHash, _nonce, _inviter))
-            )
-        );
-        _verifySignature(ethSignedMessageHash, _sig);
-        bool success = _invest(msg.sender, _pid, _amount, _inviter);
-        if (success) {
-            nonce++;
-        }
-    }
-
-    /// @notice New invest with per-user nonce and no rootHash in signature.
-    /// @dev Migrate frontend/backend to use this function after upgrade.
+    /// @notice Invest, with the backend's approval of this exact investment.
     /// @param _pid Project Id
     /// @param _amount Amount of loan token for invest
     /// @param _nonce Per-user nonce for replay protection
@@ -270,32 +246,24 @@ contract Fundraise is Initializable, UUPSUpgradeable, OwnableUpgradeable {
     ) external {
         if (_nonce != userNonces[msg.sender] + 1) revert IncorrectNonce();
 
-        // New signature format without rootHash
-        bytes32 ethSignedMessageHash = keccak256(
-            abi.encodePacked(
-                "\x19Ethereum Signed Message:\n32",
-                keccak256(abi.encodePacked(msg.sender, _pid, _amount, _nonce, _inviter))
-            )
-        );
-        _verifySignature(ethSignedMessageHash, _sig);
+        bytes32 structHash = keccak256(abi.encode(INVEST_TYPEHASH, msg.sender, _pid, _amount, _nonce, _inviter));
+        _verifySignature(MessageHashUtils.toTypedDataHash(_domainSeparator(), structHash), _sig);
         bool success = _invest(msg.sender, _pid, _amount, _inviter);
         if (success) {
             userNonces[msg.sender]++;
         }
     }
 
-    /// @dev Verify ECDSA signature against trustedSigner with malleability protection
-    function _verifySignature(bytes32 ethSignedMessageHash, bytes memory _sig) internal view {
-        (bytes32 r, bytes32 s, uint8 v) = splitSignature(_sig);
-        // Prevent signature malleability (as in OpenZeppelin ECDSA)
-        if (
-            uint256(s) > 0x7FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF5D576E7357A4501DDFE92F46681B20A0
-        ) {
-            revert InvalidSignatureSValue();
-        }
-        address signer = ecrecover(ethSignedMessageHash, v, r, s);
-        if (signer == address(0)) revert InvalidSignature();
-        if (signer != trustedSigner) revert NotTrustedSigner();
+    /// @dev Built per call rather than cached: a cold SLOAD costs more than hashing three words,
+    ///      and there is no initialiser left to run on a proxy that is already live.
+    function _domainSeparator() private view returns (bytes32) {
+        return keccak256(abi.encode(DOMAIN_TYPEHASH, block.chainid, address(this)));
+    }
+
+    /// @dev ECDSA.recover carries the length, malleability and zero-address checks, so the only
+    ///      thing left to say here is whose signature it has to be.
+    function _verifySignature(bytes32 digest, bytes memory _sig) internal view {
+        if (ECDSA.recover(digest, _sig) != trustedSigner) revert NotTrustedSigner();
     }
 
     function _invest(address _investor, uint256 _pid, uint256 _amount, address _inviter) internal returns (bool) {
@@ -839,28 +807,6 @@ contract Fundraise is Initializable, UUPSUpgradeable, OwnableUpgradeable {
             Math.mulDiv(project.innerStruct.totalRepaid, investor.investedAmount, project.totalInvested);
 
         claimable = claimableShare > investor.totalClaimed ? claimableShare - investor.totalClaimed : 0;
-    }
-
-    function splitSignature(bytes memory sig) public pure returns (bytes32 r, bytes32 s, uint8 v) {
-        if (sig.length != 65) revert InvalidSignatureLength();
-
-        assembly {
-            /*
-            First 32 bytes stores the length of the signature
-
-            add(sig, 32) = pointer of sig + 32
-            effectively, skips first 32 bytes of signature
-
-            mload(p) loads next 32 bytes starting at the memory address p into memory
-            */
-
-            // first 32 bytes, after the length prefix
-            r := mload(add(sig, 32))
-            // second 32 bytes
-            s := mload(add(sig, 64))
-            // final byte (first byte of the next 32 bytes)
-            v := byte(0, mload(add(sig, 96)))
-        }
     }
 
     /// @notice Get all individual investment positions for an investor in a project

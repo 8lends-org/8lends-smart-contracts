@@ -421,9 +421,9 @@ contract FundraiseTest is Setup {
 
         // Sign with wrong key
         (address wrongSigner, uint256 wrongPk) = makeAddrAndKey("wrong");
-        bytes32 innerHash = keccak256(abi.encodePacked(investor, pid, uint256(5_000e6), currentNonce + 1, inviter));
-        bytes32 ethHash = keccak256(abi.encodePacked("\x19Ethereum Signed Message:\n32", innerHash));
-        (uint8 v, bytes32 r, bytes32 s) = vm.sign(wrongPk, ethHash);
+        bytes32 structHash =
+            keccak256(abi.encode(INVEST_TYPEHASH, investor, pid, uint256(5_000e6), currentNonce + 1, inviter));
+        (uint8 v, bytes32 r, bytes32 s) = vm.sign(wrongPk, _eip712(address(fundraise), structHash));
         bytes memory badSig = abi.encodePacked(r, s, v);
 
         vm.prank(investor);
