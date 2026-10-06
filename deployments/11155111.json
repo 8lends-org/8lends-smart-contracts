@@ -50,18 +50,18 @@
   },
   "BTC8L": {
     "proxy": "0x33708f3757FfE263F8d28DaFe75574fE8C78ea28",
-    "impl": "0xc4ad95874b76622D238642B583C9262f87fa6a21",
-    "buildHash": "0x2d4315fe4ee720fd64748b28abe84e3a3f89d6438b1e514ba058314fb9fc4596",
+    "impl": "0xe27DF52B637115041a3608ff819FF4f94dc078a1",
+    "buildHash": "0xd5f9679d663c58295cc773d02bb498e86887b6bd965fe812771c9b9a2c091f89",
     "matchesDeployed": true,
-    "deployedFrom": "04920d4",
-    "deployedAt": "Jun-25-2026",
+    "deployedFrom": "30aa80f",
+    "deployedAt": "Oct-06-2026",
     "build": {
       "solc": "v0.8.23+commit.f704f362",
       "optimizer": {
         "enabled": true,
         "runs": 50,
         "details": {
-          "yul": false
+          "yul": true
         }
       },
       "evmVersion": "paris"
