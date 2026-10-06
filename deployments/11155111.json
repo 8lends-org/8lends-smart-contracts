@@ -126,18 +126,18 @@
   },
   "Fundraise": {
     "proxy": "0x0De7B7E83F53cc0d0C30b9c3E7489c7daCc75718",
-    "impl": "0x81d8307d7575c66F9395f198Affe2DC01feaCF2e",
-    "buildHash": "0x574dd19a3ba0d9dad08b0c997375b260f59ff672cc9038426b1c04bce0d2a098",
+    "impl": "0x9E638bf61e2a7F4E66bE0d0F2699F8137E72D025",
+    "buildHash": "0x52475c04e836e8e924d4c4a06c2b680f964deb7106cce0756a2a3beefe728601",
     "matchesDeployed": true,
-    "deployedFrom": "ca4db50",
-    "deployedAt": "Jun-09-2026",
+    "deployedFrom": "9c8288d",
+    "deployedAt": "Oct-06-2026",
     "build": {
       "solc": "v0.8.23+commit.f704f362",
       "optimizer": {
         "enabled": true,
         "runs": 50,
         "details": {
-          "yul": false
+          "yul": true
         }
       },
       "evmVersion": "paris"
@@ -240,18 +240,18 @@
   },
   "Market": {
     "proxy": "0x3f9c2a656db6b93481f9A30add7910c1a6421B0C",
-    "impl": "0x9944d84526C9199A32E4DB2648B9C993967Dd8fb",
-    "buildHash": "0xc0abdc3c822dfbcd1c345e3cd532c3528faa36776e760afee14243e355ddece1",
+    "impl": "0xf068Bf9619f3a484613318b5138d4A000796D6E4",
+    "buildHash": "0x8dd9df328f7c2db4346f60d044117ba1081a11d6c79c4fb08b54c6766ba65ccb",
     "matchesDeployed": true,
-    "deployedFrom": "ca4db50",
-    "deployedAt": "Jun-06-2026",
+    "deployedFrom": "9c8288d",
+    "deployedAt": "Oct-06-2026",
     "build": {
       "solc": "v0.8.23+commit.f704f362",
       "optimizer": {
         "enabled": true,
         "runs": 50,
         "details": {
-          "yul": false
+          "yul": true
         }
       },
       "evmVersion": "paris"
