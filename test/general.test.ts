@@ -203,6 +203,10 @@ describe("🚀 8lends Protocol - General Flow Tests", function () {
 
 
   // 🏗️ Helper Functions
+  // A project hash is spent on release and never comes back, so every call needs its own.
+  let projectHashSeq = 0;
+  const nextProjectHash = () => ++projectHashSeq;
+
   async function createProject(amountMin: string="20000", amountMax: string="40000") {
     log("📋 CREATE PROJECT");
     projectData = {
@@ -225,7 +229,7 @@ describe("🚀 8lends Protocol - General Flow Tests", function () {
 
     const projectId = await fundraise.projectCount();
     // @ts-expect-error overloaded in Fundraise: typechain types it only by full signature
-    await fundraise.connect(manager).createProject(projectData, 1);
+    await fundraise.connect(manager).createProject(projectData, nextProjectHash());
     return fundraise.projects(projectId);
   }
 
@@ -692,7 +696,7 @@ describe("🚀 8lends Protocol - General Flow Tests", function () {
 
       const projectId = await fundraise.projectCount();
       // @ts-expect-error overloaded in Fundraise: typechain types it only by full signature
-      await fundraise.connect(manager).createProject(newProjectData, 1);
+      await fundraise.connect(manager).createProject(newProjectData, nextProjectHash());
       
       let newProject = await fundraise.projects(projectId);
       expect(newProject.innerStruct.stage).to.equal(Stage.ComingSoon);
@@ -722,7 +726,7 @@ describe("🚀 8lends Protocol - General Flow Tests", function () {
         }
       };
       // @ts-expect-error overloaded in Fundraise: typechain types it only by full signature
-      await fundraise.connect(manager).createProject(newProjectData, 2);
+      await fundraise.connect(manager).createProject(newProjectData, nextProjectHash());
 
       const projectId = await fundraise.projectCount() - 1n;
       let currentProject = await fundraise.projects(projectId);

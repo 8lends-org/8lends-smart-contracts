@@ -54,6 +54,7 @@ contract Fundraise is Initializable, UUPSUpgradeable, OwnableUpgradeable {
     error InvalidStageForClaiming();
     error NoInvestmentFound();
     error CantUpdateFundedProject();
+    error ProjectHashAlreadyUsed();
     error OpenStageExtensionTooLong();
     error WrongPercents();
     error ZeroAddress();
@@ -193,6 +194,12 @@ contract Fundraise is Initializable, UUPSUpgradeable, OwnableUpgradeable {
     ///      Appended at end of storage for upgrade safety; 0 for pre-upgrade projects (which is
     ///      sound because total-ever-claimed is already bounded by totalRepaid via per-investor watermarks).
     mapping(uint256 => uint256) public projectTotalClaimed;
+
+    /// @notice Off-chain ids already spent by createProject, so one project cannot be released twice.
+    /// @dev The slot this takes is the slot it has to keep: the mandate work appends its own field
+    ///      after it, and moving this one would leave every id recorded so far unfindable while the
+    ///      guard went on answering, just never again about a spent one.
+    mapping(uint256 => bool) public projectHashUsed;
 
     /// @custom:oz-upgrades-unsafe-allow constructor
     constructor() {
@@ -633,24 +640,17 @@ contract Fundraise is Initializable, UUPSUpgradeable, OwnableUpgradeable {
         emit Claimed(_projectId, _investor, claimable);
     }
 
-    /// @notice Backward-compatible: create project with whitelistRoot (ignored).
-    /// @dev TODO: remove after admin frontend stops passing whitelistRoot.
-    function createProject(Project memory _project, bytes32, uint256 _projectHash) external returns (uint256) {
-        return _createProjectInternal(_project, _projectHash);
-    }
-
-    /// @notice Create new project (clean version without whitelistRoot)
+    /// @notice Create new project
     /// @dev Only standard ERC20 tokens are supported as loanToken.
     /// Fee-on-transfer, rebasing, and deflationary tokens will cause accounting errors.
     /// @param _project Project info
-    /// @param _projectHash project hash, for event
+    /// @param _projectHash Off-chain id of the project. Emitted, and spent: a second release of the
+    ///        same project reverts, whichever tab or admin sends it.
     function createProject(Project memory _project, uint256 _projectHash) external returns (uint256) {
-        return _createProjectInternal(_project, _projectHash);
-    }
-
-    function _createProjectInternal(Project memory _project, uint256 _projectHash) internal returns (uint256) {
         if (!IManagerRegistry(managerRegistry).isManager(msg.sender)) revert NotAManager();
         _validateProject(_project);
+        if (projectHashUsed[_projectHash]) revert ProjectHashAlreadyUsed();
+        projectHashUsed[_projectHash] = true;
 
         uint256 projectId = projectCount++;
         projects[projectId] = _project;
@@ -685,6 +685,9 @@ contract Fundraise is Initializable, UUPSUpgradeable, OwnableUpgradeable {
     /// @param _project new project info
     function setProject(uint256 _projectId, Project memory _project) external {
         if (!IManagerRegistry(managerRegistry).isManager(msg.sender)) revert NotAManager();
+        // A number that was never created reads as stage ComingSoon, so without this the write
+        // below would mint a project with no event and no hash.
+        if (_projectId >= projectCount) revert ProjectDoesNotExist();
         if (
             !(
                 projects[_projectId].innerStruct.stage == Stage.ComingSoon ||

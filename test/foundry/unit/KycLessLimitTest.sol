@@ -247,7 +247,7 @@ contract KycLessLimitTest is Setup {
             })
         });
         vm.prank(manager);
-        uint256 pid = fundraise.createProject(proj, 1);
+        uint256 pid = fundraise.createProject(proj, _nextProjectHash());
 
         // kycLessInvestable calls _toUSD which should revert OracleNotSet for non-USDC
         vm.expectRevert(Fundraise.OracleNotSet.selector);

@@ -180,6 +180,13 @@ abstract contract Setup is Test {
     //                         HELPER FUNCTIONS
     // ═══════════════════════════════════════════════════════════════════
 
+    /// @dev A project hash is spent on release and never comes back, so every call needs its own.
+    uint256 private _projectHashSeq;
+
+    function _nextProjectHash() internal returns (uint256) {
+        return ++_projectHashSeq;
+    }
+
     /// @notice Create a project via manager. Returns projectId.
     function _createProject(uint256 softCap, uint256 hardCap) internal returns (uint256 projectId) {
         return _createProjectFor(softCap, hardCap, borrower);
@@ -208,7 +215,7 @@ abstract contract Setup is Test {
         });
 
         vm.prank(manager);
-        projectId = fundraise.createProject(proj, 1);
+        projectId = fundraise.createProject(proj, _nextProjectHash());
     }
 
     /// @notice Build the EIP-191 signature for investUpdate

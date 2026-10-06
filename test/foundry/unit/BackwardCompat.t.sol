@@ -147,38 +147,10 @@ contract BackwardCompatTest is Setup {
     }
 
     // ═══════════════════════════════════════════════════════════════════
-    //  SECTION 2: Fundraise — createProject overloads
+    //  SECTION 2: Fundraise — createProject
     // ═══════════════════════════════════════════════════════════════════
 
-    function test_createProject_old_with_whitelistRoot() public {
-        Fundraise.Project memory proj = Fundraise.Project({
-            hardCap: 20_000e6,
-            softCap: 10_000e6,
-            totalInvested: 0,
-            startAt: block.timestamp - 10,
-            preFundDuration: 7 days,
-            investorInterestRate: INVESTOR_INTEREST,
-            openStageEndAt: block.timestamp + 7 days,
-            innerStruct: Fundraise.InnerProjectStruct({
-                platformInterestRate: PLATFORM_FEE,
-                totalRepaid: 0,
-                borrower: borrower,
-                fundedTime: 0,
-                loanToken: IERC20(address(usdc)),
-                stage: Fundraise.Stage.ComingSoon
-            })
-        });
-
-        bytes32 fakeRoot = bytes32(uint256(0xdead));
-        vm.prank(manager);
-        uint256 newPid = fundraise.createProject(proj, fakeRoot, 42);
-
-        // Verify project was created
-        (uint256 hardCap,,,,,,, ) = fundraise.projects(newPid);
-        assertEq(hardCap, 20_000e6, "Old createProject: hardCap mismatch");
-    }
-
-    function test_createProject_new_without_whitelistRoot() public {
+    function test_createProject_takesOnlyTheHash() public {
         Fundraise.Project memory proj = Fundraise.Project({
             hardCap: 30_000e6,
             softCap: 15_000e6,
@@ -198,42 +170,12 @@ contract BackwardCompatTest is Setup {
         });
 
         vm.prank(manager);
-        uint256 newPid = fundraise.createProject(proj, 99);
+        uint256 newPid = fundraise.createProject(proj, _nextProjectHash());
 
         (uint256 hardCap,,,,,,, ) = fundraise.projects(newPid);
         assertEq(hardCap, 30_000e6, "New createProject: hardCap mismatch");
     }
 
-    function test_createProject_both_overloads_sequential() public {
-        uint256 countBefore = fundraise.projectCount();
-
-        Fundraise.Project memory proj = Fundraise.Project({
-            hardCap: 10_000e6,
-            softCap: 5_000e6,
-            totalInvested: 0,
-            startAt: block.timestamp - 10,
-            preFundDuration: 7 days,
-            investorInterestRate: INVESTOR_INTEREST,
-            openStageEndAt: block.timestamp + 7 days,
-            innerStruct: Fundraise.InnerProjectStruct({
-                platformInterestRate: PLATFORM_FEE,
-                totalRepaid: 0,
-                borrower: borrower,
-                fundedTime: 0,
-                loanToken: IERC20(address(usdc)),
-                stage: Fundraise.Stage.ComingSoon
-            })
-        });
-
-        vm.startPrank(manager);
-        uint256 pid1 = fundraise.createProject(proj, bytes32(uint256(1)), 100); // old
-        uint256 pid2 = fundraise.createProject(proj, 200); // new
-        vm.stopPrank();
-
-        assertEq(pid1, countBefore, "Old overload: wrong pid");
-        assertEq(pid2, countBefore + 1, "New overload: wrong pid");
-        assertEq(fundraise.projectCount(), countBefore + 2, "Project count should increase by 2");
-    }
 
     // ═══════════════════════════════════════════════════════════════════
     //  SECTION 3: Fundraise — transferFundsToBorrower overloads
@@ -591,7 +533,7 @@ contract BackwardCompatTest is Setup {
     // ═══════════════════════════════════════════════════════════════════
 
     function test_e2e_mixed_old_new_full_lifecycle() public {
-        // 1. Create project via old method (with whitelistRoot)
+        // 1. Create project
         Fundraise.Project memory proj = Fundraise.Project({
             hardCap: 20_000e6,
             softCap: 10_000e6,
@@ -610,7 +552,7 @@ contract BackwardCompatTest is Setup {
             })
         });
         vm.prank(manager);
-        uint256 e2ePid = fundraise.createProject(proj, bytes32(0), 777);
+        uint256 e2ePid = fundraise.createProject(proj, _nextProjectHash());
 
         // 2. Investor1 invests via OLD investUpdate
         _investOldAs(investor, e2ePid, 6_000e6, inviter);
