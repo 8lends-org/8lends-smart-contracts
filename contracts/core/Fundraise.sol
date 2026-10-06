@@ -203,12 +203,15 @@ contract Fundraise is Initializable, UUPSUpgradeable, OwnableUpgradeable {
     ///      sound because total-ever-claimed is already bounded by totalRepaid via per-investor watermarks).
     mapping(uint256 => uint256) public projectTotalClaimed;
 
+    /// @notice Off-chain ids already spent by createProject, so one project cannot be released twice.
+    /// @dev Declared ahead of mandateRouter: this ships on its own first, and the slot it takes here
+    ///      is the slot it has to keep, or every id recorded before the mandate release stops being
+    ///      found and the guard silently lets them through again.
+    mapping(uint256 => bool) public projectHashUsed;
+
     /// @notice Router holding the payout routes of mandates.
     /// @dev While zero every project reads as unrouted, so this can be deployed ahead of the router.
     address public mandateRouter;
-
-    /// @notice Off-chain ids already spent by createProject, so one project cannot be released twice.
-    mapping(uint256 => bool) public projectHashUsed;
 
     /// @custom:oz-upgrades-unsafe-allow constructor
     constructor() {
