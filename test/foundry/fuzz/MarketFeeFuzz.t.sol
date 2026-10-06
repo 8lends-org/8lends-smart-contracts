@@ -84,8 +84,15 @@ contract MarketFeeFuzzTest is Test {
 
     /// @dev A lot on `posIndex`, with its market cell funded so the buy can settle.
     function _list(uint256 price, uint256 posIndex) internal returns (uint256 saleId) {
+        uint256 deadline = block.timestamp + 15 minutes;
+        bytes32 inner = keccak256(
+            abi.encode(block.chainid, address(market), investor, PID, price, posIndex, deadline)
+        );
+        bytes32 digest = keccak256(abi.encodePacked("\x19Ethereum Signed Message:\n32", inner));
+        (uint8 v, bytes32 r, bytes32 s) = vm.sign(backendPk, digest);
+
         vm.prank(investor);
-        saleId = market.sell(PID, price, posIndex);
+        saleId = market.sell(PID, price, posIndex, deadline, abi.encodePacked(r, s, v));
 
         vm.prank(owner);
         mockFundraise.setInvestorInfo(market.getSale(saleId).marketCell, PID, 30_000e6, 0);

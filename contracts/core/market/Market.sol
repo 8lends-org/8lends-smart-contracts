@@ -121,7 +121,12 @@ contract Market is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentranc
     /// @param _price Price in loan tokens
     /// @param _positionIndex Index of the position to sell in seller's positions array
     /// @return saleId Created sale ID
-    function sell(uint256 _projectId, uint256 _price, uint256 _positionIndex) external nonReentrant returns (uint256 saleId) {
+    function sell(uint256 _projectId, uint256 _price, uint256 _positionIndex, uint256 _deadline, bytes memory _sig)
+        external
+        nonReentrant
+        returns (uint256 saleId)
+    {
+        _verifySellSignature(_projectId, _price, _positionIndex, _deadline, _sig);
         return _executeSell(msg.sender, _projectId, _price, _positionIndex, msg.sender);
     }
 
@@ -129,11 +134,19 @@ contract Market is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentranc
     /// @dev The position stays recorded under `_owner` in Fundraise, so the sale is booked there too
     ///      and nothing downstream has to know a recovery chain exists. No proceeds parameter: for a
     ///      compromised seller the buy path pays recipientOf regardless of what was recorded.
-    function sellFor(address _owner, uint256 _projectId, uint256 _price, uint256 _positionIndex)
+    function sellFor(
+        address _owner,
+        uint256 _projectId,
+        uint256 _price,
+        uint256 _positionIndex,
+        uint256 _deadline,
+        bytes memory _sig
+    )
         external
         nonReentrant
         returns (uint256 saleId)
     {
+        _verifySellForSignature(_owner, _projectId, _price, _positionIndex, _deadline, _sig);
         // Only the live end of _owner's chain. For an address that was never in one this is _owner
         // themselves, so the function reaches nothing `sell` does not already reach.
         require(
@@ -144,13 +157,76 @@ contract Market is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentranc
 
     /// @notice Sell a position and name where the proceeds go.
     /// @param _proceedsTo Seller's own address or an escrow of theirs; zero is refused
-    function sell(uint256 _projectId, uint256 _price, uint256 _positionIndex, address _proceedsTo)
+    function sell(
+        uint256 _projectId,
+        uint256 _price,
+        uint256 _positionIndex,
+        address _proceedsTo,
+        uint256 _deadline,
+        bytes memory _sig
+    )
         external
         nonReentrant
         returns (uint256 saleId)
     {
+        // The same approval the plain listing uses: _requireOwnPayee already confines the payee to
+        // the seller's own escrow, so there is nothing left for the backend to approve about it.
+        _verifySellSignature(_projectId, _price, _positionIndex, _deadline, _sig);
         _requireOwnPayee(_proceedsTo);
         return _executeSell(msg.sender, _projectId, _price, _positionIndex, _proceedsTo);
+    }
+
+    /// @notice The backend's approval of one listing.
+    /// @dev No nonce: listing empties the position the signature names, and a cancelled lot comes
+    ///      back under a new index, so the same approval cannot be spent twice.
+    function _verifySellSignature(
+        uint256 _projectId,
+        uint256 _price,
+        uint256 _positionIndex,
+        uint256 _deadline,
+        bytes memory _sig
+    ) internal view {
+        require(block.timestamp <= _deadline, "Signature expired");
+        // abi.encode, not encodePacked: seven fixed words, a layout no other signature of this key
+        // repeats. address(this) and chainid keep the approval to this deployment.
+        bytes32 messageHash = keccak256(
+            abi.encode(block.chainid, address(this), msg.sender, _projectId, _price, _positionIndex, _deadline)
+        );
+        _requireTrustedSigner(getFundraise(), messageHash, _sig);
+    }
+
+    /// @dev Eight words, the owner among them: a recovery address can stand behind more than one
+    ///      compromised wallet, and an approval naming one must not list a position of another.
+    ///      The differing length also keeps it apart from the seven-word listing approval.
+    function _verifySellForSignature(
+        address _owner,
+        uint256 _projectId,
+        uint256 _price,
+        uint256 _positionIndex,
+        uint256 _deadline,
+        bytes memory _sig
+    ) internal view {
+        require(block.timestamp <= _deadline, "Signature expired");
+        bytes32 messageHash = keccak256(
+            abi.encode(
+                block.chainid, address(this), msg.sender, _owner, _projectId, _price, _positionIndex, _deadline
+            )
+        );
+        _requireTrustedSigner(getFundraise(), messageHash, _sig);
+    }
+
+    /// @dev Shared by listing and buy, so the two cannot drift apart.
+    function _requireTrustedSigner(address _fundraise, bytes32 _messageHash, bytes memory _sig) internal view {
+        address trustedSignerAddr = IFundraise(_fundraise).trustedSigner();
+        require(trustedSignerAddr != address(0), "Trusted signer not set");
+        bytes32 ethSignedMessageHash = keccak256(
+            abi.encodePacked("\x19Ethereum Signed Message:\n32", _messageHash)
+        );
+        (bytes32 r, bytes32 s, uint8 v) = _splitSignature(_sig);
+        require(uint256(s) <= 0x7FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF5D576E7357A4501DDFE92F46681B20A0, "Invalid signature s");
+        address signer = ecrecover(ethSignedMessageHash, v, r, s);
+        require(signer != address(0), "Invalid signature");
+        require(signer == trustedSignerAddr, "Not trusted signer");
     }
 
     /// @dev Ownership is derived from the address, not asked of it — a look-alike would answer
@@ -232,17 +308,7 @@ contract Market is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentranc
     function buy(uint256 _saleId, bytes memory _sig) external nonReentrant {
         require(_saleId > 0 && _saleId <= saleCount, "Invalid sale ID");
         address fundraiseAddress = getFundraise();
-        address trustedSignerAddr = IFundraise(fundraiseAddress).trustedSigner();
-        require(trustedSignerAddr != address(0), "Trusted signer not set");
-        bytes32 messageHash = keccak256(abi.encodePacked(msg.sender, _saleId));
-        bytes32 ethSignedMessageHash = keccak256(
-            abi.encodePacked("\x19Ethereum Signed Message:\n32", messageHash)
-        );
-        (bytes32 r, bytes32 s, uint8 v) = _splitSignature(_sig);
-        require(uint256(s) <= 0x7FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF5D576E7357A4501DDFE92F46681B20A0, "Invalid signature s");
-        address signer = ecrecover(ethSignedMessageHash, v, r, s);
-        require(signer != address(0), "Invalid signature");
-        require(signer == trustedSignerAddr, "Not trusted signer");
+        _requireTrustedSigner(fundraiseAddress, keccak256(abi.encodePacked(msg.sender, _saleId)), _sig);
         _executeBuy(_saleId, fundraiseAddress);
     }
 

@@ -795,6 +795,21 @@
         "internalType": "uint256",
         "name": "_positionIndex",
         "type": "uint256"
+      },
+      {
+        "internalType": "address",
+        "name": "_proceedsTo",
+        "type": "address"
+      },
+      {
+        "internalType": "uint256",
+        "name": "_deadline",
+        "type": "uint256"
+      },
+      {
+        "internalType": "bytes",
+        "name": "_sig",
+        "type": "bytes"
       }
     ],
     "name": "sell",
@@ -826,9 +841,14 @@
         "type": "uint256"
       },
       {
-        "internalType": "address",
-        "name": "_proceedsTo",
-        "type": "address"
+        "internalType": "uint256",
+        "name": "_deadline",
+        "type": "uint256"
+      },
+      {
+        "internalType": "bytes",
+        "name": "_sig",
+        "type": "bytes"
       }
     ],
     "name": "sell",
@@ -863,6 +883,16 @@
         "internalType": "uint256",
         "name": "_positionIndex",
         "type": "uint256"
+      },
+      {
+        "internalType": "uint256",
+        "name": "_deadline",
+        "type": "uint256"
+      },
+      {
+        "internalType": "bytes",
+        "name": "_sig",
+        "type": "bytes"
       }
     ],
     "name": "sellFor",

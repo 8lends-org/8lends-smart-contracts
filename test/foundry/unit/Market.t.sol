@@ -276,8 +276,7 @@ contract MarketTest is Test {
 
     function test_sell_proceedsToOwnEscrow_isPaidThere() public {
         _withFactory();
-        vm.prank(investor);
-        uint256 saleId = market.sell(PID, 25_000e6, 0, escrow);
+        uint256 saleId = _sellToAs(investor, PID, 25_000e6, 0, escrow);
 
         mockFundraise.setInvestorInfo(market.getSale(saleId).marketCell, PID, 30_000e6, 0);
 
@@ -292,8 +291,7 @@ contract MarketTest is Test {
 
     function test_sell_proceedsToSelf_isAccepted() public {
         _withFactory();
-        vm.prank(investor);
-        uint256 saleId = market.sell(PID, 25_000e6, 0, investor);
+        uint256 saleId = _sellToAs(investor, PID, 25_000e6, 0, investor);
         assertEq(market.getSale(saleId).proceedsTo, investor);
     }
 
@@ -301,33 +299,28 @@ contract MarketTest is Test {
         _withFactory();
 
         vm.expectRevert("Not an escrow of the seller");
-        vm.prank(investor);
-        market.sell(PID, 25_000e6, 0, attacker);
+        _sellToAs(investor, PID, 25_000e6, 0, attacker);
 
         // the escrow belongs to investor, so investor2 may not name it
         mockFundraise.setInvestorInfo(investor2, PID, 30_000e6, 0);
         vm.expectRevert("Not an escrow of the seller");
-        vm.prank(investor2);
-        market.sell(PID, 25_000e6, 0, escrow);
+        _sellToAs(investor2, PID, 25_000e6, 0, escrow);
     }
 
     function test_sell_rejects_a_zero_recipient() public {
         _withFactory();
         vm.expectRevert("Proceeds address is zero");
-        vm.prank(investor);
-        market.sell(PID, 25_000e6, 0, address(0));
+        _sellToAs(investor, PID, 25_000e6, 0, address(0));
     }
 
     function test_sell_with_a_recipient_reverts_while_the_registry_has_no_factory() public {
         vm.expectRevert("Mandate factory not set");
-        vm.prank(investor);
-        market.sell(PID, 25_000e6, 0, escrow);
+        _sellToAs(investor, PID, 25_000e6, 0, escrow);
     }
 
     /// The old entry point keeps paying the wallet.
     function test_sell_withoutRecipient_paysTheSeller() public {
-        vm.prank(investor);
-        uint256 saleId = market.sell(PID, 25_000e6, 0);
+        uint256 saleId = _sellAs(investor, PID, 25_000e6, 0);
         assertEq(market.getSale(saleId).proceedsTo, investor);
 
         mockFundraise.setInvestorInfo(market.getSale(saleId).marketCell, PID, 30_000e6, 0);
@@ -340,8 +333,7 @@ contract MarketTest is Test {
 
     /// Every lot listed before the upgrade holds a zero here; getting it wrong pays address(0).
     function test_buy_aPreUpgradeRecordWithZeroProceedsToPaysTheSeller() public {
-        vm.prank(investor);
-        uint256 saleId = market.sell(PID, 25_000e6, 0);
+        uint256 saleId = _sellAs(investor, PID, 25_000e6, 0);
 
         // sales is storage slot 2; proceedsTo is the 13th member of Sale
         bytes32 base = keccak256(abi.encode(saleId, uint256(2)));
@@ -355,8 +347,7 @@ contract MarketTest is Test {
 
     /// Listing is the only point where the stage is looked at.
     function test_buy_isNotBlockedByTheProjectStage() public {
-        vm.prank(investor);
-        uint256 saleId = market.sell(PID, 25_000e6, 0);
+        uint256 saleId = _sellAs(investor, PID, 25_000e6, 0);
 
         mockFundraise.setInvestorInfo(market.getSale(saleId).marketCell, PID, 30_000e6, 0);
         vm.prank(owner);
@@ -368,8 +359,7 @@ contract MarketTest is Test {
 
     function test_setSaleProceedsTo_movesAnAlreadyListedLot() public {
         _withFactory();
-        vm.prank(investor);
-        uint256 saleId = market.sell(PID, 25_000e6, 0);
+        uint256 saleId = _sellAs(investor, PID, 25_000e6, 0);
 
         vm.prank(investor);
         market.setSaleProceedsTo(saleId, escrow);
@@ -389,8 +379,7 @@ contract MarketTest is Test {
 
     function test_setSaleProceedsTo_isSellerOnly_andActiveOnly() public {
         _withFactory();
-        vm.prank(investor);
-        uint256 saleId = market.sell(PID, 25_000e6, 0);
+        uint256 saleId = _sellAs(investor, PID, 25_000e6, 0);
 
         vm.expectRevert("Not seller");
         vm.prank(attacker);
@@ -406,10 +395,11 @@ contract MarketTest is Test {
 
     function test_setSaleProceedsToMany_isAllOrNothing() public {
         _withFactory();
+        uint256 dl = block.timestamp + 15 minutes;
         vm.startPrank(investor);
-        uint256 a = market.sell(PID, 25_000e6, 0);
+        uint256 a = market.sell(PID, 25_000e6, 0, dl, _signMarketSell(investor, PID, 25_000e6, 0, dl));
         mockFundraise.addPosition(investor, PID, 10_000e6, 0);
-        uint256 b = market.sell(PID, 5_000e6, 1);
+        uint256 b = market.sell(PID, 5_000e6, 1, dl, _signMarketSell(investor, PID, 5_000e6, 1, dl));
         vm.stopPrank();
 
         uint256[] memory ids = new uint256[](3);
@@ -425,8 +415,7 @@ contract MarketTest is Test {
 
     /// The lot listed before the chain was set still settles, and settles to the recovery address.
     function test_buy_fromACompromisedSeller_paysTheRecoveryAddress() public {
-        vm.prank(investor);
-        uint256 saleId = market.sell(PID, 25_000e6, 0);
+        uint256 saleId = _sellAs(investor, PID, 25_000e6, 0);
 
         address recovery = makeAddr("recovery");
         vm.prank(owner);
@@ -442,8 +431,7 @@ contract MarketTest is Test {
     /// The flag outranks the recorded payee, chosen with a key that is no longer the owner's.
     function test_buy_compromiseOutranksTheRecordedPayee() public {
         _withFactory();
-        vm.prank(investor);
-        uint256 saleId = market.sell(PID, 25_000e6, 0, escrow);
+        uint256 saleId = _sellToAs(investor, PID, 25_000e6, 0, escrow);
 
         address recovery = makeAddr("recovery");
         vm.prank(owner);
@@ -463,8 +451,7 @@ contract MarketTest is Test {
         mockRegistry.setInvestorClaimAddress(investor, recovery);
 
         vm.expectRevert("Seller is compromised");
-        vm.prank(investor);
-        market.sell(PID, 25_000e6, 0);
+        _sellAs(investor, PID, 25_000e6, 0);
     }
 
     /// ...but the recovery address may list in their place. The position is still recorded under
@@ -475,8 +462,7 @@ contract MarketTest is Test {
         vm.prank(owner);
         mockRegistry.setInvestorClaimAddress(investor, recovery);
 
-        vm.prank(recovery);
-        uint256 saleId = market.sellFor(investor, PID, 25_000e6, 0);
+        uint256 saleId = _sellForAs(recovery, investor, PID, 25_000e6, 0);
 
         assertEq(market.getSale(saleId).seller, investor, "booked under the position holder");
         assertEq(market.activePositionSaleIds(investor, PID, 0), saleId, "and keyed under them");
@@ -486,16 +472,14 @@ contract MarketTest is Test {
     /// A lot the attacker put up before the chain was set still occupies the slot. Keying the guard
     /// on the position holder rather than the caller is what makes the two addresses collide here.
     function test_sell_byTheRecoveryAddress_collidesWithAnEarlierListing() public {
-        vm.prank(investor);
-        market.sell(PID, 25_000e6, 0);
+        _sellAs(investor, PID, 25_000e6, 0);
 
         address recovery = makeAddr("recovery");
         vm.prank(owner);
         mockRegistry.setInvestorClaimAddress(investor, recovery);
 
         vm.expectRevert("Active sale exists for position");
-        vm.prank(recovery);
-        market.sellFor(investor, PID, 20_000e6, 0);
+        _sellForAs(recovery, investor, PID, 20_000e6, 0);
     }
 
     /// A -> B -> C: only the live end may list. B is a superseded link and gets the same refusal as
@@ -509,15 +493,12 @@ contract MarketTest is Test {
         vm.stopPrank();
 
         vm.expectRevert("Seller is compromised");
-        vm.prank(investor);
-        market.sell(PID, 25_000e6, 0);
+        _sellAs(investor, PID, 25_000e6, 0);
 
         vm.expectRevert("Not the recovery address");
-        vm.prank(b);
-        market.sellFor(investor, PID, 25_000e6, 0);
+        _sellForAs(b, investor, PID, 25_000e6, 0);
 
-        vm.prank(c);
-        uint256 saleId = market.sellFor(investor, PID, 25_000e6, 0);
+        uint256 saleId = _sellForAs(c, investor, PID, 25_000e6, 0);
         assertEq(market.getSale(saleId).seller, investor, "still the position holder");
     }
 
@@ -529,8 +510,7 @@ contract MarketTest is Test {
         vm.prank(owner);
         mockRegistry.setInvestorClaimAddress(investor, recovery);
 
-        vm.prank(recovery);
-        uint256 saleId = market.sellFor(investor, PID, 25_000e6, 0);
+        uint256 saleId = _sellForAs(recovery, investor, PID, 25_000e6, 0);
 
         vm.expectRevert("Not seller");
         vm.prank(investor);
@@ -553,8 +533,7 @@ contract MarketTest is Test {
         // that matters — the recovery address goes on investing from its new wallet.
         mockFundraise.setInvestorInfo(recovery, PID, 12_000e6, 0);
 
-        vm.prank(recovery);
-        uint256 saleId = market.sell(PID, 9_000e6, 0);
+        uint256 saleId = _sellAs(recovery, PID, 9_000e6, 0);
 
         assertEq(market.getSale(saleId).seller, recovery, "their own lot, booked to them");
         assertEq(market.activePositionSaleIds(recovery, PID, 0), saleId);
@@ -573,9 +552,10 @@ contract MarketTest is Test {
 
         mockFundraise.setInvestorInfo(b, PID, 18_000e6, 0);
 
+        uint256 dl = block.timestamp + 15 minutes;
         vm.startPrank(c);
-        uint256 fromA = market.sellFor(investor, PID, 25_000e6, 0);
-        uint256 fromB = market.sellFor(b, PID, 14_000e6, 0);
+        uint256 fromA = market.sellFor(investor, PID, 25_000e6, 0, dl, _signMarketSellFor(c, investor, PID, 25_000e6, 0, dl));
+        uint256 fromB = market.sellFor(b, PID, 14_000e6, 0, dl, _signMarketSellFor(c, b, PID, 14_000e6, 0, dl));
         vm.stopPrank();
 
         assertEq(market.getSale(fromA).seller, investor, "booked under the first link");
@@ -589,8 +569,7 @@ contract MarketTest is Test {
         vm.prank(owner);
         mockRegistry.setInvestorClaimAddress(investor, recovery);
 
-        vm.prank(recovery);
-        uint256 saleId = market.sellFor(investor, PID, 25_000e6, 0);
+        uint256 saleId = _sellForAs(recovery, investor, PID, 25_000e6, 0);
 
         mockFundraise.setInvestorInfo(market.getSale(saleId).marketCell, PID, 30_000e6, 0);
         _buy(saleId, investor2);
@@ -605,8 +584,7 @@ contract MarketTest is Test {
 
     /// A compromised seller cannot relist, so returning the position is all that is left to them.
     function test_cancel_byTheRecoveryAddress() public {
-        vm.prank(investor);
-        uint256 saleId = market.sell(PID, 25_000e6, 0);
+        uint256 saleId = _sellAs(investor, PID, 25_000e6, 0);
 
         address recovery = makeAddr("recovery");
         vm.prank(owner);
@@ -619,8 +597,7 @@ contract MarketTest is Test {
 
     /// Cancelling must never be blockable: otherwise the position stays on an address with no owner.
     function test_cancel_worksAtAnyProjectStage() public {
-        vm.prank(investor);
-        uint256 saleId = market.sell(PID, 25_000e6, 0);
+        uint256 saleId = _sellAs(investor, PID, 25_000e6, 0);
 
         vm.prank(owner);
         mockFundraise.setProject(PID, IFundraise.Stage.Repaid, INTEREST_RATE, address(usdc));
@@ -631,8 +608,7 @@ contract MarketTest is Test {
     }
 
     function test_cancel_notByAnOperatorOrAnyoneElse() public {
-        vm.prank(investor);
-        uint256 saleId = market.sell(PID, 25_000e6, 0);
+        uint256 saleId = _sellAs(investor, PID, 25_000e6, 0);
 
         vm.expectRevert("Not seller");
         vm.prank(attacker);
@@ -646,8 +622,7 @@ contract MarketTest is Test {
     function test_sell_createsActiveSale() public {
         uint256 price = 25_000e6;
 
-        vm.prank(investor);
-        uint256 saleId = market.sell(PID, price, 0);
+        uint256 saleId = _sellAs(investor, PID, price, 0);
 
         assertEq(saleId, 1);
         assertEq(market.saleCount(), 1);
@@ -661,32 +636,100 @@ contract MarketTest is Test {
         assertTrue(sale.marketCell != address(0));
     }
 
-    function test_sell_revert_noInvestment() public {
-        vm.prank(attacker);
-        vm.expectRevert("Position index out of bounds");
-        market.sell(PID, 1_000e6, 0);
+    // ═══════════════════════════════════════════════════════════════
+    //              LISTING NEEDS THE BACKEND (EL-2037)
+    // ═══════════════════════════════════════════════════════════════
+
+    function test_sell_revert_expiredSignature() public {
+        uint256 dl = block.timestamp + 15 minutes;
+        bytes memory sellSig = _signMarketSell(investor, PID, 10_000e6, 0, dl);
+
+        vm.warp(dl + 1);
+        vm.prank(investor);
+        vm.expectRevert("Signature expired");
+        market.sell(PID, 10_000e6, 0, dl, sellSig);
     }
 
-    function test_sell_revert_zeroPrice() public {
+    /// @dev Every field is signed, so none can be swapped on the way to the contract.
+    function test_sell_revert_approvalOfAnotherSeller() public {
+        uint256 dl = block.timestamp + 15 minutes;
+        bytes memory sellSig = _signMarketSell(investor2, PID, 10_000e6, 0, dl);
+
         vm.prank(investor);
-        vm.expectRevert("Price must be greater than zero");
-        market.sell(PID, 0, 0);
+        vm.expectRevert("Not trusted signer");
+        market.sell(PID, 10_000e6, 0, dl, sellSig);
     }
 
-    function test_sell_revert_duplicateActiveSale() public {
+    /// @dev The approval names this Market and this chain, so one issued for the other network
+    ///      does not open this one.
+    function test_sell_revert_approvalForAnotherMarket() public {
+        uint256 dl = block.timestamp + 15 minutes;
+        bytes32 messageHash = keccak256(
+            abi.encode(block.chainid, address(0xBEEF), investor, PID, uint256(10_000e6), uint256(0), dl)
+        );
+        bytes32 ethSigned = keccak256(abi.encodePacked("\x19Ethereum Signed Message:\n32", messageHash));
+        (uint8 v, bytes32 r, bytes32 s) = vm.sign(backendPk, ethSigned);
+
         vm.prank(investor);
-        market.sell(PID, 10_000e6, 0);
+        vm.expectRevert("Not trusted signer");
+        market.sell(PID, 10_000e6, 0, dl, abi.encodePacked(r, s, v));
+    }
+
+    /// @dev A buy approval is a bare keccak(buyer, saleId) under the same key.
+    function test_sell_revert_buyApprovalPresentedAsListing() public {
+        bytes memory buySig = _signMarketBuy(investor, 1);
+
+        vm.prank(investor);
+        vm.expectRevert("Not trusted signer");
+        market.sell(PID, 10_000e6, 0, block.timestamp + 15 minutes, buySig);
+    }
+
+    /// @dev What stands in for a nonce: the listing empties the position the approval names.
+    function test_sell_revert_replayOfTheSameApproval() public {
+        uint256 dl = block.timestamp + 15 minutes;
+        bytes memory sellSig = _signMarketSell(investor, PID, 10_000e6, 0, dl);
+
+        vm.prank(investor);
+        market.sell(PID, 10_000e6, 0, dl, sellSig);
 
         vm.prank(investor);
         vm.expectRevert("Active sale exists for position");
-        market.sell(PID, 10_000e6, 0);
+        market.sell(PID, 10_000e6, 0, dl, sellSig);
+    }
+
+    function test_sell_revert_noInvestment() public {
+        uint256 dl = block.timestamp + 15 minutes;
+        bytes memory sellSig = _signMarketSell(attacker, PID, 1_000e6, 0, dl);
+        vm.prank(attacker);
+        vm.expectRevert("Position index out of bounds");
+        market.sell(PID, 1_000e6, 0, dl, sellSig);
+    }
+
+    function test_sell_revert_zeroPrice() public {
+        uint256 dl = block.timestamp + 15 minutes;
+        bytes memory sellSig = _signMarketSell(investor, PID, 0, 0, dl);
+        vm.prank(investor);
+        vm.expectRevert("Price must be greater than zero");
+        market.sell(PID, 0, 0, dl, sellSig);
+    }
+
+    function test_sell_revert_duplicateActiveSale() public {
+        _sellAs(investor, PID, 10_000e6, 0);
+
+        uint256 dl = block.timestamp + 15 minutes;
+        bytes memory sellSig = _signMarketSell(investor, PID, 10_000e6, 0, dl);
+        vm.prank(investor);
+        vm.expectRevert("Active sale exists for position");
+        market.sell(PID, 10_000e6, 0, dl, sellSig);
     }
 
     function test_sell_revert_priceExceedsBuyerReturn() public {
         // maxReturn = 30_000e6 + 30_000e6 * 200_000 / 1_000_000 = 36_000e6
+        uint256 dl = block.timestamp + 15 minutes;
+        bytes memory sellSig = _signMarketSell(investor, PID, 36_001e6, 0, dl);
         vm.prank(investor);
         vm.expectRevert("Price exceeds buyer return");
-        market.sell(PID, 36_001e6, 0);
+        market.sell(PID, 36_001e6, 0, dl, sellSig);
     }
 
     // ── the ceiling and the watermark ───────────────────────────────────────────
@@ -713,9 +756,11 @@ contract MarketTest is Test {
         mockFundraise.setPositions(investor2, 1, split);
         vm.stopPrank();
 
+        uint256 dl = block.timestamp + 15 minutes;
+        bytes memory sg = _signMarketSell(investor2, 1, 1, 0, dl);
         vm.prank(investor2);
         vm.expectRevert("Price exceeds buyer return");
-        market.sell(1, 1, 0);
+        market.sell(1, 1, 0, dl, sg);
     }
 
     /// @dev The other half: a lot may not be priced above what its buyer can claim back. The
@@ -751,9 +796,11 @@ contract MarketTest is Test {
         uint256 canClaim = Math.mulDiv(debt, position, total);
         uint256 room = canClaim > carried ? canClaim - carried : 0;
 
+        uint256 dl = block.timestamp + 15 minutes;
+        bytes memory sg = _signMarketSell(investor2, 1, room + 1, 0, dl);
         vm.prank(investor2);
         vm.expectRevert("Price exceeds buyer return");
-        market.sell(1, room + 1, 0);
+        market.sell(1, room + 1, 0, dl, sg);
     }
 
     function test_sell_revert_notFundedProject() public {
@@ -762,9 +809,11 @@ contract MarketTest is Test {
         vm.prank(owner);
         mockFundraise.setInvestorInfo(investor2, 1, 10_000e6, 0);
 
+        uint256 dl = block.timestamp + 15 minutes;
+        bytes memory sellSig = _signMarketSell(investor2, 1, 5_000e6, 0, dl);
         vm.prank(investor2);
         vm.expectRevert("Only funded projects can be sold");
-        market.sell(1, 5_000e6, 0);
+        market.sell(1, 5_000e6, 0, dl, sellSig);
     }
 
     // ═══════════════════════════════════════════════════════════════
@@ -780,11 +829,39 @@ contract MarketTest is Test {
         sig = abi.encodePacked(r, s, v);
     }
 
+    // ── Backend (trustedSigner) approval of one listing, as Market.sell expects ──
+    function _signMarketSell(
+        address seller,
+        uint256 projectId,
+        uint256 price,
+        uint256 positionIndex,
+        uint256 deadline
+    ) internal view returns (bytes memory sig) {
+        bytes32 messageHash = keccak256(
+            abi.encode(block.chainid, address(market), seller, projectId, price, positionIndex, deadline)
+        );
+        bytes32 ethSignedMessageHash = keccak256(
+            abi.encodePacked("\x19Ethereum Signed Message:\n32", messageHash)
+        );
+        (uint8 v, bytes32 r, bytes32 s) = vm.sign(backendPk, ethSignedMessageHash);
+        sig = abi.encodePacked(r, s, v);
+    }
+
+    /// @notice List a position as `seller`, with a fresh backend approval.
+    function _sellAs(address seller, uint256 projectId, uint256 price, uint256 positionIndex)
+        internal
+        returns (uint256 saleId)
+    {
+        uint256 deadline = block.timestamp + 15 minutes;
+        bytes memory sig = _signMarketSell(seller, projectId, price, positionIndex, deadline);
+        vm.prank(seller);
+        return market.sell(projectId, price, positionIndex, deadline, sig);
+    }
+
     function test_buy_success_noFee() public {
         uint256 price = 25_000e6;
 
-        vm.prank(investor);
-        uint256 saleId = market.sell(PID, price, 0);
+        uint256 saleId = _sellAs(investor, PID, price, 0);
 
         // Set investor info for marketCell (the mock transferPosition moves no data)
         Market.Sale memory sale = market.getSale(saleId);
@@ -813,8 +890,7 @@ contract MarketTest is Test {
         market.setPlatformFee(50_000);
 
         uint256 price = 10_000e6;
-        vm.prank(investor);
-        uint256 saleId = market.sell(PID, price, 0);
+        uint256 saleId = _sellAs(investor, PID, price, 0);
 
         Market.Sale memory sale = market.getSale(saleId);
         vm.prank(owner);
@@ -839,8 +915,7 @@ contract MarketTest is Test {
     }
 
     function test_buy_revert_invalidSignature() public {
-        vm.prank(investor);
-        uint256 saleId = market.sell(PID, 10_000e6, 0);
+        uint256 saleId = _sellAs(investor, PID, 10_000e6, 0);
 
         Market.Sale memory sale = market.getSale(saleId);
         vm.prank(owner);
@@ -865,8 +940,7 @@ contract MarketTest is Test {
     }
 
     function test_buy_revert_sellerCannotBuyOwn() public {
-        vm.prank(investor);
-        uint256 saleId = market.sell(PID, 10_000e6, 0);
+        uint256 saleId = _sellAs(investor, PID, 10_000e6, 0);
 
         Market.Sale memory sale = market.getSale(saleId);
         vm.prank(owner);
@@ -885,8 +959,7 @@ contract MarketTest is Test {
     }
 
     function test_buy_revert_notActive() public {
-        vm.prank(investor);
-        uint256 saleId = market.sell(PID, 10_000e6, 0);
+        uint256 saleId = _sellAs(investor, PID, 10_000e6, 0);
 
         vm.prank(investor);
         market.cancel(saleId);
@@ -915,8 +988,7 @@ contract MarketTest is Test {
     // ═══════════════════════════════════════════════════════════════
 
     function test_cancel_success() public {
-        vm.prank(investor);
-        uint256 saleId = market.sell(PID, 10_000e6, 0);
+        uint256 saleId = _sellAs(investor, PID, 10_000e6, 0);
 
         vm.prank(investor);
         market.cancel(saleId);
@@ -926,8 +998,7 @@ contract MarketTest is Test {
     }
 
     function test_cancel_revert_notSeller() public {
-        vm.prank(investor);
-        uint256 saleId = market.sell(PID, 10_000e6, 0);
+        uint256 saleId = _sellAs(investor, PID, 10_000e6, 0);
 
         vm.prank(attacker);
         vm.expectRevert("Not seller");
@@ -935,8 +1006,7 @@ contract MarketTest is Test {
     }
 
     function test_cancel_revert_notActive() public {
-        vm.prank(investor);
-        uint256 saleId = market.sell(PID, 10_000e6, 0);
+        uint256 saleId = _sellAs(investor, PID, 10_000e6, 0);
 
         vm.prank(investor);
         market.cancel(saleId);
@@ -947,14 +1017,12 @@ contract MarketTest is Test {
     }
 
     function test_cancel_allowsNewSale() public {
-        vm.prank(investor);
-        uint256 saleId1 = market.sell(PID, 10_000e6, 0);
+        uint256 saleId1 = _sellAs(investor, PID, 10_000e6, 0);
 
         vm.prank(investor);
         market.cancel(saleId1);
 
-        vm.prank(investor);
-        uint256 saleId2 = market.sell(PID, 15_000e6, 0);
+        uint256 saleId2 = _sellAs(investor, PID, 15_000e6, 0);
         assertGt(saleId2, saleId1);
     }
 
@@ -986,8 +1054,7 @@ contract MarketTest is Test {
         market.setPlatformFee(50_000);
 
         uint256 price = 10_000e6;
-        vm.prank(investor);
-        uint256 saleId = market.sell(PID, price, 0);
+        uint256 saleId = _sellAs(investor, PID, price, 0);
 
         Market.Sale memory sale = market.getSale(saleId);
         vm.prank(owner);
@@ -1036,8 +1103,7 @@ contract MarketTest is Test {
 
     function test_getSoldSales_tracksSales() public {
         uint256 price = 10_000e6;
-        vm.prank(investor);
-        uint256 saleId = market.sell(PID, price, 0);
+        uint256 saleId = _sellAs(investor, PID, price, 0);
 
         Market.Sale memory sale = market.getSale(saleId);
         vm.prank(owner);
@@ -1059,8 +1125,7 @@ contract MarketTest is Test {
 
     function test_getBoughtSales_tracksPurchases() public {
         uint256 price = 10_000e6;
-        vm.prank(investor);
-        uint256 saleId = market.sell(PID, price, 0);
+        uint256 saleId = _sellAs(investor, PID, price, 0);
 
         Market.Sale memory sale = market.getSale(saleId);
         vm.prank(owner);
@@ -1092,8 +1157,7 @@ contract MarketTest is Test {
     }
 
     function test_upgrade_success() public {
-        vm.prank(investor);
-        uint256 saleId = market.sell(PID, 10_000e6, 0);
+        uint256 saleId = _sellAs(investor, PID, 10_000e6, 0);
         uint256 feeBefore = market.platformFee();
         uint256 countBefore = market.saleCount();
 
@@ -1117,10 +1181,12 @@ contract MarketTest is Test {
     // ═══════════════════════════════════════════════════════════════
 
     function test_sell_emitsSaleCreated() public {
+        uint256 dl = block.timestamp + 15 minutes;
+        bytes memory sellSig = _signMarketSell(investor, PID, 10_000e6, 0, dl);
         vm.prank(investor);
         vm.expectEmit(true, true, true, false);
         emit Market.SaleCreated(1, investor, PID, address(0), 10_000e6);
-        market.sell(PID, 10_000e6, 0);
+        market.sell(PID, 10_000e6, 0, dl, sellSig);
     }
 
     // ═══════════════════════════════════════════════════════════════
@@ -1134,8 +1200,7 @@ contract MarketTest is Test {
 
         // Step 1: investor sells their position
         uint256 price = 25_000e6;
-        vm.prank(investor);
-        uint256 saleId = market.sell(PID, price, 0);
+        uint256 saleId = _sellAs(investor, PID, price, 0);
 
         // Step 2: simulate that investor had secondary invested amount from a prior purchase
         // We need a prior buy to set secondaryInvestedAmount for investor.
@@ -1149,8 +1214,7 @@ contract MarketTest is Test {
         mockFundraise.setInvestorInfo(investor2, PID2, 10_000e6, 0);
 
         // investor2 sells
-        vm.prank(investor2);
-        uint256 saleId2 = market.sell(PID2, 8_000e6, 0);
+        uint256 saleId2 = _sellAs(investor2, PID2, 8_000e6, 0);
         Market.Sale memory sale2 = market.getSale(saleId2);
 
         // set marketCell info for buy
@@ -1172,8 +1236,7 @@ contract MarketTest is Test {
         vm.prank(owner);
         mockFundraise.setInvestorInfo(investor, PID2, 10_000e6, 0);
 
-        vm.prank(investor);
-        uint256 saleId3 = market.sell(PID2, 7_000e6, 0);
+        uint256 saleId3 = _sellAs(investor, PID2, 7_000e6, 0);
         Market.Sale memory sale3 = market.getSale(saleId3);
 
         // secondary should NOT be reset at sell time (only at buy time)
@@ -1205,8 +1268,7 @@ contract MarketTest is Test {
         mockFundraise.setInvestorInfo(investor2, PID2, 5_000e6, 0);
 
         // investor2 sells to investor → investor gets secondary
-        vm.prank(investor2);
-        uint256 saleId = market.sell(PID2, 4_000e6, 0);
+        uint256 saleId = _sellAs(investor2, PID2, 4_000e6, 0);
         Market.Sale memory sale = market.getSale(saleId);
         vm.prank(owner);
         mockFundraise.setInvestorInfo(sale.marketCell, PID2, 5_000e6, 0);
@@ -1225,8 +1287,7 @@ contract MarketTest is Test {
         vm.prank(owner);
         mockFundraise.setInvestorInfo(investor, PID2, 5_000e6, 0);
 
-        vm.prank(investor);
-        uint256 saleId2 = market.sell(PID2, 3_000e6, 0);
+        uint256 saleId2 = _sellAs(investor, PID2, 3_000e6, 0);
 
         vm.prank(investor);
         market.cancel(saleId2);
@@ -1244,8 +1305,7 @@ contract MarketTest is Test {
         mockFundraise.setInvestorInfo(investor2, PID2, 8_000e6, 0);
 
         // investor2 sells to investor
-        vm.prank(investor2);
-        uint256 saleId = market.sell(PID2, 6_000e6, 0);
+        uint256 saleId = _sellAs(investor2, PID2, 6_000e6, 0);
         Market.Sale memory sale = market.getSale(saleId);
         vm.prank(owner);
         mockFundraise.setInvestorInfo(sale.marketCell, PID2, 8_000e6, 0);
@@ -1263,8 +1323,7 @@ contract MarketTest is Test {
         // investor resells
         vm.prank(owner);
         mockFundraise.setInvestorInfo(investor, PID2, 8_000e6, 0);
-        vm.prank(investor);
-        uint256 saleId2 = market.sell(PID2, 5_000e6, 0);
+        uint256 saleId2 = _sellAs(investor, PID2, 5_000e6, 0);
         Market.Sale memory sale2 = market.getSale(saleId2);
         vm.prank(owner);
         mockFundraise.setInvestorInfo(sale2.marketCell, PID2, 8_000e6, 0);
@@ -1288,12 +1347,53 @@ contract MarketTest is Test {
     }
 
     function test_cancel_emitsSaleCancelled() public {
-        vm.prank(investor);
-        uint256 saleId = market.sell(PID, 10_000e6, 0);
+        uint256 saleId = _sellAs(investor, PID, 10_000e6, 0);
 
         vm.prank(investor);
         vm.expectEmit(true, true, true, true);
         emit Market.SaleCancelled(saleId, investor, PID);
         market.cancel(saleId);
     }
+
+    function _signMarketSellFor(
+        address caller,
+        address owner_,
+        uint256 projectId,
+        uint256 price,
+        uint256 positionIndex,
+        uint256 deadline
+    ) internal view returns (bytes memory sig) {
+        bytes32 messageHash = keccak256(
+            abi.encode(block.chainid, address(market), caller, owner_, projectId, price, positionIndex, deadline)
+        );
+        bytes32 ethSignedMessageHash = keccak256(
+            abi.encodePacked("\x19Ethereum Signed Message:\n32", messageHash)
+        );
+        (uint8 v, bytes32 r, bytes32 s) = vm.sign(backendPk, ethSignedMessageHash);
+        sig = abi.encodePacked(r, s, v);
+    }
+
+    /// @notice List as `seller` and name where the proceeds go. The payee is not part of the
+    ///         approval, so this reuses the plain listing signature.
+    function _sellToAs(address seller, uint256 projectId, uint256 price, uint256 positionIndex, address payee)
+        internal
+        returns (uint256 saleId)
+    {
+        uint256 deadline = block.timestamp + 15 minutes;
+        bytes memory sig = _signMarketSell(seller, projectId, price, positionIndex, deadline);
+        vm.prank(seller);
+        return market.sell(projectId, price, positionIndex, payee, deadline, sig);
+    }
+
+    /// @notice List `owner_`'s position from its recovery address `caller`.
+    function _sellForAs(address caller, address owner_, uint256 projectId, uint256 price, uint256 positionIndex)
+        internal
+        returns (uint256 saleId)
+    {
+        uint256 deadline = block.timestamp + 15 minutes;
+        bytes memory sig = _signMarketSellFor(caller, owner_, projectId, price, positionIndex, deadline);
+        vm.prank(caller);
+        return market.sellFor(owner_, projectId, price, positionIndex, deadline, sig);
+    }
+
 }

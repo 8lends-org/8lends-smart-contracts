@@ -198,8 +198,7 @@ contract MandateIntegrationTest is Setup {
         assertGt(interestBefore, 0, "interest went to the wallet");
 
         // the owner lists the position and changes their mind
-        vm.prank(investor);
-        uint256 saleId = market.sell(pid, 1e6, 0);
+        uint256 saleId = _listAs(investor, pid, 1e6, 0);
         (uint256 inv, ) = _position(investor, pid);
         assertEq(inv, 0, "the books read as if the owner left");
 
@@ -224,8 +223,7 @@ contract MandateIntegrationTest is Setup {
         _collect(pid);
 
         // list the whole position and let investor2 buy it
-        vm.prank(investor);
-        uint256 saleId = market.sell(pid, 1e6, 0);
+        uint256 saleId = _listAs(investor, pid, 1e6, 0);
         _buy(saleId, investor2);
 
         (uint256 inv, ) = _position(investor, pid);
@@ -285,4 +283,20 @@ contract MandateIntegrationTest is Setup {
         vm.prank(buyer);
         market.buy(saleId, abi.encodePacked(r, s, v));
     }
+
+    /// @notice List `seller`'s position with a fresh backend approval.
+    function _listAs(address seller, uint256 pid_, uint256 price, uint256 posIndex)
+        internal
+        returns (uint256 saleId)
+    {
+        uint256 deadline = block.timestamp + 15 minutes;
+        bytes32 inner = keccak256(
+            abi.encode(block.chainid, address(market), seller, pid_, price, posIndex, deadline)
+        );
+        (uint8 v, bytes32 r, bytes32 ss) =
+            vm.sign(backendPk, keccak256(abi.encodePacked("\x19Ethereum Signed Message:\n32", inner)));
+        vm.prank(seller);
+        return market.sell(pid_, price, posIndex, deadline, abi.encodePacked(r, ss, v));
+    }
+
 }
