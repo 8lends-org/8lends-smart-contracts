@@ -240,23 +240,22 @@
   },
   "Market": {
     "proxy": "0xCe6F6905e19ED493556Eb57893ee19A417490356",
-    "impl": "0x9C4306DF9CA1e3Be80037Ee16717B85b81AE4084",
-    "buildHash": "0xc0abdc3c822dfbcd1c345e3cd532c3528faa36776e760afee14243e355ddece1",
+    "impl": "0x02fAc2389559297Dc9E0df14760a0Cfa65d75B1F",
+    "buildHash": "0xacdb4a1e40e447feaccef4bfb5bcc24b60f37c6e73ea1adde807ca965ea2fb17",
     "matchesDeployed": true,
-    "deployedFrom": "ca4db50",
-    "deployedAt": "Jun-06-2026",
+    "deployedFrom": "a200c1d",
+    "deployedAt": "Oct-06-2026",
     "build": {
       "solc": "v0.8.23+commit.f704f362",
       "optimizer": {
         "enabled": true,
         "runs": 50,
         "details": {
-          "yul": false
+          "yul": true
         }
       },
       "evmVersion": "paris"
-    },
-    "pendingImpl": "0x02fAc2389559297Dc9E0df14760a0Cfa65d75B1F"
+    }
   },
   "Oracle": {
     "proxy": "0x3E7fA4be80EeC9549E26D51aDb74365684F8eB5F",
