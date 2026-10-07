@@ -121,38 +121,36 @@ contract CriticalFindingsTest is Setup {
     }
 
     // ═══════════════════════════════════════════════════════════════
-    //   HIGH-4: OWNER CAN DRAIN REWARDSYSTEM VESTING TOKENS
-    //   Owner.withdraw() can pull tokens that users are vesting,
-    //   making their claims fail with "Not enough tokens to claim".
+    //   HIGH-4: OWNER CAN DRAIN WHAT USERS ARE VESTING
+    //   Vesting is paid in USDC, so the token balance no longer backs
+    //   it — but withdraw() reaches the USDC float the same way.
     // ═══════════════════════════════════════════════════════════════
 
-    function test_HIGH4_ownerDrainsVestingTokens() public {
+    function test_HIGH4_ownerDrainsVestingFloat() public {
         // Create vesting in Rewards2
         address[] memory users = new address[](1);
         users[0] = investor;
         uint256[] memory amounts = new uint256[](1);
         amounts[0] = 10_000e18;
 
-        vm.prank(owner);
-        token.mint(address(rewards2), 10_000e18);
-
-        vm.prank(owner);
+        vm.startPrank(owner);
         rewards2.createVesting(users, amounts);
+        rewards2.setRedemptionRate(20_000);
+        usdc.mint(address(rewards2), 200e6);
+        vm.stopPrank();
 
         // Warp 41 weeks — fully vested
         vm.warp(block.timestamp + 41 weeks);
 
-        // Owner drains tokens meant for vesting
+        // Owner drains the USDC the vesting is paid out of
         vm.prank(owner);
-        token.enableBuying(); // needed for transfer to work
-        vm.prank(owner);
-        rewards2.withdraw(address(token), 10_000e18, attacker);
+        rewards2.withdraw(address(usdc), 200e6, attacker);
 
-        assertEq(token.balanceOf(attacker), 10_000e18, "Attacker got vesting tokens");
+        assertEq(usdc.balanceOf(attacker), 200e6, "Attacker got the vesting float");
 
         // Investor tries to claim — fails
         vm.prank(investor);
-        vm.expectRevert("Not enough tokens to claim");
+        vm.expectRevert("Not enough USDC to claim");
         rewards2.claim();
     }
 

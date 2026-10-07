@@ -8,6 +8,8 @@ contract RewardVestingFuzzTest is Setup {
     uint256 constant BP = 1_000_000;
     uint256 constant WEEKLY_UNLOCK = 25_000; // 2.5%
     uint256 constant VESTING_WEEKS = 40;
+    /// @dev $0.02 per token: six-decimal USDC against an eighteen-decimal token.
+    uint256 constant RATE = 20_000;
 
     // ═══════════════════════════════════════════════════════════════
     //     PURE MATH: vesting unlock formula
@@ -118,36 +120,39 @@ contract RewardVestingFuzzTest is Setup {
 
         vm.prank(owner);
         rewards2.createVesting(users, amounts);
-        vm.prank(owner);
-        token.mint(address(rewards2), totalAmount);
+        vm.startPrank(owner);
+        rewards2.setRedemptionRate(RATE);
+        usdc.mint(address(rewards2), totalAmount * RATE / 1e18 + 1e6);
+        vm.stopPrank();
 
         // Claim at weeks1
         vm.warp(block.timestamp + weeks1 * 1 weeks);
         vm.prank(investor);
         rewards2.claim();
 
-        uint256 firstClaim = token.balanceOf(investor);
-        uint256 expectedFirst = _calcUnlock(totalAmount, weeks1);
-        assertEq(firstClaim, expectedFirst, "First claim amount");
+        uint256 firstSlice = _calcUnlock(totalAmount, weeks1);
+        assertEq(usdc.balanceOf(investor), firstSlice * RATE / 1e18, "First claim amount");
 
         // Claim at weeks2
+        uint256 balBefore = usdc.balanceOf(investor);
         vm.warp(block.timestamp + (weeks2 - weeks1) * 1 weeks);
         vm.prank(investor);
         rewards2.claim();
 
-        uint256 totalClaimed = token.balanceOf(investor);
-        uint256 expectedTotal = _calcUnlock(totalAmount, weeks2);
-        assertEq(totalClaimed, expectedTotal, "Total claimed after second claim");
+        uint256 secondSlice = _calcUnlock(totalAmount, weeks2) - firstSlice;
+        assertEq(usdc.balanceOf(investor) - balBefore, secondSlice * RATE / 1e18, "Second claim amount");
 
-        // Run the schedule out: the holder must end up with all of it, not almost all. Everything
-        // above bounds the payout from the top or compares it with the test's own copy of the
-        // formula, so without this a schedule that leaked a little every week would pass.
+        // Run the schedule out: the holder must end up with the whole grant, not almost all of it.
+        // Everything above compares one slice with the test's own copy of the formula, so without
+        // this a schedule that leaked a little every week would pass.
         vm.warp(block.timestamp + 60 weeks);
-        if (token.balanceOf(investor) < totalAmount) {
+        (,, uint256 left,,) = rewards2.getVestingInfo(investor, 0);
+        if (left > 0) {
             vm.prank(investor);
             rewards2.claim(); // reverts on nothing left, and weeks2 may already have taken it all
         }
-        assertEq(token.balanceOf(investor), totalAmount, "the whole grant, to the wei");
+        (, uint256 claimed,,) = rewards2.vestings(investor, 0);
+        assertEq(claimed, totalAmount, "the whole grant, to the wei");
     }
 
     // ═══════════════════════════════════════════════════════════════
