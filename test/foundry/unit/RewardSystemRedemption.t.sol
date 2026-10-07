@@ -52,6 +52,12 @@ contract RewardSystemRedemptionTest is Setup {
         assertEq(claimedNow - claimedAtOldRate, owed, "the watermark still counts units, not money");
     }
 
+    function test_quoteFollowsTheRate() public {
+        assertEq(rewardSystem.getUSDCForTokens(VESTING), 0, "no rate, no quote");
+        _setRate();
+        assertEq(rewardSystem.getUSDCForTokens(VESTING), VESTING * RATE / 1e18);
+    }
+
     function test_rateIsOwnerOnly() public {
         vm.prank(manager);
         vm.expectRevert();

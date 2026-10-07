@@ -118,6 +118,13 @@ contract Rewards2 is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentra
         vestingWeeks = _vestingWeeks;
     }
 
+    /// @notice What a vesting amount is worth at the current redemption rate.
+    /// @param _tokenAmount Vesting tokens, 18 decimals
+    /// @return USDC, 6 decimals. Zero while the rate is unset, which is also when claims revert.
+    function getUSDCForTokens(uint256 _tokenAmount) public view returns (uint256) {
+        return Math.mulDiv(_tokenAmount, redemptionRate, 1e18);
+    }
+
     /// @notice Set the rate vesting is redeemed at.
     /// @param _rate USDC per 1e18 tokens — 20000 is $0.02 against six-decimal USDC. Zero is
     ///        rejected so it keeps meaning "never set" and cannot be used to stop claims.
@@ -181,7 +188,7 @@ contract Rewards2 is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentra
 
         require(totalClaimable > 0, "No tokens to claim");
 
-        uint256 usdcAmount = Math.mulDiv(totalClaimable, redemptionRate, 1e18);
+        uint256 usdcAmount = getUSDCForTokens(totalClaimable);
         require(usdcAmount > 0, "No USDC to claim");
         require(usdc.balanceOf(address(this)) >= usdcAmount, "Not enough USDC to claim");
 
@@ -208,7 +215,7 @@ contract Rewards2 is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentra
             }
             if (totalClaimable == 0) continue;
 
-            uint256 usdcAmount = Math.mulDiv(totalClaimable, redemptionRate, 1e18);
+            uint256 usdcAmount = getUSDCForTokens(totalClaimable);
             if (usdcAmount == 0 || usdc.balanceOf(address(this)) < usdcAmount) continue;
 
             // Only now the vesting is spent: a user we skip must keep it.

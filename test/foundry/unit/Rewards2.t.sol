@@ -86,6 +86,14 @@ contract Rewards2Test is Setup {
     //                      CLAIM
     // ═══════════════════════════════════════════════════════════════
 
+    function test_getUSDCForTokens_quotesTheRate() public {
+        assertEq(rewards2.getUSDCForTokens(10_000e18), 0, "no rate, no quote");
+
+        vm.prank(owner);
+        rewards2.setRedemptionRate(RATE);
+        assertEq(rewards2.getUSDCForTokens(10_000e18), 200e6, "$0.02 per token");
+    }
+
     function test_claim_paysUsdcAtTheRate() public {
         _createVesting(investor, 10_000e18);
         _fundClaims();

@@ -258,6 +258,13 @@ contract RewardSystem is Initializable, UUPSUpgradeable, OwnableUpgradeable, Ree
         emit ContractsUpdated(_managerRegistry, _token, _usdc);
     }
 
+    /// @notice What a vesting amount is worth at the current redemption rate.
+    /// @param _tokenAmount Vesting tokens, 18 decimals
+    /// @return USDC, 6 decimals. Zero while the rate is unset, which is also when claims revert.
+    function getUSDCForTokens(uint256 _tokenAmount) public view returns (uint256) {
+        return Math.mulDiv(_tokenAmount, redemptionRate, 1e18);
+    }
+
     /// @notice Set the rate vesting is redeemed at.
     /// @param _rate USDC per 1e18 tokens — 20000 is $0.02 against six-decimal USDC. Zero is
     ///        rejected so it keeps meaning "never set" and cannot be used to stop claims.
@@ -547,7 +554,7 @@ contract RewardSystem is Initializable, UUPSUpgradeable, OwnableUpgradeable, Ree
 
         address claimAddress = IManagerRegistry(managerRegistry).getInvestorClaimAddress(_user);
 
-        uint256 usdcAmount = Math.mulDiv(claimableAmount, redemptionRate, 1e18);
+        uint256 usdcAmount = getUSDCForTokens(claimableAmount);
         require(usdcAmount > 0, "No USDC to claim");
         require(usdc.balanceOf(address(this)) >= usdcAmount, "Not enough USDC to claim");
 
