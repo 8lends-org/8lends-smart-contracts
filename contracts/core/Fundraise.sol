@@ -115,6 +115,14 @@ contract Fundraise is Initializable, UUPSUpgradeable, OwnableUpgradeable {
     bytes32 private constant INVEST_TYPEHASH =
         keccak256("Invest(address investor,uint256 projectId,uint256 amount,uint256 nonce,address inviter)");
 
+    /// @notice What this implementation promises its callers, not a release number. It moves only
+    ///         when a change breaks them — a method removed, an argument added, a signature format
+    ///         replaced. An ordinary upgrade leaves it where it is, so a client that reads it once
+    ///         can trust the answer until it changes.
+    /// @dev No version() at all means a deployment older than this field, which signs the way
+    ///      things were signed before EIP-712.
+    uint256 public constant version = 1;
+
     uint256 public constant BASIS_POINTS = 1000000; // 1% = 10000
     uint256 public constant MAX_KYC_LESS_INVEST_USD = 500 * BASIS_POINTS; // 500_000_000 = 500 USD
 

@@ -56,6 +56,14 @@ contract Market is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentranc
         keccak256("Sell(address seller,uint256 projectId,uint256 price,uint256 positionIndex,uint256 deadline)");
     bytes32 private constant BUY_TYPEHASH = keccak256("Buy(address buyer,uint256 saleId)");
 
+    /// @notice What this implementation promises its callers, not a release number. It moves only
+    ///         when a change breaks them — a method removed, an argument added, a signature format
+    ///         replaced. An ordinary upgrade leaves it where it is, so a client that reads it once
+    ///         can trust the answer until it changes.
+    /// @dev No version() at all means a deployment older than this field, which signs the way
+    ///      things were signed before EIP-712.
+    uint256 public constant version = 1;
+
     uint256 public constant BASIS_POINTS = 1000000;
     uint256 public platformFee;
     mapping(address => uint256) public accumulatedFees;
