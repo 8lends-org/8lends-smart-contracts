@@ -21,6 +21,14 @@ contract Rewards2 is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentra
     /// @dev Slot held. Nothing swaps any more: vesting is redeemed at a fixed rate.
     address private __deprecated_uniswapRouter;
 
+    /// @notice What this implementation promises its callers, not a release number. It moves only
+    ///         when a change breaks them — a method removed, an argument added, a payout currency
+    ///         replaced. An ordinary upgrade leaves it where it is, so a client that reads it once
+    ///         can trust the answer until it changes.
+    /// @dev No version() at all means a deployment older than this field, which still paid vesting
+    ///      in tokens.
+    uint256 public constant version = 1;
+
     // 1% = 10000
     uint256 public constant BASIS_POINTS = 1e6;
 
