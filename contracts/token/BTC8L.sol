@@ -8,7 +8,7 @@ import "@openzeppelin/contracts-upgradeable/token/ERC20/extensions/ERC20PermitUp
 import "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 import "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
 import "@openzeppelin/contracts-upgradeable/utils/ReentrancyGuardUpgradeable.sol";
-import "../interfaces/protocol/ILending8.sol";
+
 contract BTC8L is
     Initializable,
     UUPSUpgradeable,
@@ -54,26 +54,35 @@ contract BTC8L is
     ) external onlyRole(MINTER_ROLE) {
         require(accounts.length == amounts.length && accounts.length == btcTxs.length, "BTC8L: Invalid input length");
         for (uint256 i = 0; i < accounts.length; i++) {
-            if (!intentHashes[btcTxs[i]]) {
-                intentHashes[btcTxs[i]] = true;
-                _mint(accounts[i], amounts[i]);
-                emit Replenished(accounts[i], btcTxs[i], amounts[i]);
-            }
+            if (intentHashes[btcTxs[i]]) revert("BTC8L: Intent hash already used");
+            intentHashes[btcTxs[i]] = true;
+            _mint(accounts[i], amounts[i]);
+            emit Replenished(accounts[i], btcTxs[i], amounts[i]);
         }
     }
 
+    /// @dev Intents share the mapping with deposit identifiers, which are published on the bitcoin
+    ///      network, so they are keyed by the burner — `onBehalf` in the minter path, since both
+    ///      withdrawal paths belong to the same person.
+    function intentKey(address owner_, bytes32 intentHash) public pure returns (bytes32) {
+        return keccak256(abi.encode(owner_, intentHash));
+    }
+
     function withdraw(bytes32 intentHash, uint256 amount) external {
-        if(intentHashes[intentHash]) revert("BTC8L: Intent hash already used");
-        intentHashes[intentHash] = true;
-        _burn(msg.sender, amount);
-        emit Withdrawn(msg.sender, intentHash, amount);
+        _withdraw(msg.sender, intentHash, amount);
     }
 
     function withdraw(bytes32 intentHash, uint256 amount, address onBehalf) external onlyRole(MINTER_ROLE) {
-        if(intentHashes[intentHash]) revert("BTC8L: Intent hash already used");
-        intentHashes[intentHash] = true;
-        _burn(onBehalf, amount);
-        emit Withdrawn(onBehalf, intentHash, amount);
+        _withdraw(onBehalf, intentHash, amount);
+    }
+
+    function _withdraw(address owner_, bytes32 intentHash, uint256 amount) private {
+        if (amount == 0) revert("BTC8L: Zero amount");
+        bytes32 key = intentKey(owner_, intentHash);
+        if (intentHashes[key]) revert("BTC8L: Intent hash already used");
+        intentHashes[key] = true;
+        _burn(owner_, amount);
+        emit Withdrawn(owner_, intentHash, amount);
     }
 
     function _authorizeUpgrade(address newImplementation) internal override onlyRole(UPGRADER_ROLE) {}
