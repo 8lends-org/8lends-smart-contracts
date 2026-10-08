@@ -2,6 +2,7 @@ import dotenv from "dotenv";
 import hre, { ethers, upgrades } from "hardhat";
 import { loadConfig, saveDeployment, type Deployment } from "./utils/config";
 import { describeDeployment, verifyOnExplorer } from "./utils/provenance";
+import { tryReadOwner } from "./utils/safe-batch";
 
 import { requireRealNetwork } from "./utils/network-guard";
 dotenv.config();
@@ -90,10 +91,10 @@ async function main() {
       console.log(`📌 Implementation from config: ${config[oldImplKey] || 'not found'}`);
     }
 
-    // Get contract and check owner
+    // Owner is informational: contracts on AccessControl (BTC8L) have no owner() at all.
     const contract = await ethers.getContractAt(contractName, proxyAddress);
-    const owner = await contract.owner();
-    console.log(`👤 Owner: ${owner}`);
+    const owner = await tryReadOwner(contractName, proxyAddress);
+    console.log(`👤 Owner: ${owner ?? "none (no owner(), access is role-based)"}`);
 
     // Try to get version if available
     try {
@@ -103,17 +104,13 @@ async function main() {
       // Version not implemented - this is normal
     }
 
-    // Check basic functionality
+    // The proxy has to delegate to actual code. Checked on the implementation rather than through a
+    // view call, because no single view function exists on every contract this script handles.
     console.log("\n🔍 Checking basic functionality...");
-    
-    // Try to call view function
-    try {
-      await contract.owner();
-      console.log("✅ Contract responds to requests");
-    } catch (e) {
-      console.log("❌ Contract does not respond to requests");
-      throw e;
+    if ((await ethers.provider.getCode(currentImpl)) === "0x") {
+      throw new Error(`Implementation ${currentImpl} has no code`);
     }
+    console.log("✅ Implementation has code");
 
     console.log("\n" + "=".repeat(80));
     console.log("✅ Verification completed successfully");

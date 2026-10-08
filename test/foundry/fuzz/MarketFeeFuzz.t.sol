@@ -12,7 +12,7 @@ import { Math } from "@openzeppelin/contracts/utils/math/Math.sol";
 ///      not through the formula: they cannot be satisfied by copying the line with the division,
 ///      only by actually moving the money. Before this file there was no fuzz over Market at all,
 ///      and the fee was measured at one point — price 10 000, rate 5%.
-contract MarketFeeFuzzTest is Test {
+contract MarketFeeFuzzTest is Test, Eip712Signing {
     MockUSDC_MKT usdc;
     MockManagerRegistry_MKT mockRegistry;
     MockFundraise_MKT mockFundraise;
@@ -69,9 +69,8 @@ contract MarketFeeFuzzTest is Test {
     function _buy(uint256 saleId, address buyer) internal {
         if (usdc.balanceOf(buyer) == 0) _fundBuyer(buyer);
 
-        bytes32 inner = keccak256(abi.encodePacked(buyer, saleId));
-        bytes32 digest = keccak256(abi.encodePacked("\x19Ethereum Signed Message:\n32", inner));
-        (uint8 v, bytes32 r, bytes32 s) = vm.sign(backendPk, digest);
+        bytes32 structHash = keccak256(abi.encode(BUY_TYPEHASH, buyer, saleId));
+        (uint8 v, bytes32 r, bytes32 s) = vm.sign(backendPk, _eip712(address(market), structHash));
 
         vm.prank(buyer);
         market.buy(saleId, abi.encodePacked(r, s, v));
@@ -85,11 +84,8 @@ contract MarketFeeFuzzTest is Test {
     /// @dev A lot on `posIndex`, with its market cell funded so the buy can settle.
     function _list(uint256 price, uint256 posIndex) internal returns (uint256 saleId) {
         uint256 deadline = block.timestamp + 15 minutes;
-        bytes32 inner = keccak256(
-            abi.encode(block.chainid, address(market), investor, PID, price, posIndex, deadline)
-        );
-        bytes32 digest = keccak256(abi.encodePacked("\x19Ethereum Signed Message:\n32", inner));
-        (uint8 v, bytes32 r, bytes32 s) = vm.sign(backendPk, digest);
+        bytes32 structHash = keccak256(abi.encode(SELL_TYPEHASH, investor, PID, price, posIndex, deadline));
+        (uint8 v, bytes32 r, bytes32 s) = vm.sign(backendPk, _eip712(address(market), structHash));
 
         vm.prank(investor);
         saleId = market.sell(PID, price, posIndex, deadline, abi.encodePacked(r, s, v));

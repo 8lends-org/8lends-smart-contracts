@@ -75,7 +75,7 @@ contract BackwardCompatTest is Setup {
     //  SECTION 2: Fundraise — createProject
     // ═══════════════════════════════════════════════════════════════════
 
-    function test_createProject_new_without_whitelistRoot() public {
+    function test_createProject_takesOnlyTheHash() public {
         Fundraise.Project memory proj = Fundraise.Project({
             hardCap: 30_000e6,
             softCap: 15_000e6,
@@ -453,7 +453,7 @@ contract BackwardCompatTest is Setup {
         // 2. Investor1 invests
         _investAs(investor, e2ePid, 6_000e6, inviter);
 
-        // 3. Investor2 invests via NEW investUpdateV2
+        // 3. Investor2 invests
         _investAs(investor2, e2ePid, 6_000e6, inviter);
 
         // 4. Verify both investments recorded

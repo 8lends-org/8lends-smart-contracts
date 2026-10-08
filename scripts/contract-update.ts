@@ -85,7 +85,8 @@ async function main() {
     throw new Error(`${contractName} contract not found in config`);
   }
 
-  await requireOwner(config[contractKey] as string, contractName!);
+  // UUPS gates the upgrade on either the owner or, where there is none, UPGRADER_ROLE.
+  await requireOwner(config[contractKey] as string, contractName!, "UPGRADER_ROLE");
 
   // Force update
   await hre.run("clean");

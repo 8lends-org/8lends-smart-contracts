@@ -276,9 +276,8 @@ contract MandateIntegrationTest is Setup {
         vm.prank(buyer);
         usdc.approve(address(market), type(uint256).max);
 
-        bytes32 inner = keccak256(abi.encodePacked(buyer, saleId));
-        (uint8 v, bytes32 r, bytes32 s) =
-            vm.sign(backendPk, keccak256(abi.encodePacked("\x19Ethereum Signed Message:\n32", inner)));
+        bytes32 structHash = keccak256(abi.encode(BUY_TYPEHASH, buyer, saleId));
+        (uint8 v, bytes32 r, bytes32 s) = vm.sign(backendPk, _eip712(address(market), structHash));
 
         vm.prank(buyer);
         market.buy(saleId, abi.encodePacked(r, s, v));
@@ -290,11 +289,8 @@ contract MandateIntegrationTest is Setup {
         returns (uint256 saleId)
     {
         uint256 deadline = block.timestamp + 15 minutes;
-        bytes32 inner = keccak256(
-            abi.encode(block.chainid, address(market), seller, pid_, price, posIndex, deadline)
-        );
-        (uint8 v, bytes32 r, bytes32 ss) =
-            vm.sign(backendPk, keccak256(abi.encodePacked("\x19Ethereum Signed Message:\n32", inner)));
+        bytes32 structHash = keccak256(abi.encode(SELL_TYPEHASH, seller, pid_, price, posIndex, deadline));
+        (uint8 v, bytes32 r, bytes32 ss) = vm.sign(backendPk, _eip712(address(market), structHash));
         vm.prank(seller);
         return market.sell(pid_, price, posIndex, deadline, abi.encodePacked(r, ss, v));
     }

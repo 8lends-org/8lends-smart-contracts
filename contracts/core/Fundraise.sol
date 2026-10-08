@@ -8,6 +8,8 @@ import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import "@openzeppelin/contracts/token/ERC20/extensions/IERC20Metadata.sol";
 import "@openzeppelin/contracts/utils/math/Math.sol";
+import {ECDSA} from "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
+import {MessageHashUtils} from "@openzeppelin/contracts/utils/cryptography/MessageHashUtils.sol";
 import "../interfaces/protocol/IManagerRegistry.sol";
 import "../interfaces/protocol/IRewardSystem.sol";
 import "../interfaces/protocol/ILimitedSeller.sol";
@@ -30,8 +32,6 @@ contract Fundraise is Initializable, UUPSUpgradeable, OwnableUpgradeable {
     using SafeERC20 for IERC20;
 
     error IncorrectNonce();
-    error InvalidSignatureSValue();
-    error InvalidSignature();
     error NotTrustedSigner();
     error InviterCannotBeInvestor();
     error ProjectNotFound();
@@ -67,7 +67,6 @@ contract Fundraise is Initializable, UUPSUpgradeable, OwnableUpgradeable {
     error PreFundDurationMustBePositive();
     error BorrowerMustBeSet();
     error LoanTokenMustBeSet();
-    error InvalidSignatureLength();
     error OracleNotSet();
     error LoanTokenPriceZero();
     error ArrayLengthMismatch();
@@ -115,6 +114,22 @@ contract Fundraise is Initializable, UUPSUpgradeable, OwnableUpgradeable {
         uint256 indexed projectId, address indexed investor, address indexed recipient, uint256 amount
     );
     event AllTimeInvestedUSDMigrated(uint256 count);
+
+    /// @dev EIP-712 with the smallest domain that still pins the deployment: no name or version,
+    ///      because the backend signs these and nobody reads them in a wallet. The typehash is what
+    ///      keeps this message apart from the ones the same key signs for Market and LimitedSeller.
+    bytes32 private constant DOMAIN_TYPEHASH =
+        keccak256("EIP712Domain(uint256 chainId,address verifyingContract)");
+    bytes32 private constant INVEST_TYPEHASH =
+        keccak256("Invest(address investor,uint256 projectId,uint256 amount,uint256 nonce,address inviter)");
+
+    /// @notice What this implementation promises its callers, not a release number. It moves only
+    ///         when a change breaks them — a method removed, an argument added, a signature format
+    ///         replaced. An ordinary upgrade leaves it where it is, so a client that reads it once
+    ///         can trust the answer until it changes.
+    /// @dev No version() at all means a deployment older than this field, which signs the way
+    ///      things were signed before EIP-712.
+    uint256 public constant version = 1;
 
     uint256 public constant BASIS_POINTS = 1000000; // 1% = 10000
     uint256 public constant MAX_KYC_LESS_INVEST_USD = 500 * BASIS_POINTS; // 500_000_000 = 500 USD
@@ -167,9 +182,10 @@ contract Fundraise is Initializable, UUPSUpgradeable, OwnableUpgradeable {
     address public treasury;
     address public managerRegistry;
 
-    /// @dev Deprecated: global nonce replaced by per-user userNonces. The variable must stay
-    /// declared to keep the storage layout — only its public getter is gone.
-    uint256 private __deprecated_nonce;
+    /// @dev Deprecated: the global counter went with investUpdate, which was the only thing that
+    ///      ever read or raised it. Slot preserved, and the getter with it — the admin panel reads
+    ///      it, and it costs nothing to keep answering.
+    uint256 public nonce;
 
     address public trustedSigner;
 
@@ -204,9 +220,9 @@ contract Fundraise is Initializable, UUPSUpgradeable, OwnableUpgradeable {
     mapping(uint256 => uint256) public projectTotalClaimed;
 
     /// @notice Off-chain ids already spent by createProject, so one project cannot be released twice.
-    /// @dev Declared ahead of mandateRouter: this ships on its own first, and the slot it takes here
-    ///      is the slot it has to keep, or every id recorded before the mandate release stops being
-    ///      found and the guard silently lets them through again.
+    /// @dev The slot this takes is the slot it has to keep: the mandate work appends its own field
+    ///      after it, and moving this one would leave every id recorded so far unfindable while the
+    ///      guard went on answering, just never again about a spent one.
     mapping(uint256 => bool) public projectHashUsed;
 
     /// @notice Router holding the payout routes of mandates.
@@ -235,8 +251,7 @@ contract Fundraise is Initializable, UUPSUpgradeable, OwnableUpgradeable {
 
     function _authorizeUpgrade(address) internal override onlyOwner {}
 
-    /// @notice New invest with per-user nonce and no rootHash in signature.
-    /// @dev Migrate frontend/backend to use this function after upgrade.
+    /// @notice Invest, with the backend's approval of this exact investment.
     /// @param _pid Project Id
     /// @param _amount Amount of loan token for invest
     /// @param _nonce Per-user nonce for replay protection
@@ -251,32 +266,24 @@ contract Fundraise is Initializable, UUPSUpgradeable, OwnableUpgradeable {
     ) external {
         if (_nonce != userNonces[msg.sender] + 1) revert IncorrectNonce();
 
-        // New signature format without rootHash
-        bytes32 ethSignedMessageHash = keccak256(
-            abi.encodePacked(
-                "\x19Ethereum Signed Message:\n32",
-                keccak256(abi.encodePacked(msg.sender, _pid, _amount, _nonce, _inviter))
-            )
-        );
-        _verifySignature(ethSignedMessageHash, _sig);
+        bytes32 structHash = keccak256(abi.encode(INVEST_TYPEHASH, msg.sender, _pid, _amount, _nonce, _inviter));
+        _verifySignature(MessageHashUtils.toTypedDataHash(_domainSeparator(), structHash), _sig);
         bool success = _invest(msg.sender, _pid, _amount, _inviter);
         if (success) {
             userNonces[msg.sender]++;
         }
     }
 
-    /// @dev Verify ECDSA signature against trustedSigner with malleability protection
-    function _verifySignature(bytes32 ethSignedMessageHash, bytes memory _sig) internal view {
-        (bytes32 r, bytes32 s, uint8 v) = splitSignature(_sig);
-        // Prevent signature malleability (as in OpenZeppelin ECDSA)
-        if (
-            uint256(s) > 0x7FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF5D576E7357A4501DDFE92F46681B20A0
-        ) {
-            revert InvalidSignatureSValue();
-        }
-        address signer = ecrecover(ethSignedMessageHash, v, r, s);
-        if (signer == address(0)) revert InvalidSignature();
-        if (signer != trustedSigner) revert NotTrustedSigner();
+    /// @dev Built per call rather than cached: a cold SLOAD costs more than hashing three words,
+    ///      and there is no initialiser left to run on a proxy that is already live.
+    function _domainSeparator() private view returns (bytes32) {
+        return keccak256(abi.encode(DOMAIN_TYPEHASH, block.chainid, address(this)));
+    }
+
+    /// @dev ECDSA.recover carries the length, malleability and zero-address checks, so the only
+    ///      thing left to say here is whose signature it has to be.
+    function _verifySignature(bytes32 digest, bytes memory _sig) internal view {
+        if (ECDSA.recover(digest, _sig) != trustedSigner) revert NotTrustedSigner();
     }
 
     function _invest(address _investor, uint256 _pid, uint256 _amount, address _inviter) internal returns (bool) {
@@ -670,7 +677,7 @@ contract Fundraise is Initializable, UUPSUpgradeable, OwnableUpgradeable {
         emit Claimed(_projectId, _investor, claimable);
     }
 
-    /// @notice Create new project (clean version without whitelistRoot)
+    /// @notice Create new project
     /// @dev Only standard ERC20 tokens are supported as loanToken.
     /// Fee-on-transfer, rebasing, and deflationary tokens will cause accounting errors.
     /// @param _project Project info
@@ -913,28 +920,6 @@ contract Fundraise is Initializable, UUPSUpgradeable, OwnableUpgradeable {
 
         uint256 owed = totalInvested + (totalInvested * project.investorInterestRate) / BASIS_POINTS;
         return Math.mulDiv(owed, _invested, totalInvested);
-    }
-
-    function splitSignature(bytes memory sig) public pure returns (bytes32 r, bytes32 s, uint8 v) {
-        if (sig.length != 65) revert InvalidSignatureLength();
-
-        assembly {
-            /*
-            First 32 bytes stores the length of the signature
-
-            add(sig, 32) = pointer of sig + 32
-            effectively, skips first 32 bytes of signature
-
-            mload(p) loads next 32 bytes starting at the memory address p into memory
-            */
-
-            // first 32 bytes, after the length prefix
-            r := mload(add(sig, 32))
-            // second 32 bytes
-            s := mload(add(sig, 64))
-            // final byte (first byte of the next 32 bytes)
-            v := byte(0, mload(add(sig, 96)))
-        }
     }
 
     /// @notice Get all individual investment positions for an investor in a project

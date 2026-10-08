@@ -50,18 +50,18 @@
   },
   "BTC8L": {
     "proxy": "0xD1B91714aAEF49c9523927Eddf48a7098BB2C9Bd",
-    "impl": "0x4643C0801c3a6e3bB7801672F6A66E65cEDaE742",
-    "buildHash": "0x2d4315fe4ee720fd64748b28abe84e3a3f89d6438b1e514ba058314fb9fc4596",
+    "impl": "0xb583E5C3f1687a0E62a973C9557e4D1735fEdb47",
+    "buildHash": "0xd5f9679d663c58295cc773d02bb498e86887b6bd965fe812771c9b9a2c091f89",
     "matchesDeployed": true,
-    "deployedFrom": "04920d4",
-    "deployedAt": "Jun-29-2026",
+    "deployedFrom": "f858567",
+    "deployedAt": "Oct-08-2026",
     "build": {
       "solc": "v0.8.23+commit.f704f362",
       "optimizer": {
         "enabled": true,
         "runs": 50,
         "details": {
-          "yul": false
+          "yul": true
         }
       },
       "evmVersion": "paris"
@@ -126,11 +126,11 @@
   },
   "Fundraise": {
     "proxy": "0xf435A133D6cDCb81061F18a4763560f9931DB57D",
-    "impl": "0x0dB9586EaAC48F993ED2cD2646Aa16599A8E45EB",
-    "buildHash": "0xb292138ec27905ff384e425792fa1eb5afdb1b78dec09bf6399a519119364552",
+    "impl": "0xb551dC8451Ced4d9b3d805B5F4914E5EE17Ae87F",
+    "buildHash": "0xf5dc7307628082603895800aca3d82bd0ce4c38fc9d77ab03446ca26b52c1a88",
     "matchesDeployed": true,
-    "deployedFrom": "c141525",
-    "deployedAt": "Sep-23-2026",
+    "deployedFrom": "557c870",
+    "deployedAt": "Oct-08-2026",
     "build": {
       "solc": "v0.8.23+commit.f704f362",
       "optimizer": {
@@ -240,11 +240,11 @@
   },
   "Market": {
     "proxy": "0xCe6F6905e19ED493556Eb57893ee19A417490356",
-    "impl": "0x02fAc2389559297Dc9E0df14760a0Cfa65d75B1F",
-    "buildHash": "0xacdb4a1e40e447feaccef4bfb5bcc24b60f37c6e73ea1adde807ca965ea2fb17",
+    "impl": "0xB7E08aBd260F58EED3e884dF2Cf209212B081b5b",
+    "buildHash": "0x675ca9c1701afeedf100c44635d3eb33ec3149232fb912ecb19f95e9048a570b",
     "matchesDeployed": true,
-    "deployedFrom": "a200c1d",
-    "deployedAt": "Oct-06-2026",
+    "deployedFrom": "557c870",
+    "deployedAt": "Oct-08-2026",
     "build": {
       "solc": "v0.8.23+commit.f704f362",
       "optimizer": {
