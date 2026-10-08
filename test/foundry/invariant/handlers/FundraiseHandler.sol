@@ -2,6 +2,7 @@
 pragma solidity ^0.8.23;
 
 import "forge-std/Test.sol";
+import {Eip712Signing} from "../../helpers/Eip712Signing.sol";
 import {Fundraise} from "../../../../contracts/core/Fundraise.sol";
 import {ManagerRegistry} from "../../../../contracts/core/ManagerRegistry.sol";
 import "../../mocks/MockUSDC.sol";
@@ -9,7 +10,7 @@ import "../../mocks/MockUSDC.sol";
 /// @notice Handler for Fundraise invariant testing.
 /// @dev The fuzzer calls these functions in random order to exercise the protocol.
 ///      Ghost variables track cumulative state for invariant assertions.
-contract FundraiseHandler is Test {
+contract FundraiseHandler is Test, Eip712Signing {
     Fundraise public fundraise;
     MockUSDC public usdc;
     ManagerRegistry public managerRegistry;
@@ -84,9 +85,9 @@ contract FundraiseHandler is Test {
         usdc.approve(address(fundraise), amount);
 
         uint256 nonce = fundraise.userNonces(inv);
-        bytes32 innerHash = keccak256(abi.encodePacked(inv, pid, amount, nonce + 1, address(0)));
-        bytes32 ethHash = keccak256(abi.encodePacked("\x19Ethereum Signed Message:\n32", innerHash));
-        (uint8 v, bytes32 r, bytes32 s) = vm.sign(backendPk, ethHash);
+        bytes32 structHash =
+            keccak256(abi.encode(INVEST_TYPEHASH, inv, pid, amount, nonce + 1, address(0)));
+        (uint8 v, bytes32 r, bytes32 s) = vm.sign(backendPk, _eip712(address(fundraise), structHash));
         bytes memory sig = abi.encodePacked(r, s, v);
 
         vm.prank(inv);

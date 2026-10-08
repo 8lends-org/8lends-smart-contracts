@@ -2,6 +2,7 @@
 pragma solidity ^0.8.23;
 
 import "forge-std/Test.sol";
+import {Eip712Signing} from "../helpers/Eip712Signing.sol";
 import "../../../contracts/core/market/Market.sol";
 import "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
@@ -115,7 +116,7 @@ contract MockFundraise_MKT {
     function BASIS_POINTS() external pure returns (uint256) { return 1_000_000; }
 }
 
-contract MarketTest is Test {
+contract MarketTest is Test, Eip712Signing {
     Market public market;
     MockUSDC_MKT public usdc;
     MockManagerRegistry_MKT public mockRegistry;
@@ -227,11 +228,10 @@ contract MarketTest is Test {
     ///      does not open this one.
     function test_sell_revert_approvalForAnotherMarket() public {
         uint256 dl = block.timestamp + 15 minutes;
-        bytes32 messageHash = keccak256(
-            abi.encode(block.chainid, address(0xBEEF), investor, PID, uint256(10_000e6), uint256(0), dl)
-        );
-        bytes32 ethSigned = keccak256(abi.encodePacked("\x19Ethereum Signed Message:\n32", messageHash));
-        (uint8 v, bytes32 r, bytes32 s) = vm.sign(backendPk, ethSigned);
+        // Correct key, correct fields, wrong verifying contract in the domain.
+        bytes32 structHash =
+            keccak256(abi.encode(SELL_TYPEHASH, investor, PID, uint256(10_000e6), uint256(0), dl));
+        (uint8 v, bytes32 r, bytes32 s) = vm.sign(backendPk, _eip712(address(0xBEEF), structHash));
 
         vm.prank(investor);
         vm.expectRevert("Not trusted signer");
@@ -313,11 +313,8 @@ contract MarketTest is Test {
     // ═══════════════════════════════════════════════════════════════
 
     function _signMarketBuy(address buyer, uint256 saleId) internal view returns (bytes memory sig) {
-        bytes32 messageHash = keccak256(abi.encodePacked(buyer, saleId));
-        bytes32 ethSignedMessageHash = keccak256(
-            abi.encodePacked("\x19Ethereum Signed Message:\n32", messageHash)
-        );
-        (uint8 v, bytes32 r, bytes32 s) = vm.sign(backendPk, ethSignedMessageHash);
+        bytes32 structHash = keccak256(abi.encode(BUY_TYPEHASH, buyer, saleId));
+        (uint8 v, bytes32 r, bytes32 s) = vm.sign(backendPk, _eip712(address(market), structHash));
         sig = abi.encodePacked(r, s, v);
     }
 
@@ -329,13 +326,9 @@ contract MarketTest is Test {
         uint256 positionIndex,
         uint256 deadline
     ) internal view returns (bytes memory sig) {
-        bytes32 messageHash = keccak256(
-            abi.encode(block.chainid, address(market), seller, projectId, price, positionIndex, deadline)
-        );
-        bytes32 ethSignedMessageHash = keccak256(
-            abi.encodePacked("\x19Ethereum Signed Message:\n32", messageHash)
-        );
-        (uint8 v, bytes32 r, bytes32 s) = vm.sign(backendPk, ethSignedMessageHash);
+        bytes32 structHash =
+            keccak256(abi.encode(SELL_TYPEHASH, seller, projectId, price, positionIndex, deadline));
+        (uint8 v, bytes32 r, bytes32 s) = vm.sign(backendPk, _eip712(address(market), structHash));
         sig = abi.encodePacked(r, s, v);
     }
 
@@ -417,11 +410,8 @@ contract MarketTest is Test {
         usdc.mint(investor2, 10_000e6);
 
         (, uint256 wrongPk) = makeAddrAndKey("wrongSigner");
-        bytes32 messageHash = keccak256(abi.encodePacked(investor2, saleId));
-        bytes32 ethSignedMessageHash = keccak256(
-            abi.encodePacked("\x19Ethereum Signed Message:\n32", messageHash)
-        );
-        (uint8 v, bytes32 r, bytes32 s) = vm.sign(wrongPk, ethSignedMessageHash);
+        bytes32 structHash = keccak256(abi.encode(BUY_TYPEHASH, investor2, saleId));
+        (uint8 v, bytes32 r, bytes32 s) = vm.sign(wrongPk, _eip712(address(market), structHash));
         bytes memory sig = abi.encodePacked(r, s, v);
 
         vm.startPrank(investor2);

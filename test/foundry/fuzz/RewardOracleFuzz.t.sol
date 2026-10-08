@@ -143,7 +143,7 @@ contract RewardOracleFuzzTest is Setup {
         });
 
         vm.prank(manager);
-        uint256 pid = fundraise.createProject(proj, 1);
+        uint256 pid = fundraise.createProject(proj, _nextProjectHash());
 
         // Mint and approve
         loanToken.mint(investor, amount);

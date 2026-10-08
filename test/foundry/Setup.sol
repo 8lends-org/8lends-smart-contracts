@@ -2,6 +2,7 @@
 pragma solidity ^0.8.23;
 
 import "forge-std/Test.sol";
+import {Eip712Signing} from "./helpers/Eip712Signing.sol";
 
 // Protocol contracts
 import {Fundraise} from "../../contracts/core/Fundraise.sol";
@@ -22,7 +23,7 @@ import {MockOracle} from "../../contracts/mocks/MockOracle.sol";
 /// @notice Base test setup — deploys all protocol contracts and configures roles.
 /// @dev Mirrors the Hardhat deployment from test/helpers.ts.
 ///      All test files inherit from this contract.
-abstract contract Setup is Test {
+abstract contract Setup is Test, Eip712Signing {
     // ── Contracts ──
     Fundraise public fundraise;
     Token public token;
@@ -180,6 +181,13 @@ abstract contract Setup is Test {
     //                         HELPER FUNCTIONS
     // ═══════════════════════════════════════════════════════════════════
 
+    /// @dev A project hash is spent on release and never comes back, so every call needs its own.
+    uint256 private _projectHashSeq;
+
+    function _nextProjectHash() internal returns (uint256) {
+        return ++_projectHashSeq;
+    }
+
     /// @notice Create a project via manager. Returns projectId.
     function _createProject(uint256 softCap, uint256 hardCap) internal returns (uint256 projectId) {
         return _createProjectFor(softCap, hardCap, borrower);
@@ -208,7 +216,7 @@ abstract contract Setup is Test {
         });
 
         vm.prank(manager);
-        projectId = fundraise.createProject(proj, 1);
+        projectId = fundraise.createProject(proj, _nextProjectHash());
     }
 
     /// @notice Build the EIP-191 signature for investUpdate
@@ -219,9 +227,8 @@ abstract contract Setup is Test {
         uint256 _nonce,
         address _inviter
     ) internal view returns (bytes memory sig) {
-        bytes32 innerHash = keccak256(abi.encodePacked(_investor, _pid, _amount, _nonce, _inviter));
-        bytes32 ethSignedHash = keccak256(abi.encodePacked("\x19Ethereum Signed Message:\n32", innerHash));
-        (uint8 v, bytes32 r, bytes32 s) = vm.sign(backendPk, ethSignedHash);
+        bytes32 structHash = keccak256(abi.encode(INVEST_TYPEHASH, _investor, _pid, _amount, _nonce, _inviter));
+        (uint8 v, bytes32 r, bytes32 s) = vm.sign(backendPk, _eip712(address(fundraise), structHash));
         sig = abi.encodePacked(r, s, v);
     }
 

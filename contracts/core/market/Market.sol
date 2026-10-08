@@ -6,6 +6,8 @@ import "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
 import "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
 import "@openzeppelin/contracts-upgradeable/utils/ReentrancyGuardUpgradeable.sol";
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import {ECDSA} from "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
+import {MessageHashUtils} from "@openzeppelin/contracts/utils/cryptography/MessageHashUtils.sol";
 import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import "@openzeppelin/contracts/utils/math/Math.sol";
 import "../../interfaces/protocol/IManagerRegistry.sol";
@@ -46,6 +48,22 @@ contract Market is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentranc
     mapping(address => uint256[]) public boughtSales;
 
     // 1% = 10000, same as Fundraise.BASIS_POINTS
+    /// @dev EIP-712 with the smallest domain that still pins the deployment: no name or version,
+    ///      because nobody reads these in a wallet — the backend signs them.
+    bytes32 private constant DOMAIN_TYPEHASH =
+        keccak256("EIP712Domain(uint256 chainId,address verifyingContract)");
+    bytes32 private constant SELL_TYPEHASH =
+        keccak256("Sell(address seller,uint256 projectId,uint256 price,uint256 positionIndex,uint256 deadline)");
+    bytes32 private constant BUY_TYPEHASH = keccak256("Buy(address buyer,uint256 saleId)");
+
+    /// @notice What this implementation promises its callers, not a release number. It moves only
+    ///         when a change breaks them — a method removed, an argument added, a signature format
+    ///         replaced. An ordinary upgrade leaves it where it is, so a client that reads it once
+    ///         can trust the answer until it changes.
+    /// @dev No version() at all means a deployment older than this field, which signs the way
+    ///      things were signed before EIP-712.
+    uint256 public constant version = 1;
+
     uint256 public constant BASIS_POINTS = 1000000;
     uint256 public platformFee;
     mapping(address => uint256) public accumulatedFees;
@@ -166,26 +184,30 @@ contract Market is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentranc
         bytes memory _sig
     ) internal view {
         require(block.timestamp <= _deadline, "Signature expired");
-        // abi.encode, not encodePacked: seven fixed words, a layout no other signature of this key
-        // repeats. address(this) and chainid keep the approval to this deployment.
-        bytes32 messageHash = keccak256(
-            abi.encode(block.chainid, address(this), msg.sender, _projectId, _price, _positionIndex, _deadline)
+        _requireTrustedSigner(
+            _fundraise,
+            keccak256(abi.encode(SELL_TYPEHASH, msg.sender, _projectId, _price, _positionIndex, _deadline)),
+            _sig
         );
-        _requireTrustedSigner(_fundraise, messageHash, _sig);
+    }
+
+    /// @dev Built per call rather than cached. A cold SLOAD costs more than hashing three words,
+    ///      there is no slot to initialise on a proxy that is already live, and a chain that forks
+    ///      gets the right separator without anyone remembering to refresh it.
+    function _domainSeparator() private view returns (bytes32) {
+        return keccak256(abi.encode(DOMAIN_TYPEHASH, block.chainid, address(this)));
     }
 
     /// @dev Shared by listing and buy, so the two cannot drift apart.
-    function _requireTrustedSigner(address _fundraise, bytes32 _messageHash, bytes memory _sig) internal view {
+    /// @dev The typehash separates messages by name instead of by how many bytes they happen to
+    ///      pack into, and \x19\x01 keeps the whole family apart from anything signed as a personal
+    ///      message — which is what the other contracts on this key still do. ECDSA.recover carries
+    ///      the length, malleability and zero-address checks, so none of them are rebuilt here.
+    function _requireTrustedSigner(address _fundraise, bytes32 _structHash, bytes memory _sig) internal view {
         address trustedSignerAddr = IFundraise(_fundraise).trustedSigner();
         require(trustedSignerAddr != address(0), "Trusted signer not set");
-        bytes32 ethSignedMessageHash = keccak256(
-            abi.encodePacked("\x19Ethereum Signed Message:\n32", _messageHash)
-        );
-        (bytes32 r, bytes32 s, uint8 v) = _splitSignature(_sig);
-        require(uint256(s) <= 0x7FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF5D576E7357A4501DDFE92F46681B20A0, "Invalid signature s");
-        address signer = ecrecover(ethSignedMessageHash, v, r, s);
-        require(signer != address(0), "Invalid signature");
-        require(signer == trustedSignerAddr, "Not trusted signer");
+        bytes32 digest = MessageHashUtils.toTypedDataHash(_domainSeparator(), _structHash);
+        require(ECDSA.recover(digest, _sig) == trustedSignerAddr, "Not trusted signer");
     }
 
     function _executeSell(uint256 _projectId, uint256 _price, uint256 _positionIndex) internal returns (uint256 saleId) {
@@ -242,13 +264,14 @@ contract Market is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentranc
         emit SaleCreated(saleId, msg.sender, _projectId, marketCell, _price);
     }
 
-    /// @notice Buy with KYC - verifies trustedSigner signature then calls buy(_saleId)
+    /// @notice Buy a listed position, with the backend's approval of the buyer.
     /// @param _saleId Sale ID to buy
-    /// @param _sig Signature from backend (trustedSigner): sign(buyer, saleId, nonce)
+    /// @param _sig Signature from backend (trustedSigner) over Buy(buyer, saleId)
+    /// @dev No nonce and no deadline: a lot is bought once, which already spends the approval.
     function buy(uint256 _saleId, bytes memory _sig) external nonReentrant {
         require(_saleId > 0 && _saleId <= saleCount, "Invalid sale ID");
         address fundraiseAddress = getFundraise();
-        _requireTrustedSigner(fundraiseAddress, keccak256(abi.encodePacked(msg.sender, _saleId)), _sig);
+        _requireTrustedSigner(fundraiseAddress, keccak256(abi.encode(BUY_TYPEHASH, msg.sender, _saleId)), _sig);
         _executeBuy(_saleId, fundraiseAddress);
     }
 
@@ -282,15 +305,6 @@ contract Market is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentranc
         emit SaleBought(_saleId, msg.sender, sale.seller, sale.projectId);
         if (feeAmount > 0) {
             emit FeeCollected(address(loanToken), feeAmount);
-        }
-    }
-
-    function _splitSignature(bytes memory sig) internal pure returns (bytes32 r, bytes32 s, uint8 v) {
-        require(sig.length == 65, "Invalid signature length");
-        assembly {
-            r := mload(add(sig, 32))
-            s := mload(add(sig, 64))
-            v := byte(0, mload(add(sig, 96)))
         }
     }
 
