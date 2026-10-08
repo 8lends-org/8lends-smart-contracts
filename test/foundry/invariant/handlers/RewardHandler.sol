@@ -2,17 +2,14 @@
 pragma solidity ^0.8.23;
 
 import "forge-std/Test.sol";
-import {Rewards2} from "../../../../contracts/core/Rewards2.sol";
-import {Token} from "../../../../contracts/token/8lnds/Token.sol";
-import "../../mocks/MockUSDC.sol";
+import {Rewards2Harness} from "../../mocks/Rewards2Harness.sol";
 
 /// @notice Handler for Rewards2 invariant testing.
-/// @dev Exercises vesting creation, claims, and deactivation in random order.
+/// @dev Exercises existing vesting being claimed and deactivated in random order. Claims are paid
+///      in USDC; the ghosts count vesting tokens, read from the vesting records themselves.
 ///      Ghost variables track cumulative state for invariant assertions.
 contract RewardHandler is Test {
-    Rewards2 public rewards2;
-    Token public token;
-    MockUSDC public usdc;
+    Rewards2Harness public rewards2;
 
     address public owner;
     address[] public users;
@@ -20,28 +17,23 @@ contract RewardHandler is Test {
     // ── Ghost variables ──
     uint256 public ghost_totalVested; // total tokens put into vestings
     uint256 public ghost_totalClaimed; // total tokens claimed by users
-    uint256 public ghost_totalDeactivated; // total tokens in deactivated vestings
 
-    uint256 public calls_createVesting;
+    uint256 public calls_seedVesting;
     uint256 public calls_claim;
     uint256 public calls_deactivate;
 
     constructor(
-        Rewards2 _rewards2,
-        Token _token,
-        MockUSDC _usdc,
+        Rewards2Harness _rewards2,
         address _owner,
         address[] memory _users
     ) {
         rewards2 = _rewards2;
-        token = _token;
-        usdc = _usdc;
         owner = _owner;
         users = _users;
     }
 
-    /// @notice Create a vesting for a random user with random amount
-    function createVesting(uint256 userIdx, uint256 amount) external {
+    /// @notice Seed a vesting for a random user with random amount
+    function seedVesting(uint256 userIdx, uint256 amount) external {
         userIdx = bound(userIdx, 0, users.length - 1);
         amount = bound(amount, 100e18, 10_000e18);
 
@@ -50,15 +42,11 @@ contract RewardHandler is Test {
         uint256[] memory a = new uint256[](1);
         a[0] = amount;
 
-        // Mint tokens to rewards2 to cover this vesting
         vm.prank(owner);
-        token.mint(address(rewards2), amount);
-
-        vm.prank(owner);
-        rewards2.createVesting(u, a);
+        rewards2.seedVestings(u, a);
 
         ghost_totalVested += amount;
-        calls_createVesting++;
+        calls_seedVesting++;
     }
 
     /// @notice Random user claims their vesting
@@ -68,12 +56,11 @@ contract RewardHandler is Test {
 
         if (rewards2.userVestingCount(user) == 0) return;
 
-        uint256 balBefore = token.balanceOf(user);
+        uint256 claimedBefore = _claimedOf(user);
 
         vm.prank(user);
         try rewards2.claim() {
-            uint256 claimed = token.balanceOf(user) - balBefore;
-            ghost_totalClaimed += claimed;
+            ghost_totalClaimed += _claimedOf(user) - claimedBefore;
             calls_claim++;
         } catch {
             // claim can revert if nothing to claim
@@ -90,13 +77,12 @@ contract RewardHandler is Test {
 
         vestingIdx = bound(vestingIdx, 0, count - 1);
 
-        (uint256 totalAmount, uint256 claimedAmount,, bool isActive) = rewards2.vestings(user, vestingIdx);
+        (,,, bool isActive) = rewards2.vestings(user, vestingIdx);
         if (!isActive) return;
 
         vm.prank(owner);
         rewards2.deactivateVesting(user, vestingIdx);
 
-        ghost_totalDeactivated += (totalAmount - claimedAmount);
         calls_deactivate++;
     }
 
@@ -104,5 +90,13 @@ contract RewardHandler is Test {
     function warpWeeks(uint256 weeks_) external {
         weeks_ = bound(weeks_, 1, 5);
         vm.warp(block.timestamp + weeks_ * 1 weeks);
+    }
+
+    function _claimedOf(address user) internal view returns (uint256 claimed) {
+        uint256 count = rewards2.userVestingCount(user);
+        for (uint256 i = 0; i < count; i++) {
+            (, uint256 claimedAmount,,) = rewards2.vestings(user, i);
+            claimed += claimedAmount;
+        }
     }
 }

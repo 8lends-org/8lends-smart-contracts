@@ -7,8 +7,8 @@ import "./handlers/RewardHandler.sol";
 /// @notice Invariant tests for Rewards2 vesting system
 /// @dev Verifies:
 ///      1. Total claimed never exceeds total vested
-///      2. Token balance of rewards2 is always sufficient for remaining obligations
-///      3. Individual vesting claimedAmount never exceeds totalAmount
+///      2. Individual vesting claimedAmount never exceeds totalAmount
+///      3. Nothing granted is stranded once the schedule has run out
 contract RewardSystemInvariantTest is Setup {
     RewardHandler handler;
     address[] userList;
@@ -21,15 +21,21 @@ contract RewardSystemInvariantTest is Setup {
         userList[1] = investor2;
         userList[2] = makeAddr("investor3");
 
-        handler = new RewardHandler(
-            rewards2,
-            token,
-            usdc,
-            owner,
-            userList
-        );
+        handler = new RewardHandler(rewards2, owner, userList);
+
+        // Without a rate and the money every claim reverts, and the handler swallows reverts, so
+        // the properties below would hold over a run in which nothing was ever paid.
+        vm.startPrank(owner);
+        rewards2.setRedemptionRate(20_000);
+        usdc.mint(address(rewards2), 1e18);
+        vm.stopPrank();
 
         targetContract(address(handler));
+    }
+
+    /// @dev Guards the guards: a run where no claim ever went through proves nothing above.
+    function afterInvariant() public view {
+        assertGt(handler.calls_claim(), 0, "no claim succeeded during the run");
     }
 
     /// @notice Total tokens claimed never exceeds total tokens vested
@@ -39,23 +45,6 @@ contract RewardSystemInvariantTest is Setup {
             handler.ghost_totalVested(),
             "INVARIANT VIOLATED: claimed > vested"
         );
-    }
-
-    /// @notice Rewards2 token balance >= remaining claimable obligations
-    /// @dev remaining = totalVested - totalClaimed - totalDeactivated
-    function invariant_tokenSolvency() public view {
-        uint256 totalVested = handler.ghost_totalVested();
-        uint256 totalClaimed = handler.ghost_totalClaimed();
-        uint256 totalDeactivated = handler.ghost_totalDeactivated();
-
-        // Remaining obligations (what could still be claimed)
-        uint256 remaining = 0;
-        if (totalVested > totalClaimed + totalDeactivated) {
-            remaining = totalVested - totalClaimed - totalDeactivated;
-        }
-
-        uint256 balance = token.balanceOf(address(rewards2));
-        assertGe(balance, remaining, "INVARIANT VIOLATED: rewards2 token balance < remaining obligations");
     }
 
     /// @notice Everything granted stays reachable: taken plus still claimable is the whole grant

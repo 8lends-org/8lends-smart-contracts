@@ -134,7 +134,7 @@ contract CriticalFindingsTest is Setup {
         amounts[0] = 10_000e18;
 
         vm.startPrank(owner);
-        rewards2.createVesting(users, amounts);
+        rewards2.seedVestings(users, amounts);
         rewards2.setRedemptionRate(20_000);
         usdc.mint(address(rewards2), 200e6);
         vm.stopPrank();

@@ -10,6 +10,7 @@ import {Token} from "../../contracts/token/8lnds/Token.sol";
 import {ManagerRegistry} from "../../contracts/core/ManagerRegistry.sol";
 import {RewardSystem} from "../../contracts/core/RewardSystem.sol";
 import {Rewards2} from "../../contracts/core/Rewards2.sol";
+import {Rewards2Harness} from "./mocks/Rewards2Harness.sol";
 import {Treasury} from "../../contracts/core/Treasury.sol";
 
 // OpenZeppelin proxy
@@ -29,7 +30,7 @@ abstract contract Setup is Test, Eip712Signing {
     Token public token;
     ManagerRegistry public managerRegistry;
     RewardSystem public rewardSystem;
-    Rewards2 public rewards2;
+    Rewards2Harness public rewards2;
     Treasury public treasury;
     MockUSDC public usdc;
     MockUniswapV2Router public mockRouter;
@@ -132,13 +133,13 @@ abstract contract Setup is Test, Eip712Signing {
 
         // ── Deploy Rewards2 (UUPS proxy) ──
         {
-            Rewards2 impl = new Rewards2();
+            Rewards2Harness impl = new Rewards2Harness();
             bytes memory initData = abi.encodeCall(
                 Rewards2.initialize,
                 (address(managerRegistry), address(token), address(usdc), address(mockRouter))
             );
             ERC1967Proxy proxy = new ERC1967Proxy(address(impl), initData);
-            rewards2 = Rewards2(address(proxy));
+            rewards2 = Rewards2Harness(address(proxy));
         }
 
         // ── Configure ManagerRegistry ──

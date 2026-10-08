@@ -60,7 +60,6 @@ contract Rewards2 is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentra
     uint256 public redemptionRate;
 
     // Events
-    event VestingCreated(address indexed user, uint256 indexed vestingId, uint256 amount, uint256 startTime);
     event VestingClaimed(address indexed user, uint256 indexed vestingId, uint256 amount);
     event VestingDeactivated(address indexed user, uint256 indexed vestingId);
     event RedemptionRateSet(uint256 rate);
@@ -132,39 +131,6 @@ contract Rewards2 is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentra
         require(_rate > 0, "Invalid rate");
         redemptionRate = _rate;
         emit RedemptionRateSet(_rate);
-    }
-
-    /// @notice Create vesting for users (owner only)
-    /// @param _users Array of user addresses
-    /// @param _amounts Array of token amounts for vesting
-    /// @dev Each call creates new vesting that starts immediately
-    function createVesting(
-        address[] calldata _users,
-        uint256[] calldata _amounts
-    ) external onlyOwner {
-        require(_users.length == _amounts.length, "Users and amounts length mismatch");
-        require(_users.length > 0, "Empty arrays");
-        require(_users.length <= 2000, "Too many users");
-
-        for (uint256 i = 0; i < _users.length; i++) {
-            require(_users[i] != address(0), "Invalid user address");
-            require(_amounts[i] > 0, "Invalid amount");
-            
-            address user = _users[i];
-            uint256 vestingId = userVestingCount[user];
-            
-            vestings[user][vestingId] = Vesting({
-                totalAmount: _amounts[i],
-                claimedAmount: 0,
-                startTime: block.timestamp,
-                isActive: true
-            });
-            
-            userVestingCount[user]++;
-            totalVestings++;
-            
-            emit VestingCreated(user, vestingId, _amounts[i], block.timestamp);
-        }
     }
 
     /// @notice Claim all vestings, paid in USDC at the redemption rate

@@ -12,71 +12,6 @@ contract RewardVestingFuzzTest is Setup {
     uint256 constant RATE = 20_000;
 
     // ═══════════════════════════════════════════════════════════════
-    //     PURE MATH: vesting unlock formula
-    // ═══════════════════════════════════════════════════════════════
-
-    /// @notice Claimable never exceeds totalAmount
-    function testFuzz_vestingMath_claimableNeverExceedsTotal(
-        uint256 totalAmount,
-        uint256 weeksPassed
-    ) public pure {
-        totalAmount = bound(totalAmount, 1e18, 10_000_000e18);
-        weeksPassed = bound(weeksPassed, 0, 200);
-
-        uint256 weeksUnlocked = weeksPassed + 1;
-
-        uint256 totalUnlocked;
-        if (weeksUnlocked >= VESTING_WEEKS) {
-            totalUnlocked = totalAmount;
-        } else {
-            totalUnlocked = (totalAmount * weeksUnlocked * WEEKLY_UNLOCK) / BP;
-            if (totalUnlocked > totalAmount) {
-                totalUnlocked = totalAmount;
-            }
-        }
-
-        assertLe(totalUnlocked, totalAmount, "Unlocked should never exceed total");
-    }
-
-    /// @notice Unlock is monotonically increasing with time
-    function testFuzz_vestingMath_monotonicallyIncreasing(
-        uint256 totalAmount,
-        uint256 weeks1,
-        uint256 weeks2
-    ) public pure {
-        totalAmount = bound(totalAmount, 1e18, 10_000_000e18);
-        weeks1 = bound(weeks1, 0, 100);
-        weeks2 = bound(weeks2, weeks1, 100);
-
-        uint256 unlock1 = _calcUnlock(totalAmount, weeks1);
-        uint256 unlock2 = _calcUnlock(totalAmount, weeks2);
-
-        assertGe(unlock2, unlock1, "Later time should unlock >= earlier time");
-    }
-
-    /// @notice At week 0, exactly 2.5% is unlocked
-    function testFuzz_vestingMath_weekZeroUnlock(uint256 totalAmount) public pure {
-        totalAmount = bound(totalAmount, 1e18, 10_000_000e18);
-
-        uint256 unlocked = _calcUnlock(totalAmount, 0);
-        uint256 expected = (totalAmount * WEEKLY_UNLOCK) / BP;
-
-        assertEq(unlocked, expected, "Week 0 should unlock exactly 2.5%");
-    }
-
-    /// @notice At week >= 39, everything is unlocked
-    function testFuzz_vestingMath_fullUnlockAfterVestingPeriod(
-        uint256 totalAmount,
-        uint256 weeksPassed
-    ) public pure {
-        totalAmount = bound(totalAmount, 1e18, 10_000_000e18);
-        weeksPassed = bound(weeksPassed, 39, 200); // weeksUnlocked >= 40
-
-        uint256 unlocked = _calcUnlock(totalAmount, weeksPassed);
-        assertEq(unlocked, totalAmount, "Should be fully unlocked");
-    }
-
-    // ═══════════════════════════════════════════════════════════════
     //     E2E: Rewards2 contract vesting
     // ═══════════════════════════════════════════════════════════════
 
@@ -92,7 +27,7 @@ contract RewardVestingFuzzTest is Setup {
         amounts[0] = totalAmount;
 
         vm.prank(owner);
-        rewards2.createVesting(users, amounts);
+        rewards2.seedVestings(users, amounts);
 
         // Warp
         vm.warp(block.timestamp + weeksPassed * 1 weeks);
@@ -119,7 +54,7 @@ contract RewardVestingFuzzTest is Setup {
         amounts[0] = totalAmount;
 
         vm.prank(owner);
-        rewards2.createVesting(users, amounts);
+        rewards2.seedVestings(users, amounts);
         vm.startPrank(owner);
         rewards2.setRedemptionRate(RATE);
         usdc.mint(address(rewards2), totalAmount * RATE / 1e18 + 1e6);

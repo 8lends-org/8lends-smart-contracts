@@ -12,74 +12,18 @@ contract Rewards2Test is Setup {
     //                    CREATE VESTING
     // ═══════════════════════════════════════════════════════════════
 
-    function test_createVesting_onlyOwner() public {
+    /// @dev Checked on the contract itself: the proxy in Setup runs a harness that can still seed
+    ///      vesting for the other tests.
+    function test_createVesting_isGone() public {
         address[] memory users = new address[](1);
         users[0] = investor;
         uint256[] memory amounts = new uint256[](1);
         amounts[0] = 1000e18;
 
-        vm.prank(attacker);
-        vm.expectRevert(abi.encodeWithSignature("OwnableUnauthorizedAccount(address)", attacker));
-        rewards2.createVesting(users, amounts);
-    }
-
-    function test_createVesting_mismatchedArrays() public {
-        address[] memory users = new address[](2);
-        users[0] = investor;
-        users[1] = investor2;
-        uint256[] memory amounts = new uint256[](1);
-        amounts[0] = 1000e18;
-
-        vm.prank(owner);
-        vm.expectRevert("Users and amounts length mismatch");
-        rewards2.createVesting(users, amounts);
-    }
-
-    function test_createVesting_emptyArrays() public {
-        address[] memory users = new address[](0);
-        uint256[] memory amounts = new uint256[](0);
-
-        vm.prank(owner);
-        vm.expectRevert("Empty arrays");
-        rewards2.createVesting(users, amounts);
-    }
-
-    function test_createVesting_storesCorrectly() public {
-        address[] memory users = new address[](1);
-        users[0] = investor;
-        uint256[] memory amounts = new uint256[](1);
-        amounts[0] = 10_000e18;
-
-        vm.prank(owner);
-        rewards2.createVesting(users, amounts);
-
-        (uint256 totalAmount, uint256 claimedAmount, uint256 startTime, bool isActive) =
-            rewards2.vestings(investor, 0);
-
-        assertEq(totalAmount, 10_000e18);
-        assertEq(claimedAmount, 0);
-        assertEq(startTime, block.timestamp);
-        assertTrue(isActive);
-        assertEq(rewards2.userVestingCount(investor), 1);
-        assertEq(rewards2.totalVestings(), 1);
-    }
-
-    function test_createVesting_multipleUsers() public {
-        address[] memory users = new address[](2);
-        users[0] = investor;
-        users[1] = investor2;
-        uint256[] memory amounts = new uint256[](2);
-        amounts[0] = 5_000e18;
-        amounts[1] = 8_000e18;
-
-        vm.prank(owner);
-        rewards2.createVesting(users, amounts);
-
-        (uint256 amt1,,,) = rewards2.vestings(investor, 0);
-        (uint256 amt2,,,) = rewards2.vestings(investor2, 0);
-        assertEq(amt1, 5_000e18);
-        assertEq(amt2, 8_000e18);
-        assertEq(rewards2.totalVestings(), 2);
+        (bool ok,) = address(new Rewards2()).call(
+            abi.encodeWithSignature("createVesting(address[],uint256[])", users, amounts)
+        );
+        assertFalse(ok, "Rewards2 must not create vesting");
     }
 
     // ═══════════════════════════════════════════════════════════════
@@ -95,7 +39,7 @@ contract Rewards2Test is Setup {
     }
 
     function test_claim_paysUsdcAtTheRate() public {
-        _createVesting(investor, 10_000e18);
+        _seedVesting(investor, 10_000e18);
         _fundClaims();
 
         vm.warp(block.timestamp + 10 weeks);
@@ -118,7 +62,7 @@ contract Rewards2Test is Setup {
     /// @dev There is no token payout to fall back on, so an unset rate has to stop the claim
     ///      rather than consume the vesting and pay nothing.
     function test_claim_beforeRateIsSet_reverts() public {
-        _createVesting(investor, 10_000e18);
+        _seedVesting(investor, 10_000e18);
         vm.warp(block.timestamp + 10 weeks);
 
         vm.prank(investor);
@@ -127,7 +71,7 @@ contract Rewards2Test is Setup {
     }
 
     function test_claim_usdcRunsShort_reverts() public {
-        _createVesting(investor, 10_000e18);
+        _seedVesting(investor, 10_000e18);
         vm.prank(owner);
         rewards2.setRedemptionRate(RATE);
 
@@ -138,33 +82,9 @@ contract Rewards2Test is Setup {
         rewards2.claim();
     }
 
-    function test_claim_updatesClaimedAmount() public {
-        _createVesting(investor, 10_000e18);
-        _fundClaims();
-
-        vm.warp(block.timestamp + 5 weeks);
-
-        vm.prank(investor);
-        rewards2.claim();
-
-        (, uint256 claimedAmount,,) = rewards2.vestings(investor, 0);
-        uint256 expected = (10_000e18 * 6 * 25_000) / 1_000_000; // 1500e18
-        assertEq(claimedAmount, expected, "the watermark counts tokens, not money");
-
-        // Second claim after 5 more weeks should only give the diff
-        vm.warp(block.timestamp + 5 weeks);
-
-        uint256 balBefore = usdc.balanceOf(investor);
-        vm.prank(investor);
-        rewards2.claim();
-
-        // weeksUnlocked = 10+1 = 11 → totalUnlocked = 2750e18, already claimed 1500e18
-        assertEq(usdc.balanceOf(investor) - balBefore, 1_250e18 * RATE / 1e18);
-    }
-
     function test_claim_skipsDeactivated() public {
-        _createVesting(investor, 5_000e18);
-        _createVesting(investor, 3_000e18);
+        _seedVesting(investor, 5_000e18);
+        _seedVesting(investor, 3_000e18);
         _fundClaims();
 
         vm.prank(owner);
@@ -180,7 +100,7 @@ contract Rewards2Test is Setup {
     }
 
     function test_claim_usesClaimAddress() public {
-        _createVesting(investor, 10_000e18);
+        _seedVesting(investor, 10_000e18);
         _fundClaims();
 
         address altClaim = makeAddr("altClaim");
@@ -199,7 +119,7 @@ contract Rewards2Test is Setup {
     /// @dev A ratchet raised before the bonus was withdrawn still lifts the curve. Nothing writes
     ///      it any more, so it is planted the way the chain holds it: slot 10.
     function test_claim_historicalRatchetStillLiftsTheCurve() public {
-        _createVesting(investor, 10_000e18);
+        _seedVesting(investor, 10_000e18);
         _fundClaims();
 
         bytes32 slot = keccak256(abi.encode(uint256(0), keccak256(abi.encode(investor, uint256(10)))));
@@ -229,7 +149,7 @@ contract Rewards2Test is Setup {
 
     /// @dev The rate is changeable, and a change applies to everything not yet claimed.
     function test_setRedemptionRate_appliesToWhatIsLeft() public {
-        _createVesting(investor, 10_000e18);
+        _seedVesting(investor, 10_000e18);
         _fundClaims();
 
         vm.warp(block.timestamp + 10 weeks);
@@ -262,8 +182,8 @@ contract Rewards2Test is Setup {
     }
 
     function test_claimBatch_claimsForMultipleUsers() public {
-        _createVesting(investor, 5_000e18);
-        _createVesting(investor2, 3_000e18);
+        _seedVesting(investor, 5_000e18);
+        _seedVesting(investor2, 3_000e18);
         _fundClaims();
 
         vm.warp(block.timestamp + 41 weeks);
@@ -280,7 +200,7 @@ contract Rewards2Test is Setup {
     }
 
     function test_claimBatch_beforeRateIsSet_reverts() public {
-        _createVesting(investor, 5_000e18);
+        _seedVesting(investor, 5_000e18);
         vm.warp(block.timestamp + 41 weeks);
 
         address[] memory users = new address[](1);
@@ -294,8 +214,8 @@ contract Rewards2Test is Setup {
     /// @dev A user the batch cannot pay must keep the vesting: the watermark is written only
     ///      after the money is known to be there.
     function test_claimBatch_skippedUserKeepsTheVesting() public {
-        _createVesting(investor, 5_000e18);
-        _createVesting(investor2, 3_000e18);
+        _seedVesting(investor, 5_000e18);
+        _seedVesting(investor2, 3_000e18);
 
         vm.startPrank(owner);
         rewards2.setRedemptionRate(RATE);
@@ -322,7 +242,7 @@ contract Rewards2Test is Setup {
     // ═══════════════════════════════════════════════════════════════
 
     function test_deactivateVesting_onlyOwner() public {
-        _createVesting(investor, 1000e18);
+        _seedVesting(investor, 1000e18);
 
         vm.prank(attacker);
         vm.expectRevert(abi.encodeWithSignature("OwnableUnauthorizedAccount(address)", attacker));
@@ -330,7 +250,7 @@ contract Rewards2Test is Setup {
     }
 
     function test_deactivateVesting_setsInactive() public {
-        _createVesting(investor, 1000e18);
+        _seedVesting(investor, 1000e18);
 
         vm.prank(owner);
         rewards2.deactivateVesting(investor, 0);
@@ -427,7 +347,7 @@ contract Rewards2Test is Setup {
     // ═══════════════════════════════════════════════════════════════
 
     function test_getBalances_returnsCorrectValues() public {
-        _createVesting(investor, 10_000e18);
+        _seedVesting(investor, 10_000e18);
 
         vm.prank(owner);
         token.mint(investor, 500e18);
@@ -458,14 +378,14 @@ contract Rewards2Test is Setup {
         vm.stopPrank();
     }
 
-    function _createVesting(address user, uint256 amount) internal {
+    function _seedVesting(address user, uint256 amount) internal {
         address[] memory users = new address[](1);
         users[0] = user;
         uint256[] memory amounts = new uint256[](1);
         amounts[0] = amount;
 
         vm.prank(owner);
-        rewards2.createVesting(users, amounts);
+        rewards2.seedVestings(users, amounts);
     }
 
     // ── boundaries ──────────────────────────────────────────────────────────────
