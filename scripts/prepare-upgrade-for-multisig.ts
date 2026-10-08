@@ -2,6 +2,7 @@ import dotenv from "dotenv";
 import hre, { ethers } from "hardhat";
 import { configPath, loadConfig, saveConfig } from "./utils/config";
 
+import { tryReadOwner } from "./utils/safe-batch";
 import { requireRealNetwork } from "./utils/network-guard";
 dotenv.config();
 
@@ -35,6 +36,24 @@ function contractMethodFromAbi(abi: any[], name: string): SafeTransaction["contr
   };
 }
 
+/**
+ * The Safe that will execute the batch. Taken from owner() where there is one; a role-gated
+ * contract has none, and then SAFE= has to supply it. Empty is refused rather than written: the
+ * Transaction Builder uses this field to warn that a batch belongs to a different Safe, and a blank
+ * one loses that warning without saying so.
+ */
+function requireSafeAddress(owner: string | undefined, target: string): string {
+  const safe = process.env.SAFE || owner;
+  if (!safe) {
+    throw new Error(
+      `${target} has no owner(), so the executing Safe cannot be inferred. ` +
+        `Pass SAFE=0x… — without it the batch would carry no createdFromSafeAddress ` +
+        `and the Transaction Builder could not tell it was built for another Safe.`
+    );
+  }
+  return safe;
+}
+
 async function main() {
   await requireRealNetwork();
   // The in-process `hardhat` network forks base and reports its chainId, so a run without
@@ -60,18 +79,23 @@ async function main() {
     throw new Error(`${contractName} not found in ${filePath}`);
   }
 
-  const proxy = await ethers.getContractAt(contractName, proxyAddress);
-  const owner = await proxy.owner();
+  // Not every upgradeable contract here is Ownable: BTC8L gates _authorizeUpgrade on a role and
+  // has no owner() at all. The address is printed to say who has to sign, so an absent one is
+  // reported rather than thrown.
+  const owner = await tryReadOwner(contractName, proxyAddress);
   const currentImpl = await hre.upgrades.erc1967.getImplementationAddress(proxyAddress);
 
   console.log(`\nNetwork:  ${net.name} (chainId ${net.chainId})`);
   console.log(`Contract: ${contractName} at ${proxyAddress}`);
-  console.log(`Owner:    ${owner}`);
+  console.log(`Owner:    ${owner ?? "— no owner(); the upgrade is gated by a role"}`);
   console.log(`Old impl: ${currentImpl}`);
   if (isDryRun) {
     console.log("\nDRY RUN on the in-process fork: the implementation below will not exist on any");
     console.log("real chain. Pass --network base (or sepolia) to produce a submittable batch.");
   }
+
+  // Before any gas is spent: a batch nobody can attribute to a Safe is worse than no batch.
+  const safeAddress = requireSafeAddress(owner, `${contractName} ${proxyAddress}`);
 
   console.log("\nCompiling from a clean state so the deployed bytecode matches the working tree...");
   await hre.run("clean");
@@ -113,7 +137,7 @@ async function main() {
         `${contractName} ${proxyAddress}: upgradeToAndCall(${newImplAddress}, "${upgradeData}") — ` +
         `replaces implementation ${currentImpl}`,
       txBuilderVersion: "1.16.5",
-      createdFromSafeAddress: owner,
+      createdFromSafeAddress: safeAddress,
       createdFromOwnerAddress: "",
     },
     transactions: [transaction],
