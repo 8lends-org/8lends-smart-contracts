@@ -11,6 +11,7 @@ import { MandateFactory } from "../../../contracts/mandate/MandateFactory.sol";
 import { MandateEscrowV1 } from "../../../contracts/mandate/MandateEscrowV1.sol";
 import { IMandateFactory } from "../../../contracts/mandate/interfaces/IMandateFactory.sol";
 import { ImmutableParamsV1, InterestDirection } from "../../../contracts/mandate/interfaces/MandateTypes.sol";
+import { Eip712Signing } from "../helpers/Eip712Signing.sol";
 
 /// @dev Reports whatever it is told to, to prove the address comparison is the only thing that
 ///      decides — a contract that lies about itself simply lands somewhere else.
@@ -31,7 +32,7 @@ contract EscrowV2     { function version() external pure returns (uint16) { retu
 contract EscrowV3     { function version() external pure returns (uint16) { return 3; } }
 contract EscrowV5     { function version() external pure returns (uint16) { return 5; } }
 
-contract MandateFactoryTest is Test {
+contract MandateFactoryTest is Test, Eip712Signing {
     MandateFactory factory;
     MandateEscrowV1 implV1;
 
@@ -68,11 +69,16 @@ contract MandateFactoryTest is Test {
         view
         returns (bytes memory)
     {
-        bytes32 inner = keccak256(
-            abi.encodePacked(owner_, _paramsHash(p), version, address(factory), block.chainid)
-        );
-        bytes32 digest = keccak256(abi.encodePacked("\x19Ethereum Signed Message:\n32", inner));
-        (uint8 v, bytes32 r, bytes32 s) = vm.sign(key, digest);
+        return _kycFor(address(factory), key, owner_, p, version);
+    }
+
+    function _kycFor(address verifier, uint256 key, address owner_, ImmutableParamsV1 memory p, uint16 version)
+        internal
+        view
+        returns (bytes memory)
+    {
+        bytes32 structHash = keccak256(abi.encode(CREATE_MANDATE_TYPEHASH, owner_, version, _paramsHash(p)));
+        (uint8 v, bytes32 r, bytes32 s) = vm.sign(key, _eip712(verifier, structHash));
         return abi.encodePacked(r, s, v);
     }
 
@@ -115,6 +121,24 @@ contract MandateFactoryTest is Test {
         vm.expectRevert(MandateFactory.NotKycSigner.selector);
         vm.prank(alice);
         factory.createMandate(other, _kyc(kycKey, alice, params, 1));
+    }
+
+    function test_kyc_signature_is_bound_to_the_factory() public {
+        vm.expectRevert(MandateFactory.NotKycSigner.selector);
+        vm.prank(alice);
+        factory.createMandate(params, _kycFor(address(0xFAC), kycKey, alice, params, 1));
+    }
+
+    function test_kyc_signature_in_the_old_format_is_refused() public {
+        bytes32 inner = keccak256(
+            abi.encodePacked(alice, _paramsHash(params), uint16(1), address(factory), block.chainid)
+        );
+        (uint8 v, bytes32 r, bytes32 s) =
+            vm.sign(kycKey, keccak256(abi.encodePacked("\x19Ethereum Signed Message:\n32", inner)));
+
+        vm.expectRevert(MandateFactory.NotKycSigner.selector);
+        vm.prank(alice);
+        factory.createMandate(params, abi.encodePacked(r, s, v));
     }
 
     /// No nonce and no deadline, but the salt authorises exactly one address — the second attempt

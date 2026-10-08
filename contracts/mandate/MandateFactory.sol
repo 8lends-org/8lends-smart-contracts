@@ -23,6 +23,14 @@ contract MandateFactory is IMandateFactory, Initializable, OwnableUpgradeable, U
     /// @dev Where EIP-1167 keeps the implementation address inside the clone's runtime code.
     uint256 private constant CLONE_IMPL_OFFSET = 10;
 
+    /// @dev The KYC signer defaults to the key that signs investments and listings; the typehash keeps
+    ///      their approvals apart.
+    bytes32 private constant DOMAIN_TYPEHASH =
+        keccak256("EIP712Domain(uint256 chainId,address verifyingContract)");
+    /// @dev paramsHash, not the fields, so one type serves every params version.
+    bytes32 private constant CREATE_MANDATE_TYPEHASH =
+        keccak256("CreateMandate(address owner,uint16 version,bytes32 paramsHash)");
+
     address public kycSigner;
     uint16 public latestVersion;
     mapping(uint16 => address) public implementations;
@@ -163,17 +171,20 @@ contract MandateFactory is IMandateFactory, Initializable, OwnableUpgradeable, U
         return keccak256(abi.encode(owner_, version, paramsHash));
     }
 
-    /// @dev Same scheme as the live investUpdateV2 path, so the backend needs no new signing flow.
-    ///      encodePacked is safe here — every field is fixed-size, and `version` packs to two bytes.
-    ///      ECDSA.recover rejects a malleable high-s signature on its own.
+    /// @dev ECDSA.recover rejects a malleable high-s signature on its own.
     function _requireKycSignerSig(address owner_, bytes32 paramsHash, uint16 version, bytes calldata sig)
         private
         view
     {
-        bytes32 inner = keccak256(abi.encodePacked(owner_, paramsHash, version, address(this), block.chainid));
-        if (ECDSA.recover(MessageHashUtils.toEthSignedMessageHash(inner), sig) != kycSigner) {
+        bytes32 structHash = keccak256(abi.encode(CREATE_MANDATE_TYPEHASH, owner_, version, paramsHash));
+        if (ECDSA.recover(MessageHashUtils.toTypedDataHash(_domainSeparator(), structHash), sig) != kycSigner) {
             revert NotKycSigner();
         }
+    }
+
+    /// @dev Per call, not cached: a live proxy has no slot for it, and a fork gets the right chainId.
+    function _domainSeparator() private view returns (bytes32) {
+        return keccak256(abi.encode(DOMAIN_TYPEHASH, block.chainid, address(this)));
     }
 
     /// @dev The 20 bytes EIP-1167 stores at offset 10 of the clone's runtime code. Returns zero for

@@ -215,8 +215,8 @@ contract Market is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentranc
         );
     }
 
-    /// @dev The owner is in the message: a recovery address can stand behind more than one
-    ///      compromised wallet, and an approval naming one must not list a position of another.
+    /// @dev A recovery address can stand behind several compromised wallets; an approval naming one
+    ///      must not list a position of another.
     function _verifySellForSignature(
         address _owner,
         uint256 _projectId,

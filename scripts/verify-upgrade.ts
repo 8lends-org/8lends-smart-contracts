@@ -91,7 +91,7 @@ async function main() {
       console.log(`📌 Implementation from config: ${config[oldImplKey] || 'not found'}`);
     }
 
-    // Owner is informational: contracts on AccessControl (BTC8L) have no owner() at all.
+    // Informational only: AccessControl contracts (BTC8L) have no owner().
     const contract = await ethers.getContractAt(contractName, proxyAddress);
     const owner = await tryReadOwner(contractName, proxyAddress);
     console.log(`👤 Owner: ${owner ?? "none (no owner(), access is role-based)"}`);
@@ -104,8 +104,7 @@ async function main() {
       // Version not implemented - this is normal
     }
 
-    // The proxy has to delegate to actual code. Checked on the implementation rather than through a
-    // view call, because no single view function exists on every contract this script handles.
+    // Checked on the code, not through a view call: no view function exists on every contract here.
     console.log("\n🔍 Checking basic functionality...");
     if ((await ethers.provider.getCode(currentImpl)) === "0x") {
       throw new Error(`Implementation ${currentImpl} has no code`);

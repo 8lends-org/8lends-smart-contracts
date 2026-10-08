@@ -16,9 +16,8 @@ dotenv.config();
  * ADDRESS=0x…  overrides the config lookup, for contracts whose config key differs from the
  *              artifact name (the 8LNDS token is `token` in the config, `Token` as an artifact).
  * CALLS='[{"method":"mint","args":[…]}, …]'  puts several calls into one batch; `method` may be
- *              omitted to reuse METHOD. Overrides ARGS when present. A call may also carry its own
- *              `contract`, so one batch can touch several contracts — an upgrade of two contracts
- *              that must go live together. CONTRACT is then only the default for calls without one.
+ *              omitted to reuse METHOD. Overrides ARGS when present. A call may name its own
+ *              `contract`, for upgrades that must go live together; CONTRACT is then the default.
  *
  *   CONTRACT=Fundraise METHOD=setAmlGateway ARGS='["@EscrowFactory"]'
  *   CONTRACT=Fundraise METHOD=setAmlGateway ARGS='["0x0000000000000000000000000000000000000000"]'
@@ -104,7 +103,6 @@ async function main() {
   const filePath = configPath(net.chainId);
   const config = (loadConfig(net.chainId)) as Record<string, unknown>;
 
-  /** Proxy address of a contract: ADDRESS for the default contract, the config for the rest. */
   const targetOf = (name: string): string => {
     const override = name === contractName ? process.env.ADDRESS : undefined;
     const target = override ?? config[name];

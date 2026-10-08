@@ -17,6 +17,8 @@ abstract contract Eip712Signing {
         "SellFor(address recovery,address owner,uint256 projectId,uint256 price,uint256 positionIndex,uint256 deadline)"
     );
     bytes32 internal constant BUY_TYPEHASH = keccak256("Buy(address buyer,uint256 saleId)");
+    bytes32 internal constant CREATE_MANDATE_TYPEHASH =
+        keccak256("CreateMandate(address owner,uint16 version,bytes32 paramsHash)");
 
     function _eip712(address verifyingContract, bytes32 structHash) internal view returns (bytes32) {
         return keccak256(

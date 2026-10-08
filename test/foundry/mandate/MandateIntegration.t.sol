@@ -75,11 +75,8 @@ contract MandateIntegrationTest is Setup {
         ImmutableParamsV1 memory p =
             ImmutableParamsV1({ interestDirection: uint8(direction), projectLimitBps: limitBps });
 
-        bytes32 inner = keccak256(
-            abi.encodePacked(user, keccak256(abi.encode(p)), uint16(1), address(factory), block.chainid)
-        );
-        (uint8 v, bytes32 r, bytes32 s) =
-            vm.sign(kycKey, keccak256(abi.encodePacked("\x19Ethereum Signed Message:\n32", inner)));
+        bytes32 structHash = keccak256(abi.encode(CREATE_MANDATE_TYPEHASH, user, uint16(1), keccak256(abi.encode(p))));
+        (uint8 v, bytes32 r, bytes32 s) = vm.sign(kycKey, _eip712(address(factory), structHash));
 
         vm.prank(user);
         e = MandateEscrowV1(factory.createMandate(p, abi.encodePacked(r, s, v)));

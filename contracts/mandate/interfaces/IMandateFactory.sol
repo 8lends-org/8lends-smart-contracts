@@ -84,17 +84,8 @@ interface IMandateFactory {
     /// @notice Creates the caller's mandate and returns its address.
     /// @dev The KYC signature is verified here, not in the escrow — this is the only gate that
     ///      keeps unverified users out, since the placement path has no signature check.
-    /// @dev Digest, identical in scheme to the live investUpdateV2 path (Fundraise.sol:237-243), so
-    ///      the backend needs no new signing flow:
-    ///        inner  = keccak256(abi.encodePacked(msg.sender, paramsHash, version,
-    ///                                            address(this), block.chainid))
-    ///        digest = keccak256(abi.encodePacked("\x19Ethereum Signed Message:\n32", inner))
-    ///      checked against kycSigner() with malleability protection. Three traps: encodePacked
-    ///      and NOT encode (every type is fixed-size here, so there is no ambiguity); the EIP-191
-    ///      prefix is mandatory, i.e. sign `digest`, not `inner`; and version is a uint16, two
-    ///      bytes when packed. paramsHash itself uses abi.encode — it hashes a struct, where
-    ///      encodePacked would collide across field-set changes. Same for the salt:
-    ///      keccak256(abi.encode(owner, version, paramsHash)).
+    /// @dev The KYC signature is EIP-712 CreateMandate(owner, version, paramsHash) over this factory.
+    ///      paramsHash uses abi.encode, not encodePacked, which would collide across field-set changes.
     /// @dev The signature carries no nonce and no deadline, which has two consequences a caller
     ///      must plan for. It is single-use anyway: the salt is keccak256(owner, version,
     ///      paramsHash), so it authorises exactly one address, and a second attempt hits occupied
