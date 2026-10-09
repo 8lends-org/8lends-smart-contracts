@@ -192,6 +192,17 @@ contract MandateEscrowV1Test is Test {
 
     // ── parameter bounds ────────────────────────────────────────────────────────
 
+    /// @dev The implementation is never a mandate, but it is a contract with an owner-gated
+    ///      withdraw. Left open, the first caller takes it and collects whatever lands on the
+    ///      address by mistake.
+    function test_the_implementation_cannot_be_claimed() public {
+        assertEq(impl.owner(), address(1), "taken in its own constructor");
+
+        vm.prank(address(0xBAD));
+        vm.expectRevert(MandateEscrowV1.AlreadyInitialized.selector);
+        impl.initialize(address(0xBAD), ImmutableParamsV1({ interestDirection: 0, projectLimitBps: 1000 }));
+    }
+
     function test_initialize_rejects_direction_above_two() public {
         MandateEscrowV1 e = MandateEscrowV1(Clones.clone(address(impl)));
         vm.expectRevert(abi.encodeWithSelector(MandateEscrowV1.BadInterestDirection.selector, uint8(3)));
@@ -549,6 +560,31 @@ contract MandateEscrowV1Test is Test {
         assertEq(lending.lastOnBehalf(), owner, "position belongs to the owner, not the escrow");
         assertEq(lending.lastLoanToken(), address(usdc), "market params come from idToMarketParams");
         assertEq(e.freeBalance(), 200e6, "principal stays on the balance");
+    }
+
+    /// Fundraise pays the recovery address directly and skips onPayout for a flagged owner, so this
+    /// is reached only if that guard ever moves. The beneficiary must follow the chain regardless:
+    /// a Lending8 position opened under a stolen address is not recoverable from here.
+    function test_direction_two_lends_to_the_recovery_address() public {
+        MandateEscrowV1 e = MandateEscrowV1(Clones.clone(address(impl)));
+        e.initialize(owner, ImmutableParamsV1({ interestDirection: uint8(InterestDirection.LEND), projectLimitBps: 1000 }));
+        usdc.mint(address(e), 300e6);
+
+        address rescue = makeAddr("rescue");
+        registry.setRecovery(owner, rescue);
+
+        bytes32 marketId = keccak256("USDC/BTC8L");
+        lending.setMarket(marketId, MarketParams({
+            loanToken: address(usdc),
+            collateralToken: address(0xB7C8),
+            irm: address(0x121212),
+            lltv: 0.8e18
+        }));
+
+        vm.prank(address(fundraise));
+        e.onPayout(PID, 100e6, 100e6, 150e6, marketId);
+
+        assertEq(lending.lastOnBehalf(), rescue, "the position must not open under the stolen address");
     }
 
     /// A market lending something other than USDC would make Lending8 pull a token the escrow does

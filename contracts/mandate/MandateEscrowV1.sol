@@ -92,14 +92,18 @@ contract MandateEscrowV1 is IMandateEscrowV1 {
         MANAGER_REGISTRY = managerRegistry;
         ROUTER = router;
         LENDING8 = lending8;
+
+        // Storage, so clones are untouched — they never run this. It closes `initialize` on the
+        // implementation itself, which otherwise reads as unowned forever and goes to whoever claims
+        // it first, along with anything mistakenly sent to its address.
+        owner = address(1);
     }
 
     /// @notice Sets the owner and the two rules. Called by the factory in the same transaction as
     ///         the clone's deployment.
     /// @dev Guarded by `owner == 0`, not by a caller check, since the escrow holds no factory
-    ///      address. No window to exploit: creation and initialisation are one transaction.
-    ///      Initialising the implementation itself is harmless — it holds no funds and clones read
-    ///      their own storage.
+    ///      address. No window to exploit: creation and initialisation are one transaction. The
+    ///      implementation is taken in its own constructor, so only clones get here.
     /// @dev Bounds re-checked despite the factory checking them: the clone is immutable, so a bad
     ///      value written now can never be corrected.
     function initialize(address owner_, ImmutableParamsV1 calldata params_) external {
@@ -183,9 +187,8 @@ contract MandateEscrowV1 is IMandateEscrowV1 {
         // Ungated on purpose: `from` and `to` are hardwired below and covered by the signature, so a
         // third party can only pick the moment and pay the gas. USDC's own `msg.sender == to` keeps
         // the authorization unusable elsewhere.
-        address owner_ = owner;
         IERC3009(USDC).receiveWithAuthorization(
-            owner_,
+            owner,
             address(this),
             value,
             validAfter,
@@ -193,7 +196,7 @@ contract MandateEscrowV1 is IMandateEscrowV1 {
             nonce,
             sig
         );
-        emit Deposited(owner_, value);
+        emit Deposited(owner, value);
     }
 
     /// @inheritdoc IMandateEscrowV1
@@ -230,17 +233,16 @@ contract MandateEscrowV1 is IMandateEscrowV1 {
 
     /// @inheritdoc IMandateEscrowV1
     function sweepToClaimAddress() external {
-        address owner_ = owner;
         IManagerRegistry registry = IManagerRegistry(MANAGER_REGISTRY);
 
         // The only gate, and a revert rather than a soft condition: without it anyone could empty a
         // healthy mandate onto its owner's wallet, which stops it re-placing.
-        if (!registry.isCompromised(owner_)) revert NotCompromised();
+        if (!registry.isCompromised(owner)) revert NotCompromised();
 
         // Ungated beyond that: the caller picks nothing — destination and amount both come from
         // state — and this is the recovery path, where liveness matters more than a caller list that
         // excluded nobody with a motive.
-        address to = registry.recipientOf(owner_);
+        address to = registry.recipientOf(owner);
         uint256 amount = freeBalance();
         if (amount == 0) revert NothingToSweep();
 
@@ -283,15 +285,14 @@ contract MandateEscrowV1 is IMandateEscrowV1 {
         }
         if (amount < MIN_ALLOCATION) revert BelowMinimum(amount);
 
-        address owner_ = owner;
-        address routed = IMandateRouter(ROUTER).routes(owner_, pid);
+        address routed = IMandateRouter(ROUTER).routes(owner, pid);
         if (routed != address(0) && routed != address(this)) revert RoutedElsewhere(routed);
         // enrollSelf refuses a project the owner already holds manually: a mandate must not capture
         // manual shares on its own initiative. The owner lifts that with setRoute.
         if (routed == address(0)) IMandateRouter(ROUTER).enrollSelf(pid);
 
         IERC20(USDC).forceApprove(FUNDRAISE, amount);
-        IFundraise(FUNDRAISE).investFromMandate(owner_, pid, amount, inviter);
+        IFundraise(FUNDRAISE).investFromMandate(owner, pid, amount, inviter);
         IERC20(USDC).forceApprove(FUNDRAISE, 0);
 
         emit Allocated(pid, amount, paramsHash(), inviter);
@@ -328,14 +329,14 @@ contract MandateEscrowV1 is IMandateEscrowV1 {
             IERC20(USDC).safeTransfer(to, interest);
         } else {
             if (marketId == bytes32(0)) revert ZeroMarketId();
-            // Transfer target, not beneficiary: the position belongs to the owner via onBehalf.
+            // Transfer target, not beneficiary: onBehalf below is who the position belongs to.
             to = LENDING8;
             MarketParams memory marketParams = ILending8(LENDING8).idToMarketParams(Id.wrap(marketId));
             // A market that lends something else would make Lending8 pull a token this escrow does
             // not hold, failing somewhere inside it. One SLOAD buys a legible revert instead.
             if (marketParams.loanToken != USDC) revert MarketLoanTokenNotUsdc(marketParams.loanToken);
             IERC20(USDC).forceApprove(LENDING8, interest);
-            ILending8(LENDING8).supply(marketParams, interest, 0, owner, "");
+            ILending8(LENDING8).supply(marketParams, interest, 0, _recipient(), "");
             IERC20(USDC).forceApprove(LENDING8, 0);
         }
         emit InterestForwarded(uint8(direction), interest, to);

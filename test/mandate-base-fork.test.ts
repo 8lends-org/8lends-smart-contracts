@@ -1,5 +1,5 @@
 import { expect } from "chai";
-import { ethers } from "hardhat";
+import { ethers, upgrades } from "hardhat";
 import { impersonateAccount, mine, setBalance } from "@nomicfoundation/hardhat-network-helpers";
 import { Wallet } from "ethers";
 import { IERC20, MandateEscrowV1 } from "../typechain-types";
@@ -16,7 +16,15 @@ describe("🔱 Mandate — Base fork", function () {
   const USDC = "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913";
   const LENDING8 = "0x435782af7B8B12d71CB8FeCa159d65D96459f042";
   const FUNDRAISE = "0xf435A133D6cDCb81061F18a4763560f9931DB57D";
-  const REGISTRY = "0xFa709E34598BA4f67C2074EBE427FcC700dBDEF4";
+  /// @dev Deployed fresh rather than taken from Base: the live registry predates the recovery
+  ///      chain and answers neither recipientOf nor isCompromised, which every payout here reads.
+  ///      USDC, Fundraise and Lending8 stay the real ones — they are what this suite is about.
+  async function deployRegistry() {
+    const Registry = await ethers.getContractFactory("ManagerRegistry");
+    const proxy = await upgrades.deployProxy(Registry, [], { kind: "uups" });
+    await proxy.waitForDeployment();
+    return await proxy.getAddress();
+  }
 
   /** The live USDC/BTC8L market, lltv 0.8. */
   const MARKET_ID = "0x6c4df3166bf6cf859656fca88e77febb7274fcdc154ad52e3e644e65447882b4";
@@ -31,15 +39,24 @@ describe("🔱 Mandate — Base fork", function () {
   let owner: Wallet;
 
   /**
-   * The implementation is initialised directly rather than cloned: the guard is `owner == 0`, not a
-   * caller check, and clone derivation has its own suite. What is under test here is USDC and
-   * Lending8, and a clone would answer both exactly the same.
+   * An EIP-1167 clone, deployed by hand rather than through the factory: the factory wants a KYC
+   * signature and a registered version, and neither is what this suite is about. The implementation
+   * itself cannot stand in — it is taken in its own constructor. What is under test here is USDC and
+   * Lending8, and a clone answers both exactly as a mandate would.
    */
   async function deployEscrow(direction: number) {
     const [deployer] = await ethers.getSigners();
     const Escrow = await ethers.getContractFactory("MandateEscrowV1");
-    const e = await Escrow.connect(deployer).deploy(USDC, FUNDRAISE, REGISTRY, deployer.address, LENDING8);
-    await e.waitForDeployment();
+    const registry = await deployRegistry();
+    const impl = await Escrow.connect(deployer).deploy(USDC, FUNDRAISE, registry, deployer.address, LENDING8);
+    await impl.waitForDeployment();
+
+    const implAddress = (await impl.getAddress()).slice(2).toLowerCase();
+    const bytecode =
+      "0x3d602d80600a3d3981f3363d3d373d3d3d363d73" + implAddress + "5af43d82803e903d91602b57fd5bf3";
+    const receipt = await (await deployer.sendTransaction({ data: bytecode })).wait();
+    const e = Escrow.attach(receipt!.contractAddress!) as MandateEscrowV1;
+
     await e.initialize(owner.address, { interestDirection: direction, projectLimitBps: 10_000 });
     return e;
   }
