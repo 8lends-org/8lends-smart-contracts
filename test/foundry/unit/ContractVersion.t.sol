@@ -12,7 +12,7 @@ import {Market} from "../../../contracts/core/market/Market.sol";
 ///      nobody should never reach this test.
 contract ContractVersionTest is Test {
     function test_fundraiseVersionIsPinned() public {
-        assertEq(new Fundraise().version(), 1, "Fundraise: announce the break before moving this");
+        assertEq(new Fundraise().version(), 2, "Fundraise: announce the break before moving this");
     }
 
     function test_marketVersionIsPinned() public {
