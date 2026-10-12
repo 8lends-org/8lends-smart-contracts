@@ -11,6 +11,7 @@ import {ManagerRegistry} from "../../contracts/core/ManagerRegistry.sol";
 import {RewardSystem} from "../../contracts/core/RewardSystem.sol";
 import {Rewards2} from "../../contracts/core/Rewards2.sol";
 import {Rewards2Harness} from "./mocks/Rewards2Harness.sol";
+import {RewardSystemHarness} from "./mocks/RewardSystemHarness.sol";
 import {Treasury} from "../../contracts/core/Treasury.sol";
 
 // OpenZeppelin proxy
@@ -29,7 +30,7 @@ abstract contract Setup is Test, Eip712Signing {
     Fundraise public fundraise;
     Token public token;
     ManagerRegistry public managerRegistry;
-    RewardSystem public rewardSystem;
+    RewardSystemHarness public rewardSystem;
     Rewards2Harness public rewards2;
     Treasury public treasury;
     MockUSDC public usdc;
@@ -104,13 +105,16 @@ abstract contract Setup is Test, Eip712Signing {
 
         // ── Deploy RewardSystem (UUPS proxy) ──
         {
-            RewardSystem impl = new RewardSystem();
+            RewardSystemHarness impl = new RewardSystemHarness();
             bytes memory initData = abi.encodeCall(
                 RewardSystem.initialize,
                 (address(managerRegistry), address(token), address(usdc), address(mockRouter))
             );
             ERC1967Proxy proxy = new ERC1967Proxy(address(impl), initData);
-            rewardSystem = RewardSystem(address(proxy));
+            rewardSystem = RewardSystemHarness(address(proxy));
+            // The cutover stays where initialize put it: this block. Projects the fixture funds land
+            // on it, so they survive with their first week in the token era — the state the upgrade
+            // actually leaves behind. A project funded later is cancelled, which is the point.
         }
 
         // ── Deploy MockOracle — still priced for Fundraise, no longer read by RewardSystem ──

@@ -523,8 +523,8 @@ contract Fundraise is Initializable, UUPSUpgradeable, OwnableUpgradeable {
     }
 
     /// @notice When project is funded, transfer money for a borrower with max USD for reward
-    /// @param _maxUSDForReward - how much USD is allowed to be used for reward, for frontrun protection
-    /// @dev Calculation of _maxUSDForReward: Set to 6% of project.totalInvested, then add 1% of that 6% as a slippage buffer.
+    /// @param _maxUSDForReward Priced the token reward the funding used to mint; RewardSystem
+    ///        ignores it now, and the argument is kept so the caller keeps the same signature.
     /// @param _projectId Project info
     function _transferFundsToBorrower(uint256 _projectId, uint256 _maxUSDForReward) internal {
         Project storage project = projects[_projectId];

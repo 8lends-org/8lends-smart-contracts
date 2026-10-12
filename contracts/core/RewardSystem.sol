@@ -85,17 +85,29 @@ contract RewardSystem is Initializable, UUPSUpgradeable, OwnableUpgradeable, Ree
     /// @dev Slot held. Priced the token cashback, which is gone.
     address private __deprecated_oracle;
 
-    /// @notice USDC per 1e18 tokens of vesting. Zero blocks every claim — there is no token
-    ///         payout left to fall back on.
+    /// @notice USDC per 1e18 tokens of vesting. Zero blocks the USDC half of a claim; the token
+    ///         half does not need it.
     uint256 public redemptionRate;
+
+    /// @notice When vesting stopped unlocking into tokens. What unlocked before it is still paid in
+    ///         tokens, what unlocks after it in USDC. Set once, atomically with the upgrade.
+    uint256 public cutover;
+
+    /// @notice How much of a position has been paid in USDC. Held apart from `vestingClaimedAmount`
+    ///         so the two halves can be claimed in either order. Counted on this side because a
+    ///         position that predates `cutover` has none of it, which an empty slot already says.
+    mapping(address => mapping(uint256 => uint256)) public usdcEraClaimed;
 
     // Events
     event UserRegistered(address indexed user, address indexed inviter);
     event InvestmentRecorded(address indexed user, uint256 amount, uint256 projectId);
-    event ProjectRewardsActivated(uint256 indexed projectId, uint256 timestamp);
     event BonusUSDCClaimed(address indexed user, uint256 amount, uint256 projectId);
     event VestingTokensClaimed(address indexed user, uint256 amount, uint256 projectId);
+    /// @notice One payout, split by currency. VestingTokensClaimed counts vesting tokens; this says
+    ///         what was actually sent.
+    event VestingPaid(address indexed user, uint256 indexed projectId, address to, uint256 tokens, uint256 usdc);
     event ReferralBonusRecorded(address indexed user, uint256 amount, address indexed child, uint256 projectId);
+    event ProjectRewardsActivated(uint256 indexed projectId, uint256 timestamp);
     event ProjectRewardsDeactivated(uint256 indexed projectId);
     event RedemptionRateSet(uint256 rate);
     event ContractsUpdated(address managerRegistry, address token, address usdc);
@@ -149,6 +161,14 @@ contract RewardSystem is Initializable, UUPSUpgradeable, OwnableUpgradeable, Ree
         // Initialize vesting parameters
         vestingWeeks = 40; // 40 weeks vesting
         weeklyUnlock = 25e3; // 2.5% per week (25e3/1e6*100=2.5)
+        // A fresh deployment has no token era: nothing has unlocked before now.
+        cutover = block.timestamp;
+    }
+
+    /// @notice Fixes the cutover. Called by the Safe inside upgradeToAndCall, so no claim can land
+    ///         between the code switching to USDC and the moment being recorded.
+    function initializeCutover() external reinitializer(2) onlyOwner {
+        cutover = block.timestamp;
     }
 
     /// @notice Internal user registration with inviter
@@ -209,25 +229,29 @@ contract RewardSystem is Initializable, UUPSUpgradeable, OwnableUpgradeable, Ree
     }
 
 
-
-    /// @notice Activate project rewards (called when transitioning to Stage.Funded)
+    /// @notice Record that the borrower has taken the money: the vesting clock starts, and the
+    ///         inviter's bonus becomes payable.
+    /// @dev Called by Fundraise when a project reaches Stage.Funded. The stamp is also what tells a
+    ///      project that was running at the cutover from one funded after it.
     /// @param _projectId Project ID
     function activateProjectRewards(uint256 _projectId, uint256 _totalInvested) external onlyFundraise {
         _activateProjectRewards(_projectId, _totalInvested, 0);
     }
-    
-    function activateProjectRewards(uint256 _projectId, uint256 _totalInvested, uint256 _maxUSDNeeded) external onlyFundraise {
+
+    function activateProjectRewards(uint256 _projectId, uint256 _totalInvested, uint256 _maxUSDNeeded)
+        external
+        onlyFundraise
+    {
         _activateProjectRewards(_projectId, _totalInvested, _maxUSDNeeded);
     }
 
+    /// @dev Both arguments priced the token reward the funding used to mint, and are ignored.
     function _activateProjectRewards(uint256 _projectId, uint256, uint256) internal {
-        if(projectVestingStartTime[_projectId] == 0) {
+        if (projectVestingStartTime[_projectId] == 0) {
             projectVestingStartTime[_projectId] = block.timestamp;
             emit ProjectRewardsActivated(_projectId, block.timestamp);
         }
     }
-
-   
 
     /// @notice Get the inviter a user was registered with.
     function getUserInfo(address _user) external view returns (address inviter) {
@@ -294,40 +318,61 @@ contract RewardSystem is Initializable, UUPSUpgradeable, OwnableUpgradeable, Ree
         weeklyUnlock = _weeklyUnlock;
     }
 
-    /// @notice Calculate claimable vesting tokens for project
-    /// @notice Calculate claimable vesting tokens
-    /// @param _user User address
-    /// @param _projectId Project ID
+    /// @notice Claimable vesting for a project, in vesting tokens, whatever currency pays it.
+    /// @dev What the views report: one number across both halves, so a reader who wants them apart
+    ///      asks getVestingClaimable.
     function _calculateVestingAmountForProject(address _user, uint256 _projectId) internal view returns (uint256) {
+        (uint256 tokens, uint256 usdcTokens) = _split(_user, _projectId);
+        return tokens + usdcTokens;
+    }
+
+    /// @dev Vesting credited for a project the borrower had not taken the money for by the cutover
+    ///      is cancelled: those investments earn nothing. The vesting clock is stamped when the
+    ///      money goes out, so a start later than the cutover says the borrower had not taken it
+    ///      by then. The stored amount is left alone as history; everything that reports a number
+    ///      reports zero for it.
+    function _isCancelled(uint256 _projectId) internal view returns (bool) {
+        uint256 vestingStartTime = projectVestingStartTime[_projectId];
+        return cutover != 0 && vestingStartTime > cutover;
+    }
+
+    /// @dev Claimable now, split at the cutover: tokens for what had unlocked by then, USDC for what
+    ///      unlocked since. The cutover is capped at now, so before it everything counts as tokens.
+    function _split(address _user, uint256 _projectId) internal view returns (uint256 tokens, uint256 usdcTokens) {
+        if (_isCancelled(_projectId)) return (0, 0);
+        ReferralData storage refData = projectReferrals[_user][_projectId];
+
+        uint256 usdcPaid = usdcEraClaimed[_user][_projectId];
+        // Whatever of the total watermark is not the USDC half was paid in tokens.
+        uint256 tokensPaid = refData.vestingClaimedAmount - usdcPaid;
+
+        uint256 unlockedByCutover = _unlockedAt(_user, _projectId, Math.min(cutover, block.timestamp));
+        if (unlockedByCutover > tokensPaid) tokens = unlockedByCutover - tokensPaid;
+
+        uint256 afterCutover = _unlockedAt(_user, _projectId, block.timestamp) - unlockedByCutover;
+        if (afterCutover > usdcPaid) usdcTokens = afterCutover - usdcPaid;
+    }
+
+    /// @dev Total unlocked by `_at`: the weekly curve plus the bonus ratchet some positions carry.
+    ///      Reads the current vestingWeeks and weeklyUnlock, so changing them moves the cutover
+    ///      split of past unlocks as well.
+    function _unlockedAt(address _user, uint256 _projectId, uint256 _at) internal view returns (uint256) {
         ReferralData storage refData = projectReferrals[_user][_projectId];
         uint256 vestingStartTime = projectVestingStartTime[_projectId];
-        if (vestingStartTime == 0) return 0;
+        if (vestingStartTime == 0 || _at < vestingStartTime) return 0;
 
-        uint256 weeksPassed = (block.timestamp - vestingStartTime) / 1 weeks;
-        
         // First week is unlocked immediately (weeksPassed + 1)
-        uint256 weeksUnlocked = weeksPassed + 1;
-        
-        if (weeksUnlocked >= vestingWeeks) {
-            return refData.totalRewardsTokens - refData.vestingClaimedAmount;
-        }
+        uint256 weeksUnlocked = (_at - vestingStartTime) / 1 weeks + 1;
+        if (weeksUnlocked >= vestingWeeks) return refData.totalRewardsTokens;
 
         uint256 totalUnlocked = (refData.totalRewardsTokens * weeksUnlocked * weeklyUnlock) / BASIS_POINTS;
-        
+
         uint256 usedAdditionalUnlock = userMaxAdditionalUnlockUsed[_user][_projectId];
         if (usedAdditionalUnlock > 0) {
             totalUnlocked += (refData.totalRewardsTokens * usedAdditionalUnlock) / BASIS_POINTS;
         }
 
-        if (totalUnlocked > refData.totalRewardsTokens) {
-            totalUnlocked = refData.totalRewardsTokens;
-        }
-
-        if (totalUnlocked <= refData.vestingClaimedAmount) {
-            return 0;
-        }
-
-        return totalUnlocked - refData.vestingClaimedAmount;
+        return Math.min(totalUnlocked, refData.totalRewardsTokens);
     }
 
     /// @notice Get vesting information for project
@@ -339,7 +384,7 @@ contract RewardSystem is Initializable, UUPSUpgradeable, OwnableUpgradeable, Ree
         ReferralData storage refData = projectReferrals[_user][_projectId];
         uint256 vestingStartTime = projectVestingStartTime[_projectId];
         return (
-            refData.totalRewardsTokens,
+            _isCancelled(_projectId) ? 0 : refData.totalRewardsTokens,
             refData.vestingClaimedAmount,
             _calculateVestingAmountForProject(_user, _projectId),
             vestingStartTime,
@@ -363,7 +408,7 @@ contract RewardSystem is Initializable, UUPSUpgradeable, OwnableUpgradeable, Ree
         uint256 vestingStartTime = projectVestingStartTime[_projectId];
         return (
             refData.totalRewardsUSDC,
-            refData.totalRewardsTokens,
+            _isCancelled(_projectId) ? 0 : refData.totalRewardsTokens,
             refData.vestingClaimedAmount,
             _calculateVestingAmountForProject(_user, _projectId),
             vestingStartTime > 0
@@ -395,7 +440,7 @@ contract RewardSystem is Initializable, UUPSUpgradeable, OwnableUpgradeable, Ree
             ReferralData storage refData = projectReferrals[_user][projectId];
             
             totalUSDC += refData.totalRewardsUSDC;
-            totalTokens += refData.totalRewardsTokens;
+            if (!_isCancelled(projectId)) totalTokens += refData.totalRewardsTokens;
             claimedTokens += refData.vestingClaimedAmount;
             claimableTokens += _calculateVestingAmountForProject(_user, projectId);
         }
@@ -535,39 +580,96 @@ contract RewardSystem is Initializable, UUPSUpgradeable, OwnableUpgradeable, Ree
         emit BonusUSDCClaimed(_user, amount, _projectId);
     }
 
-    /// @notice Send vesting tokens for project to user (manager only)
-    /// @param _user User address
-    /// @param _projectId Project ID
-    function _sendTokensForProjectToUser(address _user, uint256 _projectId) internal {
+    /// @dev Shared head of both halves.
+    function _requireVesting(address _user, uint256 _projectId) private view {
         require(_user != address(0), "Invalid user address");
         require(projectVestingStartTime[_projectId] > 0, "Project rewards not activated");
+        require(cutover != 0, "Cutover not set");
+        require(!_isCancelled(_projectId), "Vesting cancelled for this project");
+        require(projectReferrals[_user][_projectId].totalRewardsTokens > 0, "No token rewards for this project");
+    }
 
-        ReferralData storage refData = projectReferrals[_user][_projectId];
-        require(refData.totalRewardsTokens > 0, "No token rewards for this project");
-        require(redemptionRate > 0, "Redemption rate not set");
+    /// @dev Marks a half paid and reports it against the position. `_usdcHalf` also moves the
+    ///      watermark that tells the two apart.
+    function _settle(address _user, uint256 _projectId, uint256 _amount, bool _usdcHalf) private {
+        projectReferrals[_user][_projectId].vestingClaimedAmount += _amount;
+        rewardTokensClaimedAmount[_projectId] += _amount;
+        if (_usdcHalf) usdcEraClaimed[_user][_projectId] += _amount;
+        emit VestingTokensClaimed(_user, _amount, _projectId);
+    }
 
-        uint256 claimableAmount = _calculateVestingAmountForProject(_user, _projectId);
-        require(claimableAmount > 0, "No tokens to claim");
+    /// @notice Pay what unlocked before the cutover, in tokens.
+    function _sendVestingTokens(address _user, uint256 _projectId) internal {
+        _requireVesting(_user, _projectId);
 
-        refData.vestingClaimedAmount += claimableAmount;
-        rewardTokensClaimedAmount[_projectId] += claimableAmount;
+        (uint256 tokens,) = _split(_user, _projectId);
+        require(tokens > 0, "No tokens to claim");
+        require(IERC20(token).balanceOf(address(this)) >= tokens, "Not enough tokens to claim");
+
+        _settle(_user, _projectId, tokens, false);
 
         address claimAddress = IManagerRegistry(managerRegistry).getInvestorClaimAddress(_user);
+        _sendTokens(claimAddress, tokens);
+        emit VestingPaid(_user, _projectId, claimAddress, tokens, 0);
+    }
 
-        uint256 usdcAmount = getUSDCForTokens(claimableAmount);
+    /// @notice Pay what unlocked after the cutover, in USDC at the redemption rate.
+    /// @dev Independent of the token half: either may be taken first, or on its own. A slice too
+    ///      small to buy a whole micro-dollar is left owed rather than written off, so it joins the
+    ///      next one.
+    function _sendVestingUsdc(address _user, uint256 _projectId) internal {
+        _requireVesting(_user, _projectId);
+        // There is no token fallback here, so an unset rate stops the claim rather than consume the
+        // position and pay nothing for it.
+        require(redemptionRate > 0, "Redemption rate not set");
+
+        (, uint256 usdcTokens) = _split(_user, _projectId);
+        require(usdcTokens > 0, "No tokens to claim");
+
+        uint256 usdcAmount = getUSDCForTokens(usdcTokens);
         require(usdcAmount > 0, "No USDC to claim");
         require(usdc.balanceOf(address(this)) >= usdcAmount, "Not enough USDC to claim");
 
+        // Spends only what the payout covers: converting the rounded amount back says how much
+        // vesting it actually bought.
+        _settle(_user, _projectId, Math.mulDiv(usdcAmount, 1e18, redemptionRate), true);
+
+        address claimAddress = IManagerRegistry(managerRegistry).getInvestorClaimAddress(_user);
         usdc.safeTransfer(claimAddress, usdcAmount);
-        // Reports the vesting claimed, as it always did. What it was paid in is the USDC Transfer
-        // next to it, and redemptionRate converts one into the other.
-        emit VestingTokensClaimed(_user, claimableAmount, _projectId);
+        emit VestingPaid(_user, _projectId, claimAddress, 0, usdcAmount);
+    }
+
+    /// @dev 8LNDS moves only to a pool while buying is disabled, so the recipient is flagged for the
+    ///      transfer. A real pool keeps its flag.
+    function _sendTokens(address _to, uint256 _amount) private {
+        IManagerRegistry registry = IManagerRegistry(managerRegistry);
+        bool gate = !registry.isPool(_to);
+        if (gate) registry.setPoolStatusForReward(_to, true);
+        IERC20(token).safeTransfer(_to, _amount);
+        if (gate) registry.setPoolStatusForReward(_to, false);
+    }
+
+    /// @notice What a claim right now would pay out for one project.
+    /// @return inTokens Vesting tokens, handed over as tokens: what unlocked before the cutover
+    /// @return usdcAmount USDC for what unlocked after it, at the current rate, 6 decimals
+    function getVestingClaimable(address _user, uint256 _projectId)
+        external
+        view
+        returns (uint256 inTokens, uint256 usdcAmount)
+    {
+        uint256 usdcTokens;
+        (inTokens, usdcTokens) = _split(_user, _projectId);
+        usdcAmount = getUSDCForTokens(usdcTokens);
     }
 
 
     // CLAIMS
-    function claimTokensForProject(uint256 _projectId) external nonReentrant {
-        _sendTokensForProjectToUser(msg.sender, _projectId);
+    function claimVestingTokensForProject(uint256 _projectId) external nonReentrant {
+        _sendVestingTokens(msg.sender, _projectId);
+    }
+
+    function claimVestingUsdcForProject(uint256 _projectId) external nonReentrant {
+        _sendVestingUsdc(msg.sender, _projectId);
     }
 
     function claimUSDCForProject(uint256 _projectId) external nonReentrant {
@@ -576,8 +678,12 @@ contract RewardSystem is Initializable, UUPSUpgradeable, OwnableUpgradeable, Ree
 
 
     // SENDS
-    function sendTokensForProjectToUser(address _user, uint256 _projectId) external onlyManager {
-        _sendTokensForProjectToUser(_user, _projectId);
+    function sendVestingTokensForProjectToUser(address _user, uint256 _projectId) external onlyManager {
+        _sendVestingTokens(_user, _projectId);
+    }
+
+    function sendVestingUsdcForProjectToUser(address _user, uint256 _projectId) external onlyManager {
+        _sendVestingUsdc(_user, _projectId);
     }
 
     function sendUSDCForProjectToUser(address _user, uint256 _projectId) external onlyManager {
@@ -585,11 +691,25 @@ contract RewardSystem is Initializable, UUPSUpgradeable, OwnableUpgradeable, Ree
     }
 
     // BATCHES SENDS
-    function sendTokensForProjectToUserBatch(address[] calldata _users, uint256[] calldata _projectIds) external onlyManager {
+    function sendVestingTokensForProjectToUserBatch(address[] calldata _users, uint256[] calldata _projectIds)
+        external
+        onlyManager
+    {
         require(_users.length == _projectIds.length, "Users and projectIds length mismatch");
         require(_users.length > 0, "Empty arrays");
         for (uint256 i = 0; i < _users.length; i++) {
-            _sendTokensForProjectToUser(_users[i], _projectIds[i]);
+            _sendVestingTokens(_users[i], _projectIds[i]);
+        }
+    }
+
+    function sendVestingUsdcForProjectToUserBatch(address[] calldata _users, uint256[] calldata _projectIds)
+        external
+        onlyManager
+    {
+        require(_users.length == _projectIds.length, "Users and projectIds length mismatch");
+        require(_users.length > 0, "Empty arrays");
+        for (uint256 i = 0; i < _users.length; i++) {
+            _sendVestingUsdc(_users[i], _projectIds[i]);
         }
     }
 
@@ -602,11 +722,19 @@ contract RewardSystem is Initializable, UUPSUpgradeable, OwnableUpgradeable, Ree
     }
 
     // BATCHES CLAIMS
-    function claimTokensForProjectBatch(uint256[] calldata _projectIds) external nonReentrant {
+    function claimVestingTokensForProjectBatch(uint256[] calldata _projectIds) external nonReentrant {
         require(_projectIds.length > 0, "Empty arrays");
         require(_projectIds.length <= 500, "Too many projects");
         for (uint256 i = 0; i < _projectIds.length; i++) {
-            _sendTokensForProjectToUser(msg.sender, _projectIds[i]);
+            _sendVestingTokens(msg.sender, _projectIds[i]);
+        }
+    }
+
+    function claimVestingUsdcForProjectBatch(uint256[] calldata _projectIds) external nonReentrant {
+        require(_projectIds.length > 0, "Empty arrays");
+        require(_projectIds.length <= 500, "Too many projects");
+        for (uint256 i = 0; i < _projectIds.length; i++) {
+            _sendVestingUsdc(msg.sender, _projectIds[i]);
         }
     }
 

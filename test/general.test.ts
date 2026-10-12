@@ -343,7 +343,7 @@ describe("🚀 8lends Protocol - General Flow Tests", function () {
     it("🔒 Rewards cannot be claimed before project activation", async function () {
       await expect(rewardSystem.connect(investor).claimUSDCForProject(0))
         .to.be.revertedWith("Project rewards not activated");
-      await expect(rewardSystem.connect(investor).claimTokensForProject(0))
+      await expect(rewardSystem.connect(investor).claimVestingUsdcForProject(0))
         .to.be.revertedWith("Project rewards not activated");
     });
 

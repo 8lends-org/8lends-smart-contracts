@@ -143,7 +143,7 @@ contract RewardSystemTest is Setup {
         _setRate();
         uint256 balBefore = usdc.balanceOf(investor);
         vm.prank(investor);
-        rewardSystem.claimTokensForProjectBatch(pids);
+        rewardSystem.claimVestingUsdcForProjectBatch(pids);
 
         assertGt(usdc.balanceOf(investor) - balBefore, 0, "Should receive USDC from both projects");
         assertEq(token.balanceOf(investor), 0, "no tokens must move");
@@ -165,7 +165,7 @@ contract RewardSystemTest is Setup {
 
         vm.prank(investor);
         vm.expectRevert("Project rewards not activated");
-        rewardSystem.claimTokensForProject(pid);
+        rewardSystem.claimVestingUsdcForProject(pid);
     }
 
     // ═══════════════════════════════════════════════════════════════
