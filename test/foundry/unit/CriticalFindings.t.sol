@@ -151,7 +151,7 @@ contract CriticalFindingsTest is Setup {
         // Investor tries to claim — fails
         vm.prank(investor);
         vm.expectRevert("Not enough USDC to claim");
-        rewards2.claim();
+        rewards2.claimUsdc();
     }
 
     // ═══════════════════════════════════════════════════════════════

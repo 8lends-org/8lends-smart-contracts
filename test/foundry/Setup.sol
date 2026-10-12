@@ -140,6 +140,9 @@ abstract contract Setup is Test, Eip712Signing {
             );
             ERC1967Proxy proxy = new ERC1967Proxy(address(impl), initData);
             rewards2 = Rewards2Harness(address(proxy));
+            // Default to vesting granted after the cutover, paid entirely in USDC. The token era
+            // before it is set up by the tests that are about it.
+            rewards2.setCutover(1);
         }
 
         // ── Configure ManagerRegistry ──

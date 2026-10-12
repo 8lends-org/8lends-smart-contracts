@@ -45,8 +45,7 @@ contract Rewards2Test is Setup {
         vm.warp(block.timestamp + 10 weeks);
 
         uint256 balBefore = usdc.balanceOf(investor);
-        vm.prank(investor);
-        rewards2.claim();
+        _claimAll(investor);
 
         uint256 unlocked = (10_000e18 * 11 * 25_000) / 1_000_000;
         assertEq(usdc.balanceOf(investor) - balBefore, unlocked * RATE / 1e18);
@@ -56,7 +55,7 @@ contract Rewards2Test is Setup {
     function test_claim_noVestings_reverts() public {
         vm.prank(investor);
         vm.expectRevert("No vestings found");
-        rewards2.claim();
+        rewards2.claimTokens();
     }
 
     /// @dev There is no token payout to fall back on, so an unset rate has to stop the claim
@@ -67,7 +66,7 @@ contract Rewards2Test is Setup {
 
         vm.prank(investor);
         vm.expectRevert("Redemption rate not set");
-        rewards2.claim();
+        rewards2.claimUsdc();
     }
 
     function test_claim_usdcRunsShort_reverts() public {
@@ -79,7 +78,7 @@ contract Rewards2Test is Setup {
 
         vm.prank(investor);
         vm.expectRevert("Not enough USDC to claim");
-        rewards2.claim();
+        rewards2.claimUsdc();
     }
 
     function test_claim_skipsDeactivated() public {
@@ -93,8 +92,7 @@ contract Rewards2Test is Setup {
         vm.warp(block.timestamp + 41 weeks);
 
         uint256 balBefore = usdc.balanceOf(investor);
-        vm.prank(investor);
-        rewards2.claim();
+        _claimAll(investor);
 
         assertEq(usdc.balanceOf(investor) - balBefore, 5_000e18 * RATE / 1e18, "only the active vesting");
     }
@@ -109,15 +107,14 @@ contract Rewards2Test is Setup {
 
         vm.warp(block.timestamp + 41 weeks);
 
-        vm.prank(investor);
-        rewards2.claim();
+        _claimAll(investor);
 
         assertEq(usdc.balanceOf(altClaim), 10_000e18 * RATE / 1e18, "USDC should go to claim address");
         assertEq(usdc.balanceOf(investor), 0, "Investor should not receive USDC");
     }
 
-    /// @dev A ratchet raised before the bonus was withdrawn still lifts the curve. Nothing writes
-    ///      it any more, so it is planted the way the chain holds it: slot 10.
+    /// @dev The ratchet lifts the curve. Nothing writes it, so it is planted the way the chain
+    ///      holds it: slot 10.
     function test_claim_historicalRatchetStillLiftsTheCurve() public {
         _seedVesting(investor, 10_000e18);
         _fundClaims();
@@ -129,6 +126,129 @@ contract Rewards2Test is Setup {
         vm.warp(block.timestamp + 10 weeks);
         (,, uint256 claimable,,) = rewards2.getVestingInfo(investor, 0);
         assertEq(claimable, (10_000e18 * 11 * 25_000) / 1_000_000 + 10_000e18 * 260_000 / 1_000_000);
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    //                  CUTOVER: TOKENS BEFORE, USDC AFTER
+    // ═══════════════════════════════════════════════════════════════
+
+    /// @dev Up to the cutover every claim is paid in tokens.
+    function test_cutover_claimBeforeItPaysTokens() public {
+        uint256 t0 = block.timestamp;
+        _seedVesting(investor, 10_000e18);
+        rewards2.setCutover(t0 + 10 weeks);
+        _fundClaims();
+        _fundTokens();
+
+        vm.warp(t0 + 5 weeks);
+        vm.prank(investor);
+        rewards2.claimTokens();
+
+        assertEq(token.balanceOf(investor), 1_500e18, "6 weeks of 2.5%, in tokens");
+        assertEq(usdc.balanceOf(investor), 0, "no USDC before the cutover");
+        assertFalse(managerRegistry.isPool(investor), "the transfer flag must not outlive the transfer");
+    }
+
+    /// @dev Unlocked before the cutover but never claimed is still owed in tokens.
+    function test_cutover_unclaimedBeforeItStaysTokens() public {
+        uint256 t0 = block.timestamp;
+        _seedVesting(investor, 10_000e18);
+        _fundClaims();
+        _fundTokens();
+
+        vm.warp(t0 + 10 weeks);
+        rewards2.setCutover(block.timestamp);
+
+        vm.warp(t0 + 20 weeks);
+        (uint256 inTokens, uint256 usdcAmount) = rewards2.getClaimable(investor);
+        assertEq(inTokens, 2_750e18, "11 weeks unlocked by the cutover");
+        // 21 weeks unlocked now, minus those 11: 2_500e18 at $0.02
+        assertEq(usdcAmount, 50e6);
+
+        _claimAll(investor);
+
+        assertEq(token.balanceOf(investor), 2_750e18);
+        assertEq(usdc.balanceOf(investor), 50e6);
+    }
+
+    /// @dev One curve runs across the cutover: tokens up to it, USDC after, the whole grant in total.
+    function test_cutover_wholeGrantAcrossIt() public {
+        uint256 t0 = block.timestamp;
+        _seedVesting(investor, 10_000e18);
+        rewards2.setCutover(t0 + 10 weeks);
+        _fundClaims();
+        _fundTokens();
+
+        vm.warp(t0 + 5 weeks);
+        _claimAll(investor);
+
+        vm.warp(t0 + 41 weeks);
+        _claimAll(investor);
+
+        assertEq(token.balanceOf(investor), 2_750e18, "what had unlocked by the cutover");
+        assertEq(usdc.balanceOf(investor), 7_250e18 * RATE / 1e18, "the rest at the rate");
+        (, uint256 claimed,,) = rewards2.vestings(investor, 0);
+        assertEq(claimed, 10_000e18, "the whole grant");
+    }
+
+    /// @dev The token part needs no rate: only the USDC part does.
+    function test_cutover_tokenPartPaysWithoutARate() public {
+        uint256 t0 = block.timestamp;
+        _seedVesting(investor, 10_000e18);
+        rewards2.setCutover(t0 + 10 weeks);
+        _fundTokens();
+
+        vm.warp(t0 + 5 weeks);
+        _claimAll(investor);
+        assertEq(token.balanceOf(investor), 1_500e18);
+
+        // The rest of the token era still pays without a rate; only the USDC half needs one.
+        vm.warp(t0 + 15 weeks);
+        vm.prank(investor);
+        rewards2.claimTokens();
+        assertEq(token.balanceOf(investor), 2_750e18);
+
+        vm.prank(investor);
+        vm.expectRevert("Redemption rate not set");
+        rewards2.claimUsdc();
+    }
+
+    function test_cutover_tokensRunShort_reverts() public {
+        _seedVesting(investor, 10_000e18);
+        rewards2.setCutover(block.timestamp + 10 weeks);
+        _fundClaims();
+
+        vm.warp(block.timestamp + 5 weeks);
+        vm.prank(investor);
+        vm.expectRevert("Not enough tokens to claim");
+        rewards2.claimTokens();
+    }
+
+    /// @dev An upgrade that forgot initializeCutover must not pay the token era out in USDC.
+    function test_cutover_unsetBlocksClaims() public {
+        _seedVesting(investor, 10_000e18);
+        _fundClaims();
+        rewards2.setCutover(0);
+
+        vm.warp(block.timestamp + 5 weeks);
+        vm.prank(investor);
+        vm.expectRevert("Cutover not set");
+        rewards2.claimTokens();
+    }
+
+    function test_initializeCutover_ownerOnlyAndOnce() public {
+        vm.prank(attacker);
+        vm.expectRevert();
+        rewards2.initializeCutover();
+
+        vm.warp(block.timestamp + 3 days);
+        vm.prank(owner);
+        rewards2.initializeCutover();
+        assertEq(rewards2.cutover(), block.timestamp);
+
+        vm.prank(owner);
+        vm.expectRevert();
+        rewards2.initializeCutover();
     }
 
     // ═══════════════════════════════════════════════════════════════
@@ -153,8 +273,7 @@ contract Rewards2Test is Setup {
         _fundClaims();
 
         vm.warp(block.timestamp + 10 weeks);
-        vm.prank(investor);
-        rewards2.claim();
+        _claimAll(investor);
 
         vm.prank(owner);
         rewards2.setRedemptionRate(RATE * 2);
@@ -162,26 +281,161 @@ contract Rewards2Test is Setup {
         vm.warp(block.timestamp + 10 weeks);
         (,, uint256 owed,,) = rewards2.getVestingInfo(investor, 0);
         uint256 balBefore = usdc.balanceOf(investor);
-        vm.prank(investor);
-        rewards2.claim();
+        _claimAll(investor);
 
         assertEq(usdc.balanceOf(investor) - balBefore, owed * RATE * 2 / 1e18, "paid off the new rate");
     }
 
+    /// @dev The halves are independent: taking the USDC one first must not touch what the token
+    ///      era still owes, and either may be left unclaimed indefinitely.
+    function test_cutover_halvesAreIndependent() public {
+        uint256 t0 = block.timestamp;
+        _seedVesting(investor, 10_000e18);
+        rewards2.setCutover(t0 + 10 weeks);
+        _fundClaims();
+        _fundTokens();
+
+        vm.warp(t0 + 20 weeks);
+
+        vm.prank(investor);
+        rewards2.claimUsdc();
+        assertEq(usdc.balanceOf(investor), 2_500e18 * RATE / 1e18, "21 weeks unlocked, minus the first 11");
+        assertEq(token.balanceOf(investor), 0, "the token era is untouched");
+
+        (uint256 stillInTokens, uint256 noUsdcLeft) = rewards2.getClaimable(investor);
+        assertEq(stillInTokens, 2_750e18, "the whole token era is still owed");
+        assertEq(noUsdcLeft, 0, "and the USDC half is spent");
+
+        vm.prank(investor);
+        rewards2.claimTokens();
+        assertEq(token.balanceOf(investor), 2_750e18);
+
+        // And a half that is spent stays spent.
+        vm.prank(investor);
+        vm.expectRevert("No tokens to claim");
+        rewards2.claimTokens();
+    }
+
+    /// @dev Claiming weekly must cost nothing against claiming once at the end: what a payout
+    ///      cannot round up to a whole micro-dollar stays owed and joins the next slice.
+    function test_cutover_frequentClaimsLoseNothingToRounding() public {
+        uint256 t0 = block.timestamp;
+        _seedVesting(investor, 777_777e18 + 13); // deliberately not a round number
+        _fundClaims();
+
+        for (uint256 w = 0; w <= 45; w++) {
+            vm.warp(t0 + w * 1 weeks);
+            (, uint256 due) = rewards2.getClaimable(investor);
+            if (due > 0) {
+                vm.prank(investor);
+                rewards2.claimUsdc();
+            }
+        }
+
+        assertEq(usdc.balanceOf(investor), (777_777e18 + 13) * RATE / 1e18, "the whole grant, to the micro-dollar");
+    }
+
+    /// @dev A slice worth less than a micro-dollar must not be marked paid for nothing. It keeps
+    ///      unlocking, so a later claim rounds to something and pays it.
+    function test_cutover_aSliceTooSmallToPayIsNotConsumed() public {
+        uint256 t0 = block.timestamp;
+        _seedVesting(investor, 1e14); // 0.0001 of a token: a weekly slice is under one micro-dollar
+        _fundClaims();
+
+        vm.warp(t0 + 1 weeks);
+        vm.prank(investor);
+        vm.expectRevert("No USDC to claim");
+        rewards2.claimUsdc();
+
+        (, uint256 claimed,,) = rewards2.vestings(investor, 0);
+        assertEq(claimed, 0, "nothing paid, nothing spent");
+
+        vm.warp(t0 + 40 weeks);
+        vm.prank(investor);
+        rewards2.claimUsdc();
+        assertGt(usdc.balanceOf(investor), 0);
+    }
+
+    /// @dev The ratchet lifts the curve at every point, the cutover included, so a vesting that
+    ///      carries one is owed more in tokens — not just more in total.
+    function test_cutover_ratchetLiftsTheTokenEraToo() public {
+        uint256 t0 = block.timestamp;
+        _seedVesting(investor, 10_000e18);
+        bytes32 slot = keccak256(abi.encode(uint256(0), keccak256(abi.encode(investor, uint256(10)))));
+        vm.store(address(rewards2), slot, bytes32(uint256(260_000))); // the 26% the bonus bought
+
+        rewards2.setCutover(t0 + 10 weeks);
+        _fundClaims();
+        _fundTokens();
+
+        vm.warp(t0 + 20 weeks);
+        (uint256 inTokens, uint256 usdcAmount) = rewards2.getClaimable(investor);
+
+        // 11 weeks of 2.5% plus the 26%, against 11 weeks alone without it.
+        assertEq(inTokens, 2_750e18 + 2_600e18, "the ratchet is inside the token era");
+        // The USDC half is the gap between the two points, which the ratchet shifts equally.
+        assertEq(usdcAmount, 2_500e18 * RATE / 1e18, "and cancels out of the half after it");
+    }
+
+    /// @dev _unlockedAt reads the live parameters even when asked about the past, so moving them
+    ///      moves where the cutover fell. Documented rather than fixed: the setter is owner-only.
+    function test_cutover_changingTheCurveMovesTheSplitRetroactively() public {
+        uint256 t0 = block.timestamp;
+        _seedVesting(investor, 10_000e18);
+        rewards2.setCutover(t0 + 10 weeks);
+        _fundClaims();
+        _fundTokens();
+
+        vm.warp(t0 + 20 weeks);
+        (uint256 before,) = rewards2.getClaimable(investor);
+        assertEq(before, 2_750e18);
+
+        vm.prank(owner);
+        rewards2.setVestingParameters(50_000, 40); // 5% a week instead of 2.5%
+
+        (uint256 afterChange,) = rewards2.getClaimable(investor);
+        assertEq(afterChange, 5_500e18, "the token era doubled with the weekly rate");
+    }
+
     // ═══════════════════════════════════════════════════════════════
-    //                    BATCH CLAIM
+    //                    BATCH CLAIMS
     // ═══════════════════════════════════════════════════════════════
 
-    function test_claimBatch_managerOnly() public {
+    function test_claimUsdcBatch_managerOnly() public {
         address[] memory users = new address[](1);
         users[0] = investor;
 
         vm.prank(attacker);
         vm.expectRevert("Not a manager");
-        rewards2.claimBatch(users);
+        rewards2.claimUsdcBatch(users);
     }
 
-    function test_claimBatch_claimsForMultipleUsers() public {
+    /// @dev The batch halves are independent too, and the token one needs no rate.
+    function test_claimTokensBatch_paysTheTokenEraOnly() public {
+        uint256 t0 = block.timestamp;
+        _seedVesting(investor, 10_000e18);
+        _seedVesting(investor2, 4_000e18);
+        rewards2.setCutover(t0 + 10 weeks);
+        _fundTokens();
+
+        vm.warp(t0 + 20 weeks);
+
+        address[] memory users = new address[](2);
+        users[0] = investor;
+        users[1] = investor2;
+
+        vm.prank(manager);
+        rewards2.claimTokensBatch(users);
+
+        assertEq(token.balanceOf(investor), 2_750e18);
+        assertEq(token.balanceOf(investor2), 1_100e18);
+        assertEq(usdc.balanceOf(investor), 0, "no rate was ever set");
+
+        (uint256 leftTokens,) = rewards2.getClaimable(investor);
+        assertEq(leftTokens, 0, "the token era is spent");
+    }
+
+    function test_claimUsdcBatch_claimsForMultipleUsers() public {
         _seedVesting(investor, 5_000e18);
         _seedVesting(investor2, 3_000e18);
         _fundClaims();
@@ -193,13 +447,15 @@ contract Rewards2Test is Setup {
         users[1] = investor2;
 
         vm.prank(manager);
-        rewards2.claimBatch(users);
+        rewards2.claimUsdcBatch(users);
 
         assertEq(usdc.balanceOf(investor), 5_000e18 * RATE / 1e18);
         assertEq(usdc.balanceOf(investor2), 3_000e18 * RATE / 1e18);
     }
 
-    function test_claimBatch_beforeRateIsSet_reverts() public {
+    /// @dev Without a rate nobody in the batch can be paid, so the call says so instead of
+    ///      succeeding and paying no one.
+    function test_claimUsdcBatch_beforeRateIsSet_reverts() public {
         _seedVesting(investor, 5_000e18);
         vm.warp(block.timestamp + 41 weeks);
 
@@ -208,12 +464,15 @@ contract Rewards2Test is Setup {
 
         vm.prank(manager);
         vm.expectRevert("Redemption rate not set");
-        rewards2.claimBatch(users);
+        rewards2.claimUsdcBatch(users);
+
+        (, uint256 claimed,,) = rewards2.vestings(investor, 0);
+        assertEq(claimed, 0, "a user the batch cannot pay keeps the vesting");
     }
 
     /// @dev A user the batch cannot pay must keep the vesting: the watermark is written only
     ///      after the money is known to be there.
-    function test_claimBatch_skippedUserKeepsTheVesting() public {
+    function test_claimUsdcBatch_skippedUserKeepsTheVesting() public {
         _seedVesting(investor, 5_000e18);
         _seedVesting(investor2, 3_000e18);
 
@@ -229,7 +488,7 @@ contract Rewards2Test is Setup {
         users[1] = investor2;
 
         vm.prank(manager);
-        rewards2.claimBatch(users);
+        rewards2.claimUsdcBatch(users);
 
         assertEq(usdc.balanceOf(investor), 0, "nothing paid");
         (, uint256 claimed,,) = rewards2.vestings(investor, 0);
@@ -287,8 +546,7 @@ contract Rewards2Test is Setup {
         assertFalse(managerRegistry.isPool(vault));
     }
 
-    /// @dev Nothing moves the token any more, so its balance is a leftover to be pulled out.
-    ///      That is still a token transfer, and it still has to pass the gate.
+    /// @dev Pulling the token balance out is a token transfer, and it has to pass the gate.
     function test_withdraw_token_flagsTheRecipientAndUnflagsIt() public {
         vm.prank(owner);
         token.mint(address(rewards2), 1_000e18);
@@ -376,6 +634,25 @@ contract Rewards2Test is Setup {
         rewards2.setRedemptionRate(RATE);
         usdc.mint(address(rewards2), 1_000_000e6);
         vm.stopPrank();
+    }
+
+    /// @dev The token era pays out of the contract's own 8LNDS.
+    function _fundTokens() internal {
+        vm.prank(owner);
+        token.mint(address(rewards2), 1_000_000e18);
+    }
+
+    /// @dev Both halves in the order the contract requires, skipping whichever is empty.
+    function _claimAll(address user) internal {
+        (uint256 inTokens, uint256 usdcAmount) = rewards2.getClaimable(user);
+        if (inTokens > 0) {
+            vm.prank(user);
+            rewards2.claimTokens();
+        }
+        if (usdcAmount > 0) {
+            vm.prank(user);
+            rewards2.claimUsdc();
+        }
     }
 
     function _seedVesting(address user, uint256 amount) internal {

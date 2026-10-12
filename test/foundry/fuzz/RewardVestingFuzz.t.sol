@@ -16,6 +16,19 @@ contract RewardVestingFuzzTest is Setup {
     // ═══════════════════════════════════════════════════════════════
 
     /// @notice Fuzz vesting amount and time, verify getVestingInfo matches math
+    /// @dev Both halves in the order the contract requires, skipping whichever is empty.
+    function _claimAll(address user) internal {
+        (uint256 inTokens, uint256 usdcAmount) = rewards2.getClaimable(user);
+        if (inTokens > 0) {
+            vm.prank(user);
+            rewards2.claimTokens();
+        }
+        if (usdcAmount > 0) {
+            vm.prank(user);
+            rewards2.claimUsdc();
+        }
+    }
+
     function testFuzz_e2e_vestingInfoMatchesMath(uint256 totalAmount, uint256 weeksPassed) public {
         totalAmount = bound(totalAmount, 1e18, 1_000_000e18);
         weeksPassed = bound(weeksPassed, 0, 60);
@@ -62,32 +75,76 @@ contract RewardVestingFuzzTest is Setup {
 
         // Claim at weeks1
         vm.warp(block.timestamp + weeks1 * 1 weeks);
-        vm.prank(investor);
-        rewards2.claim();
+        _claimAll(investor);
 
+        // Measured on the running total, not on one slice: what a claim leaves unpaid is the part
+        // of a micro-dollar it could not buy, and that joins the next one.
         uint256 firstSlice = _calcUnlock(totalAmount, weeks1);
-        assertEq(usdc.balanceOf(investor), firstSlice * RATE / 1e18, "First claim amount");
+        assertEq(usdc.balanceOf(investor), firstSlice * RATE / 1e18, "paid for everything unlocked");
 
         // Claim at weeks2
-        uint256 balBefore = usdc.balanceOf(investor);
         vm.warp(block.timestamp + (weeks2 - weeks1) * 1 weeks);
-        vm.prank(investor);
-        rewards2.claim();
+        _claimAll(investor);
 
-        uint256 secondSlice = _calcUnlock(totalAmount, weeks2) - firstSlice;
-        assertEq(usdc.balanceOf(investor) - balBefore, secondSlice * RATE / 1e18, "Second claim amount");
+        uint256 unlockedByNow = _calcUnlock(totalAmount, weeks2);
+        assertEq(usdc.balanceOf(investor), unlockedByNow * RATE / 1e18, "and the carry is not lost");
 
-        // Run the schedule out: the holder must end up with the whole grant, not almost all of it.
-        // Everything above compares one slice with the test's own copy of the formula, so without
-        // this a schedule that leaked a little every week would pass.
+        // Run the schedule out. Everything above compares one slice with the test's own copy of the
+        // formula, so without this a schedule that leaked a little every week would pass.
         vm.warp(block.timestamp + 60 weeks);
         (,, uint256 left,,) = rewards2.getVestingInfo(investor, 0);
-        if (left > 0) {
-            vm.prank(investor);
-            rewards2.claim(); // reverts on nothing left, and weeks2 may already have taken it all
-        }
+        if (left > 0) _claimAll(investor); // weeks2 may already have taken it all
+
+        // What is left over is the part of the last slice too small to buy a whole micro-dollar.
+        // It is never written off — it just cannot be paid, so it stays owed.
         (, uint256 claimed,,) = rewards2.vestings(investor, 0);
-        assertEq(claimed, totalAmount, "the whole grant, to the wei");
+        assertLt(totalAmount - claimed, 1e18 / RATE, "only sub-micro-dollar dust may be left owed");
+        assertEq(usdc.balanceOf(investor), claimed * RATE / 1e18, "paid for every unit it spent");
+    }
+
+    /// @notice Tokens paid over the whole schedule are exactly what had unlocked by the cutover,
+    ///         and the rest goes in USDC, however the claims fall around it.
+    function testFuzz_e2e_cutoverSplitsTheGrant(
+        uint256 totalAmount,
+        uint256 cutoverWeek,
+        uint256 week1,
+        uint256 week2
+    ) public {
+        totalAmount = bound(totalAmount, 100e18, 100_000e18);
+        cutoverWeek = bound(cutoverWeek, 0, 50);
+        week1 = bound(week1, 0, 60);
+        week2 = bound(week2, week1, 60);
+
+        uint256 t0 = block.timestamp;
+        address[] memory users = new address[](1);
+        users[0] = investor;
+        uint256[] memory amounts = new uint256[](1);
+        amounts[0] = totalAmount;
+        rewards2.seedVestings(users, amounts);
+        rewards2.setCutover(t0 + cutoverWeek * 1 weeks);
+
+        vm.startPrank(owner);
+        rewards2.setRedemptionRate(RATE);
+        usdc.mint(address(rewards2), totalAmount * RATE / 1e18 + 1e6);
+        token.mint(address(rewards2), totalAmount);
+        vm.stopPrank();
+
+        uint256 claims = 0;
+        uint256[3] memory at = [week1, week2, uint256(61)];
+        for (uint256 i = 0; i < 3; i++) {
+            vm.warp(t0 + at[i] * 1 weeks);
+            (uint256 inTokens, uint256 usdcAmount) = rewards2.getClaimable(investor);
+            if (inTokens + usdcAmount == 0) continue;
+            _claimAll(investor);
+            claims++;
+        }
+
+        uint256 tokenEra = _calcUnlock(totalAmount, cutoverWeek);
+        assertEq(token.balanceOf(investor), tokenEra, "tokens: exactly what unlocked by the cutover");
+
+        uint256 usdcDue = (totalAmount - tokenEra) * RATE / 1e18;
+        assertLe(usdc.balanceOf(investor), usdcDue, "never more USDC than the rest is worth");
+        assertGe(usdc.balanceOf(investor) + claims, usdcDue, "short by at most rounding, one unit a claim");
     }
 
     // ═══════════════════════════════════════════════════════════════

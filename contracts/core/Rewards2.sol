@@ -18,15 +18,14 @@ contract Rewards2 is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentra
     IManagerRegistry public managerRegistry;
     IToken public token;
     IERC20 public usdc;
-    /// @dev Slot held. Nothing swaps any more: vesting is redeemed at a fixed rate.
+    /// @dev Slot held, nothing reads it.
     address private __deprecated_uniswapRouter;
 
     /// @notice What this implementation promises its callers, not a release number. It moves only
     ///         when a change breaks them — a method removed, an argument added, a payout currency
     ///         replaced. An ordinary upgrade leaves it where it is, so a client that reads it once
     ///         can trust the answer until it changes.
-    /// @dev No version() at all means a deployment older than this field, which still paid vesting
-    ///      in tokens.
+    /// @dev No version() at all means a deployment older than this field.
     uint256 public constant version = 1;
 
     // 1% = 10000
@@ -49,20 +48,32 @@ contract Rewards2 is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentra
     mapping(address => uint256) public userVestingCount; // user -> number of vestings
     uint256 public totalVestings; // Total number of vestings created
 
-    /// @dev Slot held. The bonus paid for selling through the pool, and that path is gone.
+    /// @dev Slot held, nothing reads it.
     uint256 private __deprecated_additionalUnlockPercentage;
-    /// @notice What the bonus unlocked before it was withdrawn. Read-only now, so those curves
-    ///         stay where they are.
+    /// @notice Extra share of a vesting unlocked on top of the weekly curve, in basis points.
+    ///         Read-only: nothing writes it, and the curves that carry it keep it.
     mapping(address => mapping(uint256 => uint256)) public userMaxAdditionalUnlockUsed;
 
     /// @notice USDC per 1e18 tokens of vesting. Zero blocks every claim — there is no token
     ///         payout left to fall back on.
     uint256 public redemptionRate;
 
+    /// @notice When vesting stopped unlocking into tokens. What unlocked before it is still paid in
+    ///         tokens, what unlocks after it in USDC. Set once, atomically with the upgrade.
+    uint256 public cutover;
+
+    /// @notice How much of a vesting has been paid in USDC. Held apart from `claimedAmount` so the
+    ///         two halves can be claimed in either order. Counted on this side because a vesting
+    ///         that predates `cutover` has none of it, which an empty slot already says.
+    mapping(address => mapping(uint256 => uint256)) public usdcEraClaimed;
+
     // Events
     event VestingClaimed(address indexed user, uint256 indexed vestingId, uint256 amount);
     event VestingDeactivated(address indexed user, uint256 indexed vestingId);
     event RedemptionRateSet(uint256 rate);
+    /// @notice One payout, split by currency. VestingClaimed counts vesting tokens per vesting; this
+    ///         says what was actually sent, which a reader cannot reconstruct without the cutover.
+    event ClaimPaid(address indexed user, address indexed to, uint256 tokens, uint256 usdc);
     
     modifier onlyManager() {
         require(IManagerRegistry(managerRegistry).isManager(msg.sender), "Not a manager");
@@ -95,6 +106,14 @@ contract Rewards2 is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentra
         // Initialize vesting parameters
         vestingWeeks = 40; // 40 weeks vesting
         weeklyUnlock = 25e3; // 2.5% per week (25e3/1e6*100=2.5)
+        // A fresh deployment has no token era: nothing has unlocked before now.
+        cutover = block.timestamp;
+    }
+
+    /// @notice Fixes the cutover. Called by the Safe inside upgradeToAndCall, so no claim can land
+    ///         between the code switching to USDC and the moment being recorded.
+    function initializeCutover() external reinitializer(2) onlyOwner {
+        cutover = block.timestamp;
     }
 
     /// @notice Update contracts (owner only)
@@ -133,102 +152,199 @@ contract Rewards2 is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentra
         emit RedemptionRateSet(_rate);
     }
 
-    /// @notice Claim all vestings, paid in USDC at the redemption rate
-    function claim() external nonReentrant {
-        uint256 totalClaimable = 0;
-        uint256 vestingCount = userVestingCount[msg.sender];
-        require(vestingCount > 0, "No vestings found");
-        require(redemptionRate > 0, "Redemption rate not set");
+    /// @notice Claim what unlocked before the cutover. Paid in tokens.
+    function claimTokens() external nonReentrant {
+        require(userVestingCount[msg.sender] > 0, "No vestings found");
+        require(cutover != 0, "Cutover not set");
 
-        for (uint256 i = 0; i < vestingCount; i++) {
-            Vesting storage vesting = vestings[msg.sender][i];
-            if (!vesting.isActive) continue;
+        uint256 tokens = _tokensOwed(msg.sender);
+        require(tokens > 0, "No tokens to claim");
+        require(token.balanceOf(address(this)) >= tokens, "Not enough tokens to claim");
 
-            uint256 claimable = _calculateVestingAmount(msg.sender, i);
-            if (claimable > 0) {
-                vesting.claimedAmount += claimable;
-                totalClaimable += claimable;
-                emit VestingClaimed(msg.sender, i, claimable);
-            }
-        }
-
-        require(totalClaimable > 0, "No tokens to claim");
-
-        uint256 usdcAmount = getUSDCForTokens(totalClaimable);
-        require(usdcAmount > 0, "No USDC to claim");
-        require(usdc.balanceOf(address(this)) >= usdcAmount, "Not enough USDC to claim");
-
-        usdc.safeTransfer(managerRegistry.getInvestorClaimAddress(msg.sender), usdcAmount);
+        _settleTokens(msg.sender);
+        address to = managerRegistry.getInvestorClaimAddress(msg.sender);
+        _sendTokens(to, tokens);
+        emit ClaimPaid(msg.sender, to, tokens, 0);
     }
 
-  
+    /// @notice Claim what unlocked after the cutover. Paid in USDC at the redemption rate.
+    /// @dev Independent of claimTokens: either half may be taken first, or on its own.
+    function claimUsdc() external nonReentrant {
+        require(userVestingCount[msg.sender] > 0, "No vestings found");
+        require(cutover != 0, "Cutover not set");
 
-    /// @notice Pay out vesting for multiple users (manager only)
+        // There is no token fallback here, so an unset rate stops the claim rather than consume the
+        // vesting and pay nothing for it.
+        require(redemptionRate > 0, "Redemption rate not set");
+
+        uint256 usdcAmount = _settleUsdc(msg.sender);
+        require(usdcAmount > 0, "No USDC to claim");
+        require(usdc.balanceOf(address(this)) >= usdcAmount, "Not enough USDC to claim");
+        address to = managerRegistry.getInvestorClaimAddress(msg.sender);
+        usdc.safeTransfer(to, usdcAmount);
+        emit ClaimPaid(msg.sender, to, 0, usdcAmount);
+    }
+
+    /// @notice Pay the token era for many users (manager only)
+    /// @dev A user the contract cannot pay in full is skipped and keeps the vesting.
     /// @param _users Array of user addresses
-    function claimBatch(address[] calldata _users) external onlyManager nonReentrant {
-        require(_users.length > 0, "Empty arrays");
-        require(_users.length <= 2000, "Too many users");
+    function claimTokensBatch(address[] calldata _users) external onlyManager nonReentrant {
+        _requireBatch(_users.length);
+
+        for (uint256 j = 0; j < _users.length; j++) {
+            address user = _users[j];
+            if (user == address(0)) continue;
+
+            uint256 tokens = _tokensOwed(user);
+            if (tokens == 0 || token.balanceOf(address(this)) < tokens) continue;
+
+            _settleTokens(user);
+            address to = managerRegistry.getInvestorClaimAddress(user);
+            _sendTokens(to, tokens);
+            emit ClaimPaid(user, to, tokens, 0);
+        }
+    }
+
+    /// @notice Pay the USDC half for many users (manager only)
+    /// @dev A user the contract cannot pay in full is skipped and keeps the vesting.
+    /// @param _users Array of user addresses
+    function claimUsdcBatch(address[] calldata _users) external onlyManager nonReentrant {
+        _requireBatch(_users.length);
         require(redemptionRate > 0, "Redemption rate not set");
 
         for (uint256 j = 0; j < _users.length; j++) {
             address user = _users[j];
             if (user == address(0)) continue;
 
-            uint256 vestingCount = userVestingCount[user];
-            uint256 totalClaimable = 0;
-            for (uint256 i = 0; i < vestingCount; i++) {
-                totalClaimable += _calculateVestingAmount(user, i);
-            }
-            if (totalClaimable == 0) continue;
-
-            uint256 usdcAmount = getUSDCForTokens(totalClaimable);
+            uint256 usdcAmount = _usdcOwed(user);
             if (usdcAmount == 0 || usdc.balanceOf(address(this)) < usdcAmount) continue;
 
-            // Only now the vesting is spent: a user we skip must keep it.
-            for (uint256 i = 0; i < vestingCount; i++) {
-                uint256 claimable = _calculateVestingAmount(user, i);
-                if (claimable > 0) {
-                    vestings[user][i].claimedAmount += claimable;
-                    emit VestingClaimed(user, i, claimable);
-                }
-            }
-
-            usdc.safeTransfer(managerRegistry.getInvestorClaimAddress(user), usdcAmount);
+            _settleUsdc(user);
+            address to = managerRegistry.getInvestorClaimAddress(user);
+            usdc.safeTransfer(to, usdcAmount);
+            emit ClaimPaid(user, to, 0, usdcAmount);
         }
     }
 
-    /// @notice Calculate claimable amount for specific vesting
-    /// @param _user User address
-    /// @param _vestingId Vesting ID
-    function _calculateVestingAmount(address _user, uint256 _vestingId) internal view returns (uint256) {
-        Vesting storage vesting = vestings[_user][_vestingId];
-        if (!vesting.isActive || vesting.startTime == 0) return 0;
+    function _requireBatch(uint256 _length) private view {
+        require(_length > 0, "Empty arrays");
+        require(_length <= 2000, "Too many users");
+        require(cutover != 0, "Cutover not set");
+    }
 
-        uint256 weeksPassed = (block.timestamp - vesting.startTime) / 1 weeks;
-        
-        // First week is unlocked immediately (weeksPassed + 1)
-        uint256 weeksUnlocked = weeksPassed + 1;
-        
-        if (weeksUnlocked >= vestingWeeks) {
-            return vesting.totalAmount - vesting.claimedAmount;
+    /// @notice What a claim right now would pay out.
+    /// @return inTokens Vesting tokens, handed over as tokens: what unlocked before the cutover
+    /// @return usdcAmount USDC for what unlocked after it, at the current rate, 6 decimals
+    function getClaimable(address _user) external view returns (uint256 inTokens, uint256 usdcAmount) {
+        inTokens = _tokensOwed(_user);
+        usdcAmount = _usdcOwed(_user);
+    }
+
+    /// @dev What the token era still owes across every vesting of the user.
+    function _tokensOwed(address _user) internal view returns (uint256 tokens) {
+        uint256 count = userVestingCount[_user];
+        for (uint256 i = 0; i < count; i++) {
+            (uint256 t,) = _split(_user, i);
+            tokens += t;
         }
+    }
 
-        uint256 totalUnlocked = (vesting.totalAmount * weeksUnlocked * weeklyUnlock) / BASIS_POINTS;
-        
+    /// @dev Marks the token era paid, leaving the USDC half owed. Only the total watermark moves:
+    ///      the other one counts USDC and this half is not it.
+    function _settleTokens(address _user) internal {
+        uint256 count = userVestingCount[_user];
+        for (uint256 i = 0; i < count; i++) {
+            (uint256 tokens,) = _split(_user, i);
+            if (tokens > 0) {
+                vestings[_user][i].claimedAmount += tokens;
+                emit VestingClaimed(_user, i, tokens);
+            }
+        }
+    }
+
+    /// @dev Marks the USDC half paid, leaving the token era owed. Both watermarks move: the total
+    ///      one counts vesting tokens whatever currency paid them, the other only this half.
+    /// @dev Spends only what the payout covers: the amount is rounded down to whole micro-dollars,
+    ///      and converting it back says how much vesting that actually bought. The remainder is
+    ///      worth less than a micro-dollar and stays owed, so it joins next week's slice instead of
+    ///      being written off.
+    function _settleUsdc(address _user) internal returns (uint256 usdcAmount) {
+        uint256 count = userVestingCount[_user];
+        for (uint256 i = 0; i < count; i++) {
+            (, uint256 usdcTokens) = _split(_user, i);
+            if (usdcTokens == 0) continue;
+
+            uint256 amount = getUSDCForTokens(usdcTokens);
+            if (amount == 0) continue;
+
+            uint256 paidTokens = Math.mulDiv(amount, 1e18, redemptionRate);
+            vestings[_user][i].claimedAmount += paidTokens;
+            usdcEraClaimed[_user][i] += paidTokens;
+            usdcAmount += amount;
+            emit VestingClaimed(_user, i, paidTokens);
+        }
+    }
+
+    /// @dev What the USDC half comes to, rounded per vesting exactly as the payout rounds it.
+    function _usdcOwed(address _user) internal view returns (uint256 usdcAmount) {
+        uint256 count = userVestingCount[_user];
+        for (uint256 i = 0; i < count; i++) {
+            (, uint256 usdcTokens) = _split(_user, i);
+            if (usdcTokens > 0) usdcAmount += getUSDCForTokens(usdcTokens);
+        }
+    }
+
+    /// @dev 8LNDS moves only to a pool while buying is disabled, so the recipient is flagged for the
+    ///      transfer. A real pool keeps its flag.
+    function _sendTokens(address _to, uint256 _amount) internal {
+        bool gate = !managerRegistry.isPool(_to);
+        if (gate) managerRegistry.setPoolStatusForReward(_to, true);
+        IERC20(address(token)).safeTransfer(_to, _amount);
+        if (gate) managerRegistry.setPoolStatusForReward(_to, false);
+    }
+
+    /// @notice Claimable amount for a vesting, in vesting tokens, whatever currency pays it.
+    /// @dev What the views below report: one number across both halves, so a reader who wants them
+    ///      apart asks getClaimable.
+    function _calculateVestingAmount(address _user, uint256 _vestingId) internal view returns (uint256) {
+        (uint256 tokens, uint256 usdcTokens) = _split(_user, _vestingId);
+        return tokens + usdcTokens;
+    }
+
+    /// @dev Claimable now, split at the cutover: tokens for what had unlocked by then, USDC for what
+    ///      unlocked since. The cutover is capped at now, so before it everything counts as tokens.
+    function _split(address _user, uint256 _vestingId) internal view returns (uint256 tokens, uint256 usdcTokens) {
+        Vesting storage vesting = vestings[_user][_vestingId];
+        if (!vesting.isActive) return (0, 0);
+
+        uint256 usdcPaid = usdcEraClaimed[_user][_vestingId];
+        // Whatever of the total watermark is not the USDC half was paid in tokens.
+        uint256 tokensPaid = vesting.claimedAmount - usdcPaid;
+
+        uint256 unlockedByCutover = _unlockedAt(_user, _vestingId, Math.min(cutover, block.timestamp));
+        if (unlockedByCutover > tokensPaid) tokens = unlockedByCutover - tokensPaid;
+
+        uint256 afterCutover = _unlockedAt(_user, _vestingId, block.timestamp) - unlockedByCutover;
+        if (afterCutover > usdcPaid) usdcTokens = afterCutover - usdcPaid;
+    }
+
+    /// @dev Total unlocked by `_at`: the weekly curve plus the bonus ratchet some vestings still carry.
+    ///      Reads the current vestingWeeks and weeklyUnlock, so changing them moves the cutover split
+    ///      of past unlocks as well.
+    function _unlockedAt(address _user, uint256 _vestingId, uint256 _at) internal view returns (uint256) {
+        Vesting storage vesting = vestings[_user][_vestingId];
+        if (vesting.startTime == 0 || _at < vesting.startTime) return 0;
+
+        // First week is unlocked immediately (weeksPassed + 1)
+        uint256 weeksUnlocked = (_at - vesting.startTime) / 1 weeks + 1;
+        if (weeksUnlocked >= vestingWeeks) return vesting.totalAmount;
+
+        uint256 unlocked = (vesting.totalAmount * weeksUnlocked * weeklyUnlock) / BASIS_POINTS;
         uint256 usedAdditionalUnlock = userMaxAdditionalUnlockUsed[_user][_vestingId];
         if (usedAdditionalUnlock > 0) {
-            totalUnlocked += (vesting.totalAmount * usedAdditionalUnlock) / BASIS_POINTS;
+            unlocked += (vesting.totalAmount * usedAdditionalUnlock) / BASIS_POINTS;
         }
-
-        if (totalUnlocked > vesting.totalAmount) {
-            totalUnlocked = vesting.totalAmount;
-        }
-
-        if (totalUnlocked <= vesting.claimedAmount) {
-            return 0;
-        }
-
-        return totalUnlocked - vesting.claimedAmount;
+        return Math.min(unlocked, vesting.totalAmount);
     }
 
     /// @notice Get all vestings info for user

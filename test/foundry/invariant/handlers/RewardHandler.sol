@@ -58,13 +58,16 @@ contract RewardHandler is Test {
 
         uint256 claimedBefore = _claimedOf(user);
 
+        // Both halves, in the order the contract requires; either may have nothing owed.
         vm.prank(user);
-        try rewards2.claim() {
-            ghost_totalClaimed += _claimedOf(user) - claimedBefore;
+        try rewards2.claimTokens() {
             calls_claim++;
-        } catch {
-            // claim can revert if nothing to claim
-        }
+        } catch {}
+        vm.prank(user);
+        try rewards2.claimUsdc() {
+            calls_claim++;
+        } catch {}
+        ghost_totalClaimed += _claimedOf(user) - claimedBefore;
     }
 
     /// @notice Deactivate a random user's vesting

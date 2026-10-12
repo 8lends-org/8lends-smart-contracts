@@ -4,8 +4,13 @@ pragma solidity ^0.8.23;
 import "../../../contracts/core/Rewards2.sol";
 
 /// @dev Rewards2 can no longer create vesting, yet every vesting it pays out was created by it
-///      before that. Tests reproduce that state here, written the way createVesting used to write it.
+///      before that. Tests reproduce that state here, written the way createVesting used to write it,
+///      and place the cutover where the scenario needs it.
 contract Rewards2Harness is Rewards2 {
+    function setCutover(uint256 _cutover) external {
+        cutover = _cutover;
+    }
+
     function seedVestings(address[] calldata _users, uint256[] calldata _amounts) external {
         require(_users.length == _amounts.length, "Users and amounts length mismatch");
         for (uint256 i = 0; i < _users.length; i++) {

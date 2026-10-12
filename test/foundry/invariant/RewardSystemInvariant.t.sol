@@ -25,9 +25,12 @@ contract RewardSystemInvariantTest is Setup {
 
         // Without a rate and the money every claim reverts, and the handler swallows reverts, so
         // the properties below would hold over a run in which nothing was ever paid.
+        // The cutover sits inside the run, so claims are paid in tokens before it and in USDC after.
+        rewards2.setCutover(block.timestamp + 10 weeks);
         vm.startPrank(owner);
         rewards2.setRedemptionRate(20_000);
         usdc.mint(address(rewards2), 1e18);
+        token.mint(address(rewards2), 1e30);
         vm.stopPrank();
 
         targetContract(address(handler));
