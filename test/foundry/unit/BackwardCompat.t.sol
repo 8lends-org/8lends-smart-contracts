@@ -251,7 +251,7 @@ contract BackwardCompatTest is Setup {
         // Legacy: fundedProjectsInvestedTotal * percent / BASIS_POINTS
         // = 10_000e6 * 60_000 / 1_000_000 = 600e6
         assertEq(result.fundedProjectsInvestedTotal, 10_000e6, "Legacy: wrong total invested");
-        assertEq(result.availableBuyTokensInUSDC, 600e6, "Legacy fallback: wrong available limit");
+        assertEq(result.availableBuyTokensInUSDC, 0, "purchases are closed");
     }
 
     function test_limitedSeller_migrateEarnedLimits() public {
@@ -290,7 +290,7 @@ contract BackwardCompatTest is Setup {
         uint256[] memory pids = new uint256[](1);
         pids[0] = pid2;
         LimitedSeller.EstimateResult memory result = limitedSeller.estimateAvailableBuy(investor, pids);
-        assertEq(result.availableBuyTokensInUSDC, 600e6, "Post-migration: should use earnedLimitUsdc");
+        assertEq(result.availableBuyTokensInUSDC, 0, "purchases are closed");
     }
 
 
