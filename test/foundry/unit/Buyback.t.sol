@@ -213,10 +213,26 @@ contract BuybackTest is Setup {
         assertEq(usdc.balanceOf(holder), 30e6, "1000 tokens at $0.03");
     }
 
-    function test_priceIsNeverZero() public {
+    /// @dev Zero is the off switch for the exchange window, and it is reversible.
+    function test_zeroPriceClosesTheBuybackButNotTheWithdrawal() public {
         vm.prank(owner);
-        vm.expectRevert(Buyback.ZeroAmount.selector);
         buyback.setPrice(0);
+
+        vm.startPrank(holder);
+        token.approve(address(buyback), 1_000e18);
+        vm.expectRevert(Buyback.BuybackClosed.selector);
+        buyback.sell(1_000e18);
+        vm.stopPrank();
+
+        vm.prank(owner);
+        buyback.withdraw(address(usdc), owner, 10_000e6);
+
+        vm.prank(owner);
+        buyback.setPrice(2e4);
+        vm.prank(owner);
+        usdc.mint(address(buyback), 100e6);
+        _sell(1_000e18);
+        assertEq(usdc.balanceOf(holder), 20e6);
     }
 
     function test_onlyOwnerSetsThePrice() public {

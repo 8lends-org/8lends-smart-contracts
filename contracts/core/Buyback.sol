@@ -45,6 +45,7 @@ contract Buyback is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentran
     error ZeroAddress();
     error ZeroAmount();
     error AmountTooSmall();
+    error BuybackClosed();
     error NotEnoughUsdc(uint256 requested, uint256 available);
 
     /// @custom:oz-upgrades-unsafe-allow constructor
@@ -59,7 +60,6 @@ contract Buyback is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentran
         if (_managerRegistry == address(0) || _token == address(0) || _usdc == address(0)) {
             revert ZeroAddress();
         }
-        if (_price == 0) revert ZeroAmount();
 
         __Ownable_init(msg.sender);
         __ReentrancyGuard_init();
@@ -72,8 +72,8 @@ contract Buyback is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentran
         emit PriceSet(_price);
     }
 
+    /// @notice Zero closes the buyback: `sell` reverts while the inventory still withdraws.
     function setPrice(uint256 _price) external onlyOwner {
-        if (_price == 0) revert ZeroAmount();
         price = _price;
         emit PriceSet(_price);
     }
@@ -82,6 +82,8 @@ contract Buyback is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentran
     /// @dev The payout rounds down. The whole amount is taken anyway: keeping back the fraction it
     ///      does not cover would strand unsellable dust on everyone who sells out.
     function sell(uint256 _tokenAmount) external nonReentrant {
+        if (price == 0) revert BuybackClosed();
+
         uint256 usdcAmount = quote(_tokenAmount);
         if (usdcAmount == 0) revert AmountTooSmall();
 
