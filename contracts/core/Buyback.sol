@@ -1,0 +1,124 @@
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.23;
+
+import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
+import "@openzeppelin/contracts/utils/math/Math.sol";
+import "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
+import "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
+import "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
+import "@openzeppelin/contracts-upgradeable/utils/ReentrancyGuardUpgradeable.sol";
+import "../interfaces/protocol/IManagerRegistry.sol";
+
+/**
+ * @title Buyback
+ * @notice Buys 8LNDS off holders at an owner-set price and keeps the inventory until the vault
+ *         exists.
+ * @dev While `Token.buyingEnabled == false`, `canTransfer` only lets 8LNDS through to an address
+ *      marked `isPool` (`Token.sol:24-38`). The owner marks this contract before the first sale;
+ *      recipients of the inventory are marked by `withdraw` itself.
+ *
+ *      A contract can only set that mark through `ManagerRegistry.setPoolStatusForReward`, which
+ *      answers two callers: the reward system, and whatever address sits in `limitedSellerAddress`.
+ *      So this contract has to hold that slot, or the token leg of `withdraw` reverts.
+ */
+contract Buyback is Initializable, UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuardUpgradeable {
+    using SafeERC20 for IERC20;
+
+    /// @dev No version() at all means a deployment older than this field.
+    uint256 public constant version = 1;
+
+    IManagerRegistry public managerRegistry;
+    IERC20 public token;
+    IERC20 public usdc;
+
+    /// @notice USDC paid for 1e18 tokens — 2e4 is $0.02.
+    uint256 public price;
+
+    uint256 public totalBoughtTokens;
+    uint256 public totalPaidUsdc;
+
+    event Sold(address indexed seller, uint256 tokenAmount, uint256 usdcAmount);
+    event PriceSet(uint256 price);
+    event Withdrawn(address indexed asset, address indexed to, uint256 amount);
+
+    error ZeroAddress();
+    error ZeroAmount();
+    error AmountTooSmall();
+    error NotEnoughUsdc(uint256 requested, uint256 available);
+
+    /// @custom:oz-upgrades-unsafe-allow constructor
+    constructor() {
+        _disableInitializers();
+    }
+
+    function initialize(address _managerRegistry, address _token, address _usdc, uint256 _price)
+        external
+        initializer
+    {
+        if (_managerRegistry == address(0) || _token == address(0) || _usdc == address(0)) {
+            revert ZeroAddress();
+        }
+        if (_price == 0) revert ZeroAmount();
+
+        __Ownable_init(msg.sender);
+        __ReentrancyGuard_init();
+        __UUPSUpgradeable_init();
+
+        managerRegistry = IManagerRegistry(_managerRegistry);
+        token = IERC20(_token);
+        usdc = IERC20(_usdc);
+        price = _price;
+        emit PriceSet(_price);
+    }
+
+    function setPrice(uint256 _price) external onlyOwner {
+        if (_price == 0) revert ZeroAmount();
+        price = _price;
+        emit PriceSet(_price);
+    }
+
+    /// @notice Needs an `approve` first — the token has no `permit`.
+    /// @dev The payout rounds down. The whole amount is taken anyway: keeping back the fraction it
+    ///      does not cover would strand unsellable dust on everyone who sells out.
+    function sell(uint256 _tokenAmount) external nonReentrant {
+        uint256 usdcAmount = quote(_tokenAmount);
+        if (usdcAmount == 0) revert AmountTooSmall();
+
+        uint256 available = usdc.balanceOf(address(this));
+        if (usdcAmount > available) revert NotEnoughUsdc(usdcAmount, available);
+
+        totalBoughtTokens += _tokenAmount;
+        totalPaidUsdc += usdcAmount;
+
+        token.safeTransferFrom(msg.sender, address(this), _tokenAmount);
+        usdc.safeTransfer(msg.sender, usdcAmount);
+
+        emit Sold(msg.sender, _tokenAmount, usdcAmount);
+    }
+
+    /// @notice What a sale of this size pays out, rounded down.
+    function quote(uint256 _tokenAmount) public view returns (uint256) {
+        return Math.mulDiv(_tokenAmount, price, 1e18);
+    }
+
+    /// @dev The pool mark is put back as it was found, so a recipient that already had one keeps
+    ///      it afterwards.
+    function withdraw(address _asset, address _to, uint256 _amount) external onlyOwner {
+        if (_to == address(0)) revert ZeroAddress();
+        if (_amount == 0) revert ZeroAmount();
+
+        if (_asset == address(token)) {
+            bool wasPool = managerRegistry.isPool(_to);
+            if (!wasPool) managerRegistry.setPoolStatusForReward(_to, true);
+            token.safeTransfer(_to, _amount);
+            if (!wasPool) managerRegistry.setPoolStatusForReward(_to, false);
+        } else {
+            IERC20(_asset).safeTransfer(_to, _amount);
+        }
+
+        emit Withdrawn(_asset, _to, _amount);
+    }
+
+    function _authorizeUpgrade(address) internal override onlyOwner {}
+}

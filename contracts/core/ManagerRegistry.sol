@@ -16,6 +16,10 @@ contract ManagerRegistry is Initializable, OwnableUpgradeable, UUPSUpgradeable {
     mapping(address => address) public investorClaimAddresses; // investor => claimAddress
     address public rewards2Address;
     address public marketAddress;
+    /// TODO: rename at the next upgrade of this contract. The slot no longer belongs to
+    ///       LimitedSeller — it is the one seat besides the reward system that may call
+    ///       `setPoolStatusForReward`, held by `Buyback` while it keeps the inventory and wanted
+    ///       by `Seller` later. Renaming moves the getter, so warn the backend first.
     address public limitedSellerAddress;
     mapping(address => bool) public operators;
 
