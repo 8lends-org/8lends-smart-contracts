@@ -105,14 +105,8 @@ contract Market is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentranc
     event PlatformFeeUpdated(uint256 oldFee, uint256 newFee);
     event FeeCollected(address indexed token, uint256 amount);
 
-    modifier onlyManager() {
-        require(IManagerRegistry(managerRegistry).isManager(msg.sender), "Not a manager");
-        _;
-    }
-
-    modifier onlyFundraise() {
-        require(IManagerRegistry(managerRegistry).isFundraise(msg.sender), "Not a fundraise");
-        _;
+    function _requireNotFrozen(address _user) internal view {
+        require(!IManagerRegistry(managerRegistry).isFrozen(_user), "Account is frozen");
     }
 
     /// @notice Authorize contract upgrade (owner only)
@@ -132,9 +126,9 @@ contract Market is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentranc
     }
 
     /// @notice Get fundraise address from manager registry
-    /// @return fundraiseAddress Address of fundraise contract
-    function getFundraise() internal view returns (address fundraiseAddress) {
-        return IManagerRegistry(managerRegistry).fundraiseAddress();
+    /// @return The Fundraise the registry currently points at.
+    function getFundraise() internal view returns (IFundraise) {
+        return IFundraise(IManagerRegistry(managerRegistry).fundraiseAddress());
     }
 
     /// @notice Sell a specific investment position on the secondary market
@@ -209,7 +203,6 @@ contract Market is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentranc
     ) internal view {
         require(block.timestamp <= _deadline, "Signature expired");
         _requireTrustedSigner(
-            getFundraise(),
             keccak256(abi.encode(SELL_TYPEHASH, msg.sender, _projectId, _price, _positionIndex, _deadline)),
             _sig
         );
@@ -227,7 +220,6 @@ contract Market is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentranc
     ) internal view {
         require(block.timestamp <= _deadline, "Signature expired");
         _requireTrustedSigner(
-            getFundraise(),
             keccak256(
                 abi.encode(SELL_FOR_TYPEHASH, msg.sender, _owner, _projectId, _price, _positionIndex, _deadline)
             ),
@@ -247,8 +239,8 @@ contract Market is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentranc
     ///      pack into, and \x19\x01 keeps the whole family apart from anything signed as a personal
     ///      message — which is what the other contracts on this key still do. ECDSA.recover carries
     ///      the length, malleability and zero-address checks, so none of them are rebuilt here.
-    function _requireTrustedSigner(address _fundraise, bytes32 _structHash, bytes memory _sig) internal view {
-        address trustedSignerAddr = IFundraise(_fundraise).trustedSigner();
+    function _requireTrustedSigner(bytes32 _structHash, bytes memory _sig) internal view {
+        address trustedSignerAddr = getFundraise().trustedSigner();
         require(trustedSignerAddr != address(0), "Trusted signer not set");
         bytes32 digest = MessageHashUtils.toTypedDataHash(_domainSeparator(), _structHash);
         require(ECDSA.recover(digest, _sig) == trustedSignerAddr, "Not trusted signer");
@@ -273,25 +265,27 @@ contract Market is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentranc
         uint256 _positionIndex,
         address _proceedsTo
     ) internal returns (uint256 saleId) {
-        address fundraiseAddress = getFundraise();
+        _requireNotFrozen(_owner);
+
+        IFundraise fundraise = getFundraise();
         require(!IManagerRegistry(managerRegistry).isCompromised(msg.sender), "Seller is compromised");
         require(activePositionSaleIds[_owner][_projectId][_positionIndex] == 0, "Active sale exists for position");
         require(_price > 0, "Price must be greater than zero");
 
-        IFundraise.InvestorInfo[] memory positions = IFundraise(fundraiseAddress).getInvestorPositions(_owner, _projectId);
+        IFundraise.InvestorInfo[] memory positions = fundraise.getInvestorPositions(_owner, _projectId);
         require(_positionIndex < positions.length, "Position index out of bounds");
         require(positions[_positionIndex].investedAmount > 0, "No investment in position");
 
         uint256 maxReturn;
         uint256 posClaimed;
         {
-            IFundraise.Project memory project = IFundraise(fundraiseAddress).projects(_projectId);
+            IFundraise.Project memory project = fundraise.projects(_projectId);
             require(project.innerStruct.stage == IFundraise.Stage.Funded, "Only funded projects can be sold");
             uint256 posInvested = positions[_positionIndex].investedAmount;
             // Fundraise's ceiling, not the rate applied here: the two floor at different scales.
-            maxReturn = IFundraise(fundraiseAddress).positionOwed(_projectId, posInvested);
+            maxReturn = fundraise.positionOwed(_projectId, posInvested);
             // The same watermark transferPosition will hand the buyer, so the two cannot disagree.
-            posClaimed = IFundraise(fundraiseAddress).positionClaimed(_owner, _projectId, posInvested);
+            posClaimed = fundraise.positionClaimed(_owner, _projectId, posInvested);
             // Clamped, not asserted: the watermark rounds up and the ceiling floors, so on a
             // claimed-out position the two can cross. That is a lot with nothing left to sell.
             uint256 room = maxReturn > posClaimed ? maxReturn - posClaimed : 0;
@@ -308,7 +302,7 @@ contract Market is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentranc
             ));
         }
         require(marketCell != address(0), "Market cell address cannot be zero");
-        IFundraise(fundraiseAddress).transferPosition(_projectId, _owner, marketCell, _positionIndex, saleId);
+        fundraise.transferPosition(_projectId, _owner, marketCell, _positionIndex, saleId);
 
         Sale storage sale = sales[saleId];
         sale.saleId = saleId;
@@ -333,18 +327,21 @@ contract Market is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentranc
     /// @dev No nonce and no deadline: a lot is bought once, which already spends the approval.
     function buy(uint256 _saleId, bytes memory _sig) external nonReentrant {
         require(_saleId > 0 && _saleId <= saleCount, "Invalid sale ID");
-        address fundraiseAddress = getFundraise();
-        _requireTrustedSigner(fundraiseAddress, keccak256(abi.encode(BUY_TYPEHASH, msg.sender, _saleId)), _sig);
-        _executeBuy(_saleId, fundraiseAddress);
+        _requireTrustedSigner(keccak256(abi.encode(BUY_TYPEHASH, msg.sender, _saleId)), _sig);
+        _executeBuy(_saleId, getFundraise());
     }
 
-    function _executeBuy(uint256 _saleId, address fundraiseAddress) internal {
+    function _executeBuy(uint256 _saleId, IFundraise fundraise) internal {
         Sale storage sale = sales[_saleId];
+        // The seller, not just the buyer: the money lands on the seller's side, so a frozen lot
+        // must not settle even though the person pressing buy is a stranger.
+        _requireNotFrozen(sale.seller);
+        _requireNotFrozen(msg.sender);
         require(sale.status == SaleStatus.Active, "Sale not active");
         require(msg.sender != sale.seller, "Cannot buy own sale");
-        IFundraise.InvestorInfo memory marketCellInfo = IFundraise(fundraiseAddress).investorInfo(sale.marketCell, sale.projectId);
+        IFundraise.InvestorInfo memory marketCellInfo = fundraise.investorInfo(sale.marketCell, sale.projectId);
         require(marketCellInfo.investedAmount > 0, "Market cell has no investment");
-        IFundraise.Project memory project = IFundraise(fundraiseAddress).projects(sale.projectId);
+        IFundraise.Project memory project = fundraise.projects(sale.projectId);
         IERC20 loanToken = project.innerStruct.loanToken;
         uint256 feeAmount = (sale.price * sale.fee) / BASIS_POINTS;
         uint256 sellerAmount = sale.price - feeAmount;
@@ -356,7 +353,7 @@ contract Market is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentranc
         loanToken.safeTransferFrom(msg.sender, recipient, sellerAmount);
         accumulatedFees[address(loanToken)] += feeAmount;
         // Market cell always has the position at index 0
-        IFundraise(fundraiseAddress).transferPosition(sale.projectId, sale.marketCell, msg.sender, 0, _saleId);
+        fundraise.transferPosition(sale.projectId, sale.marketCell, msg.sender, 0, _saleId);
         secondaryInvestedAmount[msg.sender][sale.projectId] += marketCellInfo.investedAmount;
         if (secondaryInvestedAmount[sale.seller][sale.projectId] >= marketCellInfo.investedAmount) {
             secondaryInvestedAmount[sale.seller][sale.projectId] -= marketCellInfo.investedAmount;
@@ -379,14 +376,14 @@ contract Market is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentranc
     /// @param _saleId Sale ID to cancel
     function cancel(uint256 _saleId) external nonReentrant {
         require(_saleId > 0 && _saleId <= saleCount, "Invalid sale ID");
-        address fundraiseAddress = getFundraise();
         Sale storage sale = sales[_saleId];
+        _requireNotFrozen(sale.seller);
         // Same gate as listing. The superseded address gets no proceeds either way, but left in it
         // could cancel every relisting for the price of gas and keep the position unsellable.
         require(msg.sender == IManagerRegistry(managerRegistry).recipientOf(sale.seller), "Not seller");
         require(sale.status == SaleStatus.Active, "Sale not active");
         // Market cell always has the position at index 0
-        IFundraise(fundraiseAddress).transferPosition(sale.projectId, sale.marketCell, sale.seller, 0, _saleId);
+        getFundraise().transferPosition(sale.projectId, sale.marketCell, sale.seller, 0, _saleId);
         sale.status = SaleStatus.Cancelled;
         activePositionSaleIds[sale.seller][sale.projectId][sale.positionIndex] = 0;
         emit SaleCancelled(_saleId, sale.seller, sale.projectId);
@@ -398,6 +395,7 @@ contract Market is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentranc
     function setSaleProceedsTo(uint256 _saleId, address _proceedsTo) public {
         require(_saleId > 0 && _saleId <= saleCount, "Invalid sale ID");
         Sale storage sale = sales[_saleId];
+        _requireNotFrozen(sale.seller);
         require(msg.sender == sale.seller, "Not seller");
         require(sale.status == SaleStatus.Active, "Sale not active");
 
@@ -416,7 +414,11 @@ contract Market is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentranc
 
     /// @notice Set platform fee (owner only)
     /// @param _fee Fee in basis points (1% = 10000)
-    function setPlatformFee(uint256 _fee) external onlyOwner {
+    function setPlatformFee(uint256 _fee) external {
+        require(
+            msg.sender == owner() || IManagerRegistry(managerRegistry).isAdmin(msg.sender),
+            "Not authorized"
+        );
         require(_fee <= BASIS_POINTS, "Fee exceeds 100%");
         uint256 oldFee = platformFee;
         platformFee = _fee;

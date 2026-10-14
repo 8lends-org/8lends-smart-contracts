@@ -20,10 +20,17 @@ contract KycLessLimitTest is Setup {
         EscrowFactory factoryImpl = new EscrowFactory();
         bytes memory initData = abi.encodeCall(
             EscrowFactory.initialize,
-            (address(escrowImpl), address(fundraise), address(usdc), backend)
+            (address(escrowImpl), address(fundraise), address(usdc), address(managerRegistry))
         );
         ERC1967Proxy proxy = new ERC1967Proxy(address(factoryImpl), initData);
         escrowFactory = EscrowFactory(address(proxy));
+        vm.prank(owner);
+        managerRegistry.setOperatorStatus(backend, true);
+
+        escrowFactory.setManagerRegistry(address(managerRegistry));
+        // The escrow approver is the operator role now, not a field of its own.
+        vm.prank(owner);
+        managerRegistry.setOperatorStatus(backend, true);
 
         vm.prank(owner);
         fundraise.setAmlGateway(address(escrowFactory));
@@ -62,6 +69,39 @@ contract KycLessLimitTest is Setup {
         uint256 reqId = _escrowInvest(esc, _user, _pid, _amount, _inviter);
         vm.prank(backend);
         escrowFactory.approveInvest(_user, reqId);
+    }
+
+    /// @dev Both exits from a pending request are shut, which is the only way shutting either one
+    ///      is safe: cancelling refunds to the user's own address, so closing approval alone would
+    ///      leave the stolen key the way out. The cancel gate lives in EscrowFactory because the
+    ///      escrows are minimal clones and can never be upgraded — the factory they call back can.
+    function test_aFrozenUsersPendingEscrowRequestGoesNowhere() public {
+        uint256 pid = _createProject(100e6, 10_000e6);
+        AmlEscrow escrow = _createEscrow(investor);
+        uint256 reqId = _escrowInvest(escrow, investor, pid, 300e6, inviter);
+
+        address support = makeAddr("support");
+        vm.prank(owner);
+        managerRegistry.setSupportStatus(support, true);
+        vm.prank(support);
+        managerRegistry.freeze(investor);
+
+        vm.prank(backend);
+        vm.expectRevert(abi.encodeWithSignature("AccountFrozen(address)", investor));
+        escrowFactory.approveInvest(investor, reqId);
+
+        vm.warp(block.timestamp + 366 days);
+        vm.prank(investor);
+        vm.expectRevert("Account is frozen");
+        escrow.cancelRequest(reqId);
+
+        assertEq(usdc.balanceOf(address(escrow)), 300e6, "the money waits where neither can take it");
+
+        vm.prank(support);
+        managerRegistry.unfreeze(investor);
+        vm.prank(investor);
+        escrow.cancelRequest(reqId);
+        assertEq(usdc.balanceOf(address(escrow)), 0);
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -126,30 +166,6 @@ contract KycLessLimitTest is Setup {
         _escrowInvestAndApprove(escrow, investor, pid, 300e6, inviter);
 
         uint256 reqId = _escrowInvest(escrow, investor, pid, 201e6, inviter);
-        vm.prank(backend);
-        vm.expectRevert(Fundraise.KycLessLimitExceeded.selector);
-        escrowFactory.approveInvest(investor, reqId);
-    }
-
-    // ─────────────────────────────────────────────────────────────────────────
-    // GAP-005: migrated allTimeInvestedUSD ($400) + escrow $101 — revert
-    // ─────────────────────────────────────────────────────────────────────────
-
-    function test_GAP005_migratedUSD_plus_escrow_reverts() public {
-        // GAP-005: investor with migrated allTimeInvestedUSD ($400) + escrow $101 — revert
-        address[] memory investors_ = new address[](1);
-        investors_[0] = investor;
-        uint256[] memory amounts = new uint256[](1);
-        amounts[0] = 400_000_000; // 400 USD in BASIS_POINTS scale
-
-        vm.prank(manager);
-        fundraise.migrateAllTimeInvestedUSD(investors_, amounts);
-        assertEq(fundraise.allTimeInvestedUSD(investor), 400_000_000);
-
-        uint256 pid = _createProject(100e6, 10_000e6);
-        AmlEscrow escrow = _createEscrow(investor);
-        uint256 reqId = _escrowInvest(escrow, investor, pid, 101e6, inviter);
-
         vm.prank(backend);
         vm.expectRevert(Fundraise.KycLessLimitExceeded.selector);
         escrowFactory.approveInvest(investor, reqId);

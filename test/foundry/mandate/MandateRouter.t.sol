@@ -29,6 +29,14 @@ contract RegistryStub {
     function setFactory(address f) external { mandateFactory = f; }
     function setOperator(address a, bool v) external { operators[a] = v; }
     function isOperator(address a) external view returns (bool) { return operators[a]; }
+
+    mapping(address => bool) public frozen;
+    mapping(address => bool) public adminAccounts;
+
+    function setFrozen(address a, bool v) external { frozen[a] = v; }
+    function setAdmin(address a, bool v) external { adminAccounts[a] = v; }
+    function isFrozen(address a) external view returns (bool) { return frozen[a]; }
+    function isAdmin(address a) external view returns (bool) { return adminAccounts[a]; }
 }
 
 contract FundraiseStub {
@@ -89,6 +97,36 @@ contract MandateRouterTest is Test {
     uint256 constant PID = 7;
     /// @dev Fundraise's rate scale is millionths — 1% is 10 000.
     uint256 constant RATE_20PCT = 200_000;
+
+    /// @dev Routing decides where a payout lands, so a stolen key must not be able to move it —
+    ///      detaching included, which is the one gate detach otherwise does not have.
+    function test_aFrozenOwnerCannotMoveRoutes() public {
+        vm.prank(alice);
+        router.setRoute(PID, address(escrow));
+        registry.setFrozen(alice, true);
+
+        vm.prank(alice);
+        vm.expectRevert(abi.encodeWithSignature("AccountFrozen(address)", alice));
+        router.setRoute(PID + 1, address(escrow));
+
+        vm.prank(alice);
+        vm.expectRevert(abi.encodeWithSignature("AccountFrozen(address)", alice));
+        router.detach(PID);
+
+        uint256[] memory pids = new uint256[](1);
+        pids[0] = PID + 2;
+        vm.prank(alice);
+        vm.expectRevert(abi.encodeWithSignature("AccountFrozen(address)", alice));
+        router.setRouteMany(pids, address(escrow));
+
+        // The escrow is the caller here, so the flag has to be read on its owner.
+        vm.expectRevert(abi.encodeWithSignature("AccountFrozen(address)", alice));
+        escrow.enroll(router, PID + 3);
+
+        registry.setFrozen(alice, false);
+        vm.prank(alice);
+        router.detach(PID);
+    }
 
     function setUp() public {
         factory = new FactoryStub();

@@ -31,6 +31,17 @@
     "type": "constructor"
   },
   {
+    "inputs": [
+      {
+        "internalType": "address",
+        "name": "user",
+        "type": "address"
+      }
+    ],
+    "name": "AccountFrozen",
+    "type": "error"
+  },
+  {
     "inputs": [],
     "name": "AlreadyInitialized",
     "type": "error"

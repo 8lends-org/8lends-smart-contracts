@@ -13,6 +13,13 @@ import { IMandateFactory } from "../../../contracts/mandate/interfaces/IMandateF
 import { ImmutableParamsV1, InterestDirection } from "../../../contracts/mandate/interfaces/MandateTypes.sol";
 import { Eip712Signing } from "../helpers/Eip712Signing.sol";
 
+contract RegistryStub {
+    mapping(address => bool) public adminAccounts;
+
+    function setAdmin(address a, bool v) external { adminAccounts[a] = v; }
+    function isAdmin(address a) external view returns (bool) { return adminAccounts[a]; }
+}
+
 /// @dev Reports whatever it is told to, to prove the address comparison is the only thing that
 ///      decides — a contract that lies about itself simply lands somewhere else.
 contract LyingEscrow {
@@ -46,8 +53,11 @@ contract MandateFactoryTest is Test, Eip712Signing {
         projectLimitBps: 1000
     });
 
+    RegistryStub registry;
+
     function setUp() public {
         kycSigner = vm.addr(kycKey);
+        registry = new RegistryStub();
 
         implV1 = new MandateEscrowV1(
             address(0x5D6), address(0xF0A), address(0x4E6), address(0x40E), address(0x1E4D)
@@ -55,7 +65,7 @@ contract MandateFactoryTest is Test, Eip712Signing {
 
         factory = MandateFactory(address(new ERC1967Proxy(
             address(new MandateFactory()),
-            abi.encodeCall(MandateFactory.initialize, (address(this), kycSigner))
+            abi.encodeCall(MandateFactory.initialize, (address(this), kycSigner, address(registry)))
         )));
         factory.registerImplementation(1, address(implV1));
     }
@@ -299,11 +309,39 @@ contract MandateFactoryTest is Test, Eip712Signing {
         factory.createMandate(params, _kyc(newKey, alice, params, 1));
     }
 
-    function test_setKycSigner_is_owner_only() public {
+    function test_setKycSigner_is_appointed_by_the_owner_alone() public {
         vm.prank(alice);
-        vm.expectRevert(
-            abi.encodeWithSelector(OwnableUpgradeable.OwnableUnauthorizedAccount.selector, alice)
-        );
+        vm.expectRevert(MandateFactory.NotAuthorized.selector);
         factory.setKycSigner(bob);
+    }
+
+    /// @dev An admin may only take the key away, never hand one out — that half waits for the Safe.
+    function test_setKycSigner_anAdminMayNotAppointOne() public {
+        registry.setAdmin(alice, true);
+
+        vm.prank(alice);
+        vm.expectRevert(MandateFactory.NotAuthorized.selector);
+        factory.setKycSigner(bob);
+    }
+
+    function test_initialize_rejectsAZeroRegistry() public {
+        address impl = address(new MandateFactory());
+        bytes memory initData =
+            abi.encodeCall(MandateFactory.initialize, (address(this), kycSigner, address(0)));
+
+        vm.expectRevert(MandateFactory.ZeroAddress.selector);
+        new ERC1967Proxy(impl, initData);
+    }
+
+    /// @dev Revoking is split off so a leaked key dies in one call by one person.
+    function test_setKycSigner_isRevokedByAnAdminToo() public {
+        vm.prank(alice);
+        vm.expectRevert(MandateFactory.NotAuthorized.selector);
+        factory.setKycSigner(address(0));
+
+        registry.setAdmin(alice, true);
+        vm.prank(alice);
+        factory.setKycSigner(address(0));
+        assertEq(factory.kycSigner(), address(0));
     }
 }

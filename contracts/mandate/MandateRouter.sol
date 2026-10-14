@@ -28,6 +28,7 @@ contract MandateRouter is IMandateRouter, Initializable, OwnableUpgradeable, UUP
     error ZeroAddress();
     error NoMandateFactory();
     error NotAnEscrowOf(address owner, address escrow);
+    error AccountFrozen(address user);
     error NoRoute(uint256 pid);
     error AlreadyInvested(uint256 pid);
     error NotOperator();
@@ -82,12 +83,14 @@ contract MandateRouter is IMandateRouter, Initializable, OwnableUpgradeable, UUP
 
     /// @inheritdoc IMandateRouter
     function setRoute(uint256 pid, address escrow) external {
+        _requireNotFrozen(msg.sender);
         _requireEscrowOf(msg.sender, escrow);
         _setRoute(msg.sender, pid, escrow);
     }
 
     /// @inheritdoc IMandateRouter
     function setRouteMany(uint256[] calldata pids, address escrow) external {
+        _requireNotFrozen(msg.sender);
         // Checked once for the whole batch: the target is the same escrow for every element.
         _requireEscrowOf(msg.sender, escrow);
         for (uint256 i = 0; i < pids.length; i++) {
@@ -100,8 +103,10 @@ contract MandateRouter is IMandateRouter, Initializable, OwnableUpgradeable, UUP
         address previous = routes[msg.sender][pid];
         if (previous == address(0)) revert NoRoute(pid);
 
-        // No gate beyond "a route exists", by design: detaching is how a user takes control back,
-        // so it must work whatever state the mandate is in and without anyone's signature.
+        // Open whatever state the mandate is in and without anyone's signature — detaching is how
+        // a user takes control back. A freeze is the one exception: it exists precisely to stop a
+        // stolen key, and detaching would point the payouts back at the wallet it holds.
+        _requireNotFrozen(msg.sender);
         _clear(msg.sender, pid, previous);
     }
 
@@ -110,6 +115,7 @@ contract MandateRouter is IMandateRouter, Initializable, OwnableUpgradeable, UUP
     /// @inheritdoc IMandateRouter
     function enrollSelf(uint256 pid) external {
         address owner_ = IMandateEscrowV1(msg.sender).owner();
+        _requireNotFrozen(owner_);
         _requireEscrowOf(owner_, msg.sender);
 
         // The asymmetry is the rule: an owner may hand manual positions to a mandate with setRoute,
@@ -154,6 +160,10 @@ contract MandateRouter is IMandateRouter, Initializable, OwnableUpgradeable, UUP
     }
 
     // ── internals ───────────────────────────────────────────────────────────────
+
+    function _requireNotFrozen(address user) private view {
+        if (IManagerRegistry(managerRegistry).isFrozen(user)) revert AccountFrozen(user);
+    }
 
     function _requireEscrowOf(address owner_, address escrow) private view {
         address factory = IManagerRegistry(managerRegistry).mandateFactory();

@@ -5,6 +5,7 @@ import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Ini
 import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
 import {OwnableUpgradeable} from "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
 import {Clones} from "@openzeppelin/contracts/proxy/Clones.sol";
+import {IManagerRegistry} from "../interfaces/protocol/IManagerRegistry.sol";
 
 import {IEscrowFactory} from "../interfaces/protocol/IEscrowFactory.sol";
 import {IAmlEscrow} from "../interfaces/protocol/IAmlEscrow.sol";
@@ -20,24 +21,24 @@ contract EscrowFactory is Initializable, UUPSUpgradeable, OwnableUpgradeable, IE
     address public implementation;
     address public fundraise;
     address public usdc;
-    address public signer;
+    address public __deprecated_signer;
     uint256 public maxInvestAmount;
     uint256 public minInvestAmount;
     uint256 public refundTimeout;
     mapping(address => address) public escrows;
 
-    /// @dev Reserved storage gap for future upgrades
-    uint256[50] private __gap;
+    /// @notice Holds the operator and admin lists this contract reads.
+    address public managerRegistry;
 
     // -------------------------------------------------------------------------
     // Events
     // -------------------------------------------------------------------------
 
     event EscrowCreated(address indexed user, address indexed escrow);
-    event SignerUpdated(address indexed oldSigner, address indexed newSigner);
     event MaxInvestAmountUpdated(uint256 oldAmount, uint256 newAmount);
     event MinInvestAmountUpdated(uint256 oldAmount, uint256 newAmount);
     event RefundTimeoutUpdated(uint256 oldTimeout, uint256 newTimeout);
+    event ManagerRegistryUpdated(address indexed managerRegistry);
     event ImplementationUpdated(address indexed oldImpl, address indexed newImpl);
     event FundraiseUpdated(address indexed oldFundraise, address indexed newFundraise);
     event UsdcUpdated(address indexed oldUsdc, address indexed newUsdc);
@@ -65,12 +66,12 @@ contract EscrowFactory is Initializable, UUPSUpgradeable, OwnableUpgradeable, IE
     /// @param _impl      AmlEscrow implementation address
     /// @param _fundraise Fundraise contract address
     /// @param _usdc      USDC token address
-    /// @param _signer    Backend signer address
+    /// @param _managerRegistry Holds the operator and admin lists
     function initialize(
         address _impl,
         address _fundraise,
         address _usdc,
-        address _signer
+        address _managerRegistry
     ) external initializer {
         __UUPSUpgradeable_init();
         __Ownable_init(msg.sender);
@@ -78,12 +79,12 @@ contract EscrowFactory is Initializable, UUPSUpgradeable, OwnableUpgradeable, IE
         require(_impl != address(0), "Zero address");
         require(_fundraise != address(0), "Zero address");
         require(_usdc != address(0), "Zero address");
-        require(_signer != address(0), "Zero address");
+        require(_managerRegistry != address(0), "Zero address");
 
         implementation = _impl;
         fundraise = _fundraise;
         usdc = _usdc;
-        signer = _signer;
+        managerRegistry = _managerRegistry;
 
         maxInvestAmount = 500e6;
         minInvestAmount = 1e6;
@@ -94,8 +95,17 @@ contract EscrowFactory is Initializable, UUPSUpgradeable, OwnableUpgradeable, IE
     // Modifiers
     // -------------------------------------------------------------------------
 
-    modifier onlySigner() {
-        require(msg.sender == signer, "Not signer");
+    /// @dev Platform parameters, not wiring and not money.
+    modifier onlyOwnerOrAdmin() {
+        require(msg.sender == owner() || IManagerRegistry(managerRegistry).isAdmin(msg.sender), "Not authorized");
+        _;
+    }
+
+    /// @dev Approving an AML request is the operator role. The registry has to be set before the
+    ///      first call — the upgrade and setManagerRegistry belong in one batch, or approvals stop
+    ///      in between.
+    modifier onlyOperator() {
+        require(IManagerRegistry(managerRegistry).isOperator(msg.sender), "Not operator");
         _;
     }
 
@@ -123,7 +133,10 @@ contract EscrowFactory is Initializable, UUPSUpgradeable, OwnableUpgradeable, IE
     /// @param _user The user address
     /// @return escrow The escrow address
     function createEscrow(address _user) external returns (address escrow) {
-        require(msg.sender == _user || msg.sender == signer, "Not authorized");
+        require(
+            msg.sender == _user || IManagerRegistry(managerRegistry).isOperator(msg.sender),
+            "Not authorized"
+        );
 
         if (escrows[_user] != address(0)) {
             return escrows[_user];
@@ -143,7 +156,7 @@ contract EscrowFactory is Initializable, UUPSUpgradeable, OwnableUpgradeable, IE
     /// @notice Approve a pending invest request for a user
     /// @param _user      The user whose escrow to route to
     /// @param _requestId The request index
-    function approveInvest(address _user, uint256 _requestId) external onlySigner {
+    function approveInvest(address _user, uint256 _requestId) external onlyOperator {
         address escrow = escrows[_user];
         require(escrow != address(0), "No escrow");
         IAmlEscrow.InvestRequest memory req = IAmlEscrow(escrow).getRequest(_requestId);
@@ -154,7 +167,7 @@ contract EscrowFactory is Initializable, UUPSUpgradeable, OwnableUpgradeable, IE
     /// @notice Reject a pending invest request for a user
     /// @param _user      The user whose escrow to route to
     /// @param _requestId The request index
-    function rejectInvest(address _user, uint256 _requestId) external onlySigner {
+    function rejectInvest(address _user, uint256 _requestId) external onlyOperator {
         address escrow = escrows[_user];
         require(escrow != address(0), "No escrow");
         IAmlEscrow.InvestRequest memory req = IAmlEscrow(escrow).getRequest(_requestId);
@@ -175,10 +188,16 @@ contract EscrowFactory is Initializable, UUPSUpgradeable, OwnableUpgradeable, IE
     }
 
     /// @inheritdoc IEscrowFactory
+    /// @dev The clone calls this at the end of cancelRequest, in the same transaction and after
+    ///      the refund, so reverting here reverts the cancellation itself. That is what lets a
+    ///      freeze reach escrows already deployed: a minimal clone carries its implementation in
+    ///      its own bytecode and can never be upgraded, but the factory it calls back can.
     function onRequestCancelled(
         address _user, uint256 _requestId, uint256 _pid, uint256 _amount, address _inviter
     ) external {
         require(escrows[_user] == msg.sender, "Not escrow");
+        require(!IManagerRegistry(managerRegistry).isFrozen(_user), "Account is frozen");
+
         emit RequestCancelledForUser(_user, _pid, _requestId, _amount, _inviter);
     }
 
@@ -186,28 +205,21 @@ contract EscrowFactory is Initializable, UUPSUpgradeable, OwnableUpgradeable, IE
     // Owner setters
     // -------------------------------------------------------------------------
 
-    function setSigner(address _signer) external onlyOwner {
-        require(_signer != address(0), "Zero address");
-        address oldSigner = signer;
-        signer = _signer;
-        emit SignerUpdated(oldSigner, _signer);
-    }
-
-    function setMaxInvestAmount(uint256 _amount) external onlyOwner {
+    function setMaxInvestAmount(uint256 _amount) external onlyOwnerOrAdmin {
         require(_amount > 0 && _amount >= minInvestAmount, "Invalid amount");
         uint256 oldAmount = maxInvestAmount;
         maxInvestAmount = _amount;
         emit MaxInvestAmountUpdated(oldAmount, _amount);
     }
 
-    function setMinInvestAmount(uint256 _amount) external onlyOwner {
+    function setMinInvestAmount(uint256 _amount) external onlyOwnerOrAdmin {
         require(_amount > 0 && _amount <= maxInvestAmount, "Invalid amount");
         uint256 oldAmount = minInvestAmount;
         minInvestAmount = _amount;
         emit MinInvestAmountUpdated(oldAmount, _amount);
     }
 
-    function setRefundTimeout(uint256 _timeout) external onlyOwner {
+    function setRefundTimeout(uint256 _timeout) external onlyOwnerOrAdmin {
         require(_timeout > 0 && _timeout <= 365 days, "Invalid timeout");
         uint256 oldTimeout = refundTimeout;
         refundTimeout = _timeout;
@@ -219,6 +231,12 @@ contract EscrowFactory is Initializable, UUPSUpgradeable, OwnableUpgradeable, IE
         address oldImpl = implementation;
         implementation = _impl;
         emit ImplementationUpdated(oldImpl, _impl);
+    }
+
+    function setManagerRegistry(address _managerRegistry) external onlyOwner {
+        require(_managerRegistry != address(0), "Zero address");
+        managerRegistry = _managerRegistry;
+        emit ManagerRegistryUpdated(_managerRegistry);
     }
 
     function setFundraise(address _fundraise) external onlyOwner {

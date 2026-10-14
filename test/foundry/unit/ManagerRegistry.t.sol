@@ -8,24 +8,48 @@ contract ManagerRegistryTest is Setup {
     //                     ROLE MANAGEMENT
     // ═══════════════════════════════════════════════════════════════
 
-    function test_setManagerStatus_ownerOrManager() public {
-        // Random address cannot set manager status.
+    function test_setAdminStatus_emitsAndOnlyOwnerMayCall() public {
+        address admin = makeAddr("admin");
+
+        vm.expectEmit(true, false, false, true, address(managerRegistry));
+        emit ManagerRegistry.AdminUpdated(admin, true);
+        vm.prank(owner);
+        managerRegistry.setAdminStatus(admin, true);
+        assertTrue(managerRegistry.isAdmin(admin));
+    }
+
+    function test_setManagerStatus_ownerOrAdmin() public {
         vm.prank(attacker);
         vm.expectRevert("ManagerRegistry: Not authorized");
         managerRegistry.setManagerStatus(attacker, true);
 
-        // Existing manager can set manager status.
+        // A manager no longer reaches the list he is on.
         vm.prank(manager);
+        vm.expectRevert("ManagerRegistry: Not authorized");
+        managerRegistry.setManagerStatus(attacker, true);
+
+        address admin = makeAddr("admin");
+        vm.prank(owner);
+        managerRegistry.setAdminStatus(admin, true);
+
+        vm.prank(admin);
         managerRegistry.setManagerStatus(attacker, true);
         assertTrue(managerRegistry.managers(attacker));
     }
 
-    function test_managerCanPromoteOtherManager() public {
-        address newManager = makeAddr("newManager");
+    function test_setManagerStatusBatch_ownerOrAdmin() public {
+        address[] memory who = new address[](1);
+        who[0] = makeAddr("newManager");
+        bool[] memory statuses = new bool[](1);
+        statuses[0] = true;
 
         vm.prank(manager);
-        managerRegistry.setManagerStatus(newManager, true);
-        assertTrue(managerRegistry.managers(newManager));
+        vm.expectRevert("ManagerRegistry: Not authorized");
+        managerRegistry.setManagerStatusBatch(who, statuses);
+
+        vm.prank(owner);
+        managerRegistry.setManagerStatusBatch(who, statuses);
+        assertTrue(managerRegistry.managers(who[0]));
     }
 
     function test_isManager_includesRewardSystem() public view {
@@ -54,20 +78,30 @@ contract ManagerRegistryTest is Setup {
     /// Managers are self-expanding (see test_managerCanPromoteOtherManager). Operators are
     /// deliberately not: only the owner grants them. If this ever fails because someone
     /// "made it consistent with the rest of the file", the role is back to drifting.
-    function test_setOperatorStatus_onlyOwner_notManager() public {
+    /// @dev Granting and revoking are deliberately split: handing a key out waits for the second
+    ///      signature, taking one away must work alone while an incident is running.
+    function test_setOperatorStatus_grantedByOwner_revokedByAdminToo() public {
         address newOperator = makeAddr("newOperator");
+        address admin = makeAddr("admin");
+        vm.prank(owner);
+        managerRegistry.setAdminStatus(admin, true);
 
         vm.prank(manager);
-        vm.expectRevert(abi.encodeWithSignature("OwnableUnauthorizedAccount(address)", manager));
+        vm.expectRevert("ManagerRegistry: Not authorized");
         managerRegistry.setOperatorStatus(newOperator, true);
 
-        vm.prank(attacker);
-        vm.expectRevert(abi.encodeWithSignature("OwnableUnauthorizedAccount(address)", attacker));
+        // Not even the admin may hand the role out.
+        vm.prank(admin);
+        vm.expectRevert("ManagerRegistry: Not authorized");
         managerRegistry.setOperatorStatus(newOperator, true);
 
         vm.prank(owner);
         managerRegistry.setOperatorStatus(newOperator, true);
         assertTrue(managerRegistry.isOperator(newOperator));
+
+        vm.prank(admin);
+        managerRegistry.setOperatorStatus(newOperator, false);
+        assertFalse(managerRegistry.isOperator(newOperator));
     }
 
     /// Grant and revoke, state and event in both directions. Rotation of a backend key is

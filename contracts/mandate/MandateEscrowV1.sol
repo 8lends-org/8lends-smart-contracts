@@ -60,6 +60,7 @@ contract MandateEscrowV1 is IMandateEscrowV1 {
     error NotOperator();
     error NotFundraise();
     error NotCompromised();
+    error AccountFrozen(address user);
     error NotActive();
     error ProjectNotOpen();
     error BelowMinimum(uint256 amount);
@@ -201,12 +202,21 @@ contract MandateEscrowV1 is IMandateEscrowV1 {
 
     /// @inheritdoc IMandateEscrowV1
     function withdraw(address token, uint256 amount) external onlyOwner {
+        _requireNotFrozen();
         _payOut(token, amount);
     }
 
     /// @inheritdoc IMandateEscrowV1
     function withdrawAll(address token) external onlyOwner {
+        _requireNotFrozen();
         _payOut(token, IERC20(token).balanceOf(address(this)));
+    }
+
+    /// @dev On the owner, not on the caller: both entry points are the owner's, and the freeze is
+    ///      what stops a stolen key from draining the escrow before a recovery address exists.
+    ///      sweepToClaimAddress stays open — it only moves money towards the recovery address.
+    function _requireNotFrozen() private view {
+        if (IManagerRegistry(MANAGER_REGISTRY).isFrozen(owner)) revert AccountFrozen(owner);
     }
 
     /// @dev No state gate and no signature: withdrawal must work while paused, and the recipient is

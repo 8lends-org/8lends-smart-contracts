@@ -8,6 +8,17 @@
     "inputs": [
       {
         "internalType": "address",
+        "name": "user",
+        "type": "address"
+      }
+    ],
+    "name": "AccountFrozen",
+    "type": "error"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "address",
         "name": "target",
         "type": "address"
       }
@@ -23,11 +34,6 @@
   {
     "inputs": [],
     "name": "AddressZeroTo",
-    "type": "error"
-  },
-  {
-    "inputs": [],
-    "name": "ArrayLengthMismatch",
     "type": "error"
   },
   {
@@ -394,19 +400,6 @@
     "inputs": [],
     "name": "ZeroAddress",
     "type": "error"
-  },
-  {
-    "anonymous": false,
-    "inputs": [
-      {
-        "indexed": false,
-        "internalType": "uint256",
-        "name": "count",
-        "type": "uint256"
-      }
-    ],
-    "name": "AllTimeInvestedUSDMigrated",
-    "type": "event"
   },
   {
     "anonymous": false,
@@ -1406,24 +1399,6 @@
   {
     "inputs": [
       {
-        "internalType": "address[]",
-        "name": "_investors",
-        "type": "address[]"
-      },
-      {
-        "internalType": "uint256[]",
-        "name": "_allTimeInvestedUSD",
-        "type": "uint256[]"
-      }
-    ],
-    "name": "migrateAllTimeInvestedUSD",
-    "outputs": [],
-    "stateMutability": "nonpayable",
-    "type": "function"
-  },
-  {
-    "inputs": [
-      {
         "internalType": "uint256",
         "name": "_projectId",
         "type": "uint256"
@@ -1432,19 +1407,6 @@
     "name": "moveProjectStage",
     "outputs": [],
     "stateMutability": "nonpayable",
-    "type": "function"
-  },
-  {
-    "inputs": [],
-    "name": "nonce",
-    "outputs": [
-      {
-        "internalType": "uint256",
-        "name": "",
-        "type": "uint256"
-      }
-    ],
-    "stateMutability": "view",
     "type": "function"
   },
   {

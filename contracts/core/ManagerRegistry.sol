@@ -25,10 +25,13 @@ contract ManagerRegistry is Initializable, OwnableUpgradeable, UUPSUpgradeable {
     ///      this on every transfer, where a walk would be unbounded.
     ///      Invariant: canonicalOf[canonicalOf[x]] == 0.
     mapping(address => address) public canonicalOf;
-
-    /// @notice MandateFactory, read for the derived ownership check. Written after the factory is
-    ///         deployed; while it is zero the mandate paths revert.
     address public mandateFactory;
+
+    mapping(address => bool) public admins;
+    /// @notice Support staff — the only role that can lift a freeze.
+    mapping(address => bool) public supportStaff;
+    /// @notice Accounts stopped on chain. Reversible, and no substitute for a recovery address.
+    mapping(address => bool) public frozen;
 
     event ManagerUpdated(address manager, bool status);
     event OperatorUpdated(address operator, bool status);
@@ -39,6 +42,10 @@ contract ManagerRegistry is Initializable, OwnableUpgradeable, UUPSUpgradeable {
     event LimitedSellerAddressSet(address indexed limitedSeller);
     event ContractAddressesUpdated(address rewardSystem, address fundraise, address treasury);
     event MandateFactorySet(address mandateFactory);
+    event AdminUpdated(address indexed admin, bool status);
+    event SupportUpdated(address indexed support, bool status);
+    event AccountFrozen(address indexed user, address indexed by);
+    event AccountUnfrozen(address indexed user, address indexed by);
 
     /// @custom:oz-upgrades-unsafe-allow constructor
     constructor() {
@@ -52,11 +59,63 @@ contract ManagerRegistry is Initializable, OwnableUpgradeable, UUPSUpgradeable {
 
     function _authorizeUpgrade(address newImplementation) internal override onlyOwner {}
 
+    modifier onlyOwnerOrAdmin() {
+        require(msg.sender == owner() || admins[msg.sender], "ManagerRegistry: Not authorized");
+        _;
+    }
+
+    /// @notice An admin cannot appoint another one — that is the whole difference from the manager,
+    ///         who hands out his own role. A stolen admin key spends its rights without entrenching
+    ///         itself, because the list stays with the Safe.
+    function setAdminStatus(address _admin, bool _status) external onlyOwner {
+        admins[_admin] = _status;
+        emit AdminUpdated(_admin, _status);
+    }
+
+    function setSupportStatus(address _support, bool _status) external onlyOwnerOrAdmin {
+        supportStaff[_support] = _status;
+        emit SupportUpdated(_support, _status);
+    }
+
+    /// @dev Stops an account without a second signature and without naming a recovery address,
+    ///      which is why one person may press it. The operator too: the backend spots a theft
+    ///      before support reads the ticket.
+    function freeze(address _user) external {
+        require(supportStaff[msg.sender] || operators[msg.sender], "ManagerRegistry: Not authorized");
+        _freeze(_user);
+    }
+
+    function freezeMany(address[] calldata _users) external {
+        require(supportStaff[msg.sender] || operators[msg.sender], "ManagerRegistry: Not authorized");
+        require(_users.length <= 200, "ManagerRegistry: Too many addresses");
+        for (uint256 i = 0; i < _users.length; i++) {
+            if (_users[i] == address(0) || frozen[_users[i]]) continue;
+            _freeze(_users[i]);
+        }
+    }
+
+    /// @dev Not the operator: a stolen backend key would otherwise clear the blocks it set off.
+    ///      Not a batch either — freezing is panic, lifting is a verdict on one false positive.
+    function unfreeze(address _user) external {
+        require(supportStaff[msg.sender], "ManagerRegistry: Not support");
+        require(frozen[_user], "ManagerRegistry: Not frozen");
+        frozen[_user] = false;
+        emit AccountUnfrozen(_user, msg.sender);
+    }
+
+    function _freeze(address _user) private {
+        require(_user != address(0), "ManagerRegistry: Zero address");
+        frozen[_user] = true;
+        emit AccountFrozen(_user, msg.sender);
+    }
+
     /// @notice Update manager status
     /// @param _managers Manager addr
     /// @param _statuses Manager status
-    function setManagerStatusBatch(address[] memory _managers, bool[] memory _statuses) external {
-        require(managers[msg.sender] || msg.sender == owner(), "ManagerRegistry: Not authorized");
+    function setManagerStatusBatch(address[] memory _managers, bool[] memory _statuses)
+        external
+        onlyOwnerOrAdmin
+    {
         require(_managers.length == _statuses.length, "ManagerRegistry: length mismatch");
         for (uint256 i = 0; i < _managers.length; i++) {
             managers[_managers[i]] = _statuses[i];
@@ -67,13 +126,19 @@ contract ManagerRegistry is Initializable, OwnableUpgradeable, UUPSUpgradeable {
     /// @notice Update manager status
     /// @param _manager Manager addr
     /// @param _status Manager status
-    function setManagerStatus(address _manager, bool _status) external {
-        require(managers[msg.sender] || msg.sender == owner(), "ManagerRegistry: Not authorized");
+    function setManagerStatus(address _manager, bool _status) external onlyOwnerOrAdmin {
         managers[_manager] = _status;
         emit ManagerUpdated(_manager, _status);
     }
 
-    function setOperatorStatus(address _operator, bool _status) external onlyOwner {
+    /// @notice Granting is the Safe's; revoking is an admin's too — taking a key away has to work
+    ///         alone and within the minute an incident lasts, handing one out can wait.
+    function setOperatorStatus(address _operator, bool _status) external {
+        if (_status) {
+            require(msg.sender == owner(), "ManagerRegistry: Not authorized");
+        } else {
+            require(msg.sender == owner() || admins[msg.sender], "ManagerRegistry: Not authorized");
+        }
         operators[_operator] = _status;
         emit OperatorUpdated(_operator, _status);
     }
@@ -130,8 +195,19 @@ contract ManagerRegistry is Initializable, OwnableUpgradeable, UUPSUpgradeable {
         require(canonicalOf[_claimAddress] == address(0), "Claim address already in a chain");
         require(investorClaimAddresses[_claimAddress] == address(0), "Claim address already in a chain");
 
+        // A recovery address that is itself frozen would be handed out unusable — and support may
+        // have frozen it by mistake a minute earlier.
+        require(!frozen[_claimAddress], "Claim address is frozen");
+
         investorClaimAddresses[canonical] = _claimAddress;
         canonicalOf[_claimAddress] = canonical;
+
+        // The freeze has done its job: payouts now go elsewhere by isCompromised, and holding the
+        // old address only blocks what the recovery already redirects.
+        if (frozen[canonical]) {
+            frozen[canonical] = false;
+            emit AccountUnfrozen(canonical, msg.sender);
+        }
 
         emit InvestorClaimAddressSet(canonical, _claimAddress);
     }
@@ -188,6 +264,18 @@ contract ManagerRegistry is Initializable, OwnableUpgradeable, UUPSUpgradeable {
     /// @param _sender Manager addr
     function isManager(address _sender) public view returns (bool) {
         return managers[_sender] || _sender == rewardSystemAddress;
+    }
+
+    function isAdmin(address _sender) public view returns (bool) {
+        return admins[_sender];
+    }
+
+    function isSupport(address _sender) public view returns (bool) {
+        return supportStaff[_sender];
+    }
+
+    function isFrozen(address _user) public view returns (bool) {
+        return frozen[_user];
     }
 
     function isOperator(address _sender) public view returns (bool) {

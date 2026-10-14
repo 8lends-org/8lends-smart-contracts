@@ -220,9 +220,10 @@ const DEPLOY_DESCRIPTORS: Record<string, DeployDescriptor> = {
       if (!config.AmlEscrow) throw new Error("AmlEscrow required in config (deploy AmlEscrow first)");
       if (!config.Fundraise) throw new Error("Fundraise required in config");
       if (!config.USDC) throw new Error("USDC required in config");
-      const signerAddr = (config as Record<string, string>).escrowSigner || (config as Record<string, string>).trustedSigner;
-      if (!signerAddr) throw new Error("escrowSigner or trustedSigner required in config");
-      return [config.AmlEscrow, config.Fundraise, config.USDC, signerAddr];
+      if (!config.ManagerRegistry) throw new Error("ManagerRegistry required in config");
+      // Approving an AML request is the operator role, so the registry has to be known from the
+      // first block: there is no fallback, and a factory without one answers nothing.
+      return [config.AmlEscrow, config.Fundraise, config.USDC, config.ManagerRegistry];
     },
     configKey: "EscrowFactory",
     configKeyImpl: "EscrowFactory_impl",
@@ -281,7 +282,10 @@ const DEPLOY_DESCRIPTORS: Record<string, DeployDescriptor> = {
     getProxyArgs: (config, owner) => {
       const kycSigner = process.env.KYC_SIGNER ?? config.trustedSigner;
       if (!kycSigner) throw new Error("Set KYC_SIGNER, or trustedSigner in the chain config");
-      return [owner, kycSigner];
+      // Read to tell an admin from anyone else when the KYC signer is revoked. Passed at
+      // initialize rather than set afterwards, so there is no window where revoking is owner-only.
+      if (!config.ManagerRegistry) throw new Error("ManagerRegistry required in config");
+      return [owner, kycSigner, config.ManagerRegistry];
     },
     configKey: "MandateFactory",
     configKeyImpl: "MandateFactory_impl",

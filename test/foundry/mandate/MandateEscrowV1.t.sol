@@ -46,6 +46,11 @@ contract RegistryStub {
         return recovery[u] != address(0) && recovery[u] != u;
     }
     function mandateFactory() external pure returns (address) { return address(0); }
+
+    mapping(address => bool) public frozen;
+
+    function setFrozen(address a, bool v) external { frozen[a] = v; }
+    function isFrozen(address a) external view returns (bool) { return frozen[a]; }
 }
 
 /// @dev Stands in for MandateRouter. `outstanding` and `exposure` are set by the test so the
@@ -386,6 +391,39 @@ contract MandateEscrowV1Test is Test {
     }
 
     // ── withdrawal ──────────────────────────────────────────────────────────────
+
+    /// @dev The one way out that stays open: it only moves money towards the recovery address, so
+    ///      a freeze has no reason to block it — and blocking it would strand the rescue.
+    function test_sweep_still_works_while_the_owner_is_frozen() public {
+        _fund(1_000e6);
+        address recovery = makeAddr("recovery");
+        registry.setRecovery(owner, recovery);
+        registry.setFrozen(owner, true);
+
+        escrow.sweepToClaimAddress();
+        assertEq(usdc.balanceOf(recovery), 1_000e6);
+    }
+
+    /// @dev A freeze outranks pausing: pausing stops allocations, this stops the owner emptying
+    ///      the escrow before a recovery address exists. Sweeping to the recovery address stays
+    ///      open — it only moves money towards safety.
+    function test_withdraw_is_refused_while_the_owner_is_frozen() public {
+        _fund(1_000e6);
+        registry.setFrozen(owner, true);
+
+        vm.prank(owner);
+        vm.expectRevert(abi.encodeWithSignature("AccountFrozen(address)", owner));
+        escrow.withdraw(address(usdc), 400e6);
+
+        vm.prank(owner);
+        vm.expectRevert(abi.encodeWithSignature("AccountFrozen(address)", owner));
+        escrow.withdrawAll(address(usdc));
+
+        registry.setFrozen(owner, false);
+        vm.prank(owner);
+        escrow.withdrawAll(address(usdc));
+        assertEq(usdc.balanceOf(owner), 1_000e6);
+    }
 
     function test_withdraw_works_while_paused_without_signature() public {
         _fund(1_000e6);

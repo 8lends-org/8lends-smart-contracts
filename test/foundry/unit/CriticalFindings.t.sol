@@ -64,23 +64,29 @@ contract CriticalFindingsTest is Setup {
 
     // ═══════════════════════════════════════════════════════════════
     //   HIGH-2: MANAGER CAN ADD MANAGERS → PERSISTENT BACKDOOR
-    //   A compromised manager adds new managers, creating persistent
-    //   access even after the original key is revoked.
+    //   Closed: the role is handed out by the owner or an admin, and
+    //   a manager no longer reaches the list he is on.
     // ═══════════════════════════════════════════════════════════════
 
-    function test_HIGH2_managerCreatesBackdoor() public {
-        address backdoor1 = makeAddr("backdoor1");
-
-        // Current behavior: any existing manager can add another manager.
+    /// @dev Neither rank can entrench itself: a manager no longer reaches the list he is on, and
+    ///      an admin hands out every role but his own, so a stolen admin key spends its rights and
+    ///      cannot outlive the Safe taking them back.
+    function test_HIGH2_noRoleCanEntrenchItself() public {
         vm.prank(manager);
-        managerRegistry.setManagerStatus(backdoor1, true);
-        assertTrue(managerRegistry.managers(backdoor1));
+        vm.expectRevert("ManagerRegistry: Not authorized");
+        managerRegistry.setManagerStatus(makeAddr("backdoor"), true);
 
-        // The promoted backdoor manager can keep escalating access.
-        vm.prank(backdoor1);
-        address backdoor2 = makeAddr("backdoor2");
-        managerRegistry.setManagerStatus(backdoor2, true);
-        assertTrue(managerRegistry.managers(backdoor2));
+        address admin = makeAddr("admin");
+        vm.prank(owner);
+        managerRegistry.setAdminStatus(admin, true);
+
+        vm.prank(admin);
+        vm.expectRevert(abi.encodeWithSignature("OwnableUnauthorizedAccount(address)", admin));
+        managerRegistry.setAdminStatus(makeAddr("second"), true);
+
+        // What he can do is hand out the roles below him.
+        vm.prank(admin);
+        managerRegistry.setManagerStatus(makeAddr("newManager"), true);
     }
 
     // ═══════════════════════════════════════════════════════════════

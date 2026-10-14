@@ -44,7 +44,7 @@ contract MandateIntegrationTest is Setup {
         )));
         factory = MandateFactory(address(new ERC1967Proxy(
             address(new MandateFactory()),
-            abi.encodeCall(MandateFactory.initialize, (owner, kycSigner))
+            abi.encodeCall(MandateFactory.initialize, (owner, kycSigner, address(managerRegistry)))
         )));
         market = Market(address(new ERC1967Proxy(
             address(new Market()), abi.encodeCall(Market.initialize, (address(managerRegistry)))
@@ -109,6 +109,60 @@ contract MandateIntegrationTest is Setup {
     /// the code says it in those words. This keeps the two the same: spell the sum out a second
     /// time and the base the cap is taken from drifts from the figure named mandateSize, with
     /// nothing to notice it. The placement below covers the other half — moving money into a
+    /// @dev Two gates stand on this path and they revert with the same error, so the route is laid
+    ///      first on purpose: with it in place enrollSelf is skipped and the refusal can only come
+    ///      from Fundraise, where every way into a position has to pass.
+    function test_allocate_is_refused_by_fundraise_when_the_owner_is_frozen() public {
+        MandateEscrowV1 e = _mandate(investor, InterestDirection.WALLET, 10_000);
+        _fund(e, 40_000e6);
+        uint256 pid = _openProject();
+
+        vm.prank(investor);
+        router.setRoute(pid, address(e));
+
+        address support = makeAddr("support");
+        vm.prank(owner);
+        managerRegistry.setSupportStatus(support, true);
+        vm.prank(support);
+        managerRegistry.freeze(investor);
+
+        vm.prank(operator);
+        vm.expectRevert(abi.encodeWithSignature("AccountFrozen(address)", investor));
+        e.allocate(pid, address(0));
+
+        vm.prank(support);
+        managerRegistry.unfreeze(investor);
+        vm.prank(operator);
+        e.allocate(pid, address(0));
+    }
+
+    /// @dev Without a route allocate enrols itself first, so the router is where it stops.
+    function test_allocate_is_refused_by_the_router_when_the_owner_is_frozen() public {
+        MandateEscrowV1 e = _mandate(investor, InterestDirection.WALLET, 10_000);
+        _fund(e, 40_000e6);
+        uint256 pid = _openProject();
+
+        address support = makeAddr("support");
+        vm.startPrank(owner);
+        managerRegistry.setSupportStatus(support, true);
+        vm.stopPrank();
+        vm.prank(support);
+        managerRegistry.freeze(investor);
+
+        vm.prank(operator);
+        vm.expectRevert(abi.encodeWithSignature("AccountFrozen(address)", investor));
+        e.allocate(pid, address(0));
+
+        // The money is not stranded by the stop: it waits in the escrow, where the owner's own key
+        // cannot reach it either.
+        assertEq(e.freeBalance(), 40_000e6);
+
+        vm.prank(support);
+        managerRegistry.unfreeze(investor);
+        vm.prank(operator);
+        e.allocate(pid, address(0));
+    }
+
     /// project must not move the base, or a mandate could fill one project ticket by ticket.
     function test_the_cap_is_taken_from_the_size_the_interface_names() public {
         uint16 limitBps = 2_500; // a quarter, so the multiplication is not the identity

@@ -20,10 +20,12 @@ contract FactoryEdgeCaseTest is Setup {
         EscrowFactory factoryImpl = new EscrowFactory();
         bytes memory initData = abi.encodeCall(
             EscrowFactory.initialize,
-            (address(escrowImpl), address(fundraise), address(usdc), backend)
+            (address(escrowImpl), address(fundraise), address(usdc), address(managerRegistry))
         );
         ERC1967Proxy proxy = new ERC1967Proxy(address(factoryImpl), initData);
         escrowFactory = EscrowFactory(address(proxy));
+        vm.prank(owner);
+        managerRegistry.setOperatorStatus(backend, true);
 
         vm.prank(owner);
         fundraise.setAmlGateway(address(escrowFactory));
@@ -60,34 +62,6 @@ contract FactoryEdgeCaseTest is Setup {
         vm.prank(backend);
         vm.expectRevert(bytes("Zero address"));
         escrowFactory.createEscrow(address(0));
-    }
-
-    // ─────────────────────────────────────────────────────────────────────────
-    // GAP-055: setSigner mid-flight: old signer revert, new signer succeed
-    // ─────────────────────────────────────────────────────────────────────────
-
-    function test_GAP055_setSigner_midFlight() public {
-        // GAP-055: setSigner mid-flight: old signer → revert "Not signer", new signer → succeed
-        uint256 pid = _createProject(100e6, 10_000e6);
-        AmlEscrow escrow = _createEscrow(investor);
-        uint256 reqId = _escrowInvest(escrow, investor, pid, 100e6, inviter);
-
-        // Change signer
-        address newSigner = makeAddr("newSigner");
-        vm.prank(escrowFactory.owner());
-        escrowFactory.setSigner(newSigner);
-
-        // Old signer (backend) should fail
-        vm.prank(backend);
-        vm.expectRevert(bytes("Not signer"));
-        escrowFactory.approveInvest(investor, reqId);
-
-        // New signer should succeed
-        vm.prank(newSigner);
-        escrowFactory.approveInvest(investor, reqId);
-
-        (uint256 investedAmount,) = fundraise.investorInfo(investor, pid);
-        assertEq(investedAmount, 100e6);
     }
 
     // ─────────────────────────────────────────────────────────────────────────

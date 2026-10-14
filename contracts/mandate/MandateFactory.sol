@@ -7,6 +7,7 @@ import { MessageHashUtils } from "@openzeppelin/contracts/utils/cryptography/Mes
 import { Initializable } from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 import { OwnableUpgradeable } from "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
 import { UUPSUpgradeable } from "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
+import { IManagerRegistry } from "../interfaces/protocol/IManagerRegistry.sol";
 
 import { IMandateFactory } from "./interfaces/IMandateFactory.sol";
 import { IMandateEscrowV1 } from "./interfaces/IMandateEscrowV1.sol";
@@ -31,9 +32,13 @@ contract MandateFactory is IMandateFactory, Initializable, OwnableUpgradeable, U
     bytes32 private constant CREATE_MANDATE_TYPEHASH =
         keccak256("CreateMandate(address owner,uint16 version,bytes32 paramsHash)");
 
-    address public kycSigner;
+    /// @notice Read only to tell an admin from anyone else when the KYC signer is revoked.
+    address public managerRegistry;
+
     uint16 public latestVersion;
     mapping(uint16 => address) public implementations;
+
+    address public kycSigner;
 
     error ZeroAddress();
     error BadInterestDirection(uint8 direction);
@@ -44,19 +49,23 @@ contract MandateFactory is IMandateFactory, Initializable, OwnableUpgradeable, U
     error ZeroVersion();
     error VersionMismatch(uint16 registering, uint16 reported);
     error ImplementationHasNoCode(address impl);
+    error NotAuthorized();
 
     /// @custom:oz-upgrades-unsafe-allow constructor
     constructor() {
         _disableInitializers();
     }
 
-    function initialize(address owner_, address kycSigner_) external initializer {
-        if (owner_ == address(0) || kycSigner_ == address(0)) revert ZeroAddress();
+    function initialize(address owner_, address kycSigner_, address managerRegistry_) external initializer {
+        if (owner_ == address(0) || kycSigner_ == address(0) || managerRegistry_ == address(0)) {
+            revert ZeroAddress();
+        }
 
         __Ownable_init(owner_);
         __UUPSUpgradeable_init();
 
         kycSigner = kycSigner_;
+        managerRegistry = managerRegistry_;
     }
 
     // ── user ────────────────────────────────────────────────────────────────────
@@ -135,8 +144,17 @@ contract MandateFactory is IMandateFactory, Initializable, OwnableUpgradeable, U
     // ── owner ───────────────────────────────────────────────────────────────────
 
     /// @inheritdoc IMandateFactory
-    function setKycSigner(address signer) external onlyOwner {
-        if (signer == address(0)) revert ZeroAddress();
+    /// @notice Appointing is the owner's; zeroing is also an admin's.
+    /// @dev Same rotation as Fundraise.trustedSigner and split the same way, so a leaked key dies
+    ///      in one call. Zero stops createMandate; existing mandates keep working.
+    function setKycSigner(address signer) external {
+        if (signer == address(0)) {
+            if (msg.sender != owner() && !IManagerRegistry(managerRegistry).isAdmin(msg.sender)) {
+                revert NotAuthorized();
+            }
+        } else if (msg.sender != owner()) {
+            revert NotAuthorized();
+        }
         kycSigner = signer;
     }
 

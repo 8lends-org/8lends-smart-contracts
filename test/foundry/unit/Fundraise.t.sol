@@ -319,6 +319,24 @@ contract FundraiseTest is Setup {
     /// A manager's blanket right to claim for a user was revoked with the mandate work: while an
     /// address is clean, nobody may call for it — the platform included. The cases that replace it
     /// are in FundraiseMandate.t.sol.
+    /// @dev The one exception: an admin may press claim for a clean address. The money still goes
+    ///      to recipientOf(_investor), so the button moves the payout along, never aside.
+    function test_claim_anAdminMayPressItForAUser() public {
+        uint256 pid = _createProject(1_000e6, 10_000e6);
+        _investAs(investor, pid, 2_000e6, address(0));
+        _fundProject(pid);
+        _repayFull(pid);
+
+        address admin = makeAddr("admin");
+        vm.prank(owner);
+        managerRegistry.setAdminStatus(admin, true);
+
+        uint256 before = usdc.balanceOf(investor);
+        vm.prank(admin);
+        fundraise.claim(pid, investor);
+        assertGt(usdc.balanceOf(investor), before, "paid to the investor, not to the admin");
+    }
+
     function test_claim_nobodyCanClaimOnBehalfOfACleanAddress() public {
         _investAs(investor, pid, 30_000e6, inviter);
         _fundProject(pid);

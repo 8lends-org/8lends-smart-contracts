@@ -35,6 +35,15 @@ contract MockManagerRegistry_MKT {
     function isMarket(address addr) external view returns (bool) { return marketContracts[addr]; }
     function fundraiseAddress() external view returns (address) { return fundraiseAddr; }
 
+    mapping(address => bool) public frozen;
+    mapping(address => bool) public adminAccounts;
+
+    function setFrozen(address a, bool v) external { frozen[a] = v; }
+    function setAdmin(address a, bool v) external { adminAccounts[a] = v; }
+    function isFrozen(address a) external view returns (bool) { return frozen[a]; }
+    function isAdmin(address a) external view returns (bool) { return adminAccounts[a]; }
+
+
     mapping(address => address) public canonicalOf;
 
     /// @dev Mirrors ManagerRegistry including the flattening: canonicalOf names the address the
@@ -840,6 +849,82 @@ contract MarketTest is Test, Eip712Signing {
     }
 
     /// @notice List a position as `seller`, with a fresh backend approval.
+    // ── Freeze ──
+
+    function test_frozenSellerCannotList() public {
+        uint256 deadline = block.timestamp + 15 minutes;
+        bytes memory sig = _signMarketSell(investor, PID, 25_000e6, 0, deadline);
+        mockRegistry.setFrozen(investor, true);
+
+        vm.prank(investor);
+        vm.expectRevert("Account is frozen");
+        market.sell(PID, 25_000e6, 0, deadline, sig);
+    }
+
+    /// @dev Read on the seller, not on the buyer: the money lands on the seller's side, so a lot
+    ///      listed before the theft must not settle while the account is stopped.
+    function test_aFrozenSellersLotCannotBeBought() public {
+        uint256 saleId = _sellAs(investor, PID, 25_000e6, 0);
+        Market.Sale memory sale = market.getSale(saleId);
+        vm.prank(owner);
+        mockFundraise.setInvestorInfo(sale.marketCell, PID, 30_000e6, 0);
+
+        mockRegistry.setFrozen(investor, true);
+        bytes memory sig = _signMarketBuy(investor2, saleId);
+
+        vm.prank(investor2);
+        vm.expectRevert("Account is frozen");
+        market.buy(saleId, sig);
+    }
+
+    function test_aFrozenBuyerCannotBuy() public {
+        uint256 saleId = _sellAs(investor, PID, 25_000e6, 0);
+        Market.Sale memory sale = market.getSale(saleId);
+        vm.prank(owner);
+        mockFundraise.setInvestorInfo(sale.marketCell, PID, 30_000e6, 0);
+
+        mockRegistry.setFrozen(investor2, true);
+        bytes memory sig = _signMarketBuy(investor2, saleId);
+
+        vm.prank(investor2);
+        vm.expectRevert("Account is frozen");
+        market.buy(saleId, sig);
+    }
+
+    /// @dev The stop is reversible, and the lot survives it untouched.
+    function test_afterUnfreezingTheLotTradesAgain() public {
+        uint256 saleId = _sellAs(investor, PID, 25_000e6, 0);
+        Market.Sale memory sale = market.getSale(saleId);
+        vm.prank(owner);
+        mockFundraise.setInvestorInfo(sale.marketCell, PID, 30_000e6, 0);
+
+        mockRegistry.setFrozen(investor, true);
+        mockRegistry.setFrozen(investor, false);
+
+        vm.prank(owner);
+        usdc.mint(investor2, 25_000e6);
+        vm.prank(investor2);
+        usdc.approve(address(market), 25_000e6);
+
+        bytes memory sig = _signMarketBuy(investor2, saleId);
+        vm.prank(investor2);
+        market.buy(saleId, sig);
+        assertEq(uint8(market.getSale(saleId).status), uint8(Market.SaleStatus.Sold));
+    }
+
+    function test_frozenSellerCannotCancelOrRepoint() public {
+        uint256 saleId = _sellAs(investor, PID, 25_000e6, 0);
+        mockRegistry.setFrozen(investor, true);
+
+        vm.prank(investor);
+        vm.expectRevert("Account is frozen");
+        market.cancel(saleId);
+
+        vm.prank(investor);
+        vm.expectRevert("Account is frozen");
+        market.setSaleProceedsTo(saleId, investor);
+    }
+
     function _sellAs(address seller, uint256 projectId, uint256 price, uint256 positionIndex)
         internal
         returns (uint256 saleId)
@@ -1031,10 +1116,19 @@ contract MarketTest is Test, Eip712Signing {
         market.setPlatformFee(1_000_001);
     }
 
-    function test_setPlatformFee_revert_notOwner() public {
+    /// @dev A platform parameter, not money: the admin sets it, the fees themselves stay with the
+    ///      owner.
+    function test_setPlatformFee_ownerOrAdmin() public {
         vm.prank(attacker);
-        vm.expectRevert(abi.encodeWithSignature("OwnableUnauthorizedAccount(address)", attacker));
+        vm.expectRevert("Not authorized");
         market.setPlatformFee(10_000);
+
+        address admin = makeAddr("admin");
+        mockRegistry.setAdmin(admin, true);
+
+        vm.prank(admin);
+        market.setPlatformFee(10_000);
+        assertEq(market.platformFee(), 10_000);
     }
 
     function test_withdrawFees_success() public {

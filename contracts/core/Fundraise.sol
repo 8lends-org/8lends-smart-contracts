@@ -39,6 +39,7 @@ contract Fundraise is Initializable, UUPSUpgradeable, OwnableUpgradeable {
     error ProjectClosedYet();
     error InvestmentExceedsHardCap();
     error NotAManager();
+    error AccountFrozen(address user);
     error ProjectDoesNotExist();
     error ProjectNotCanceled();
     error NoInvestmentToWithdraw();
@@ -69,7 +70,6 @@ contract Fundraise is Initializable, UUPSUpgradeable, OwnableUpgradeable {
     error LoanTokenMustBeSet();
     error OracleNotSet();
     error LoanTokenPriceZero();
-    error ArrayLengthMismatch();
     error KycLessLimitExceeded();
     error NotAmlGateway();
     error LoanTokenNotUsdc();
@@ -113,7 +113,6 @@ contract Fundraise is Initializable, UUPSUpgradeable, OwnableUpgradeable {
     event InvestmentRefunded(
         uint256 indexed projectId, address indexed investor, address indexed recipient, uint256 amount
     );
-    event AllTimeInvestedUSDMigrated(uint256 count);
 
     /// @dev EIP-712 with the smallest domain that still pins the deployment: no name or version,
     ///      because the backend signs these and nobody reads them in a wallet. The typehash is what
@@ -182,10 +181,7 @@ contract Fundraise is Initializable, UUPSUpgradeable, OwnableUpgradeable {
     address public treasury;
     address public managerRegistry;
 
-    /// @dev Deprecated: the global counter went with investUpdate, which was the only thing that
-    ///      ever read or raised it. Slot preserved, and the getter with it — the admin panel reads
-    ///      it, and it costs nothing to keep answering.
-    uint256 public nonce;
+    uint256 private __deprecated_nonce;
 
     address public trustedSigner;
 
@@ -264,6 +260,7 @@ contract Fundraise is Initializable, UUPSUpgradeable, OwnableUpgradeable {
         bytes memory _sig,
         address _inviter
     ) external {
+        _requireNotFrozen(msg.sender);
         if (_nonce != userNonces[msg.sender] + 1) revert IncorrectNonce();
 
         bytes32 structHash = keccak256(abi.encode(INVEST_TYPEHASH, msg.sender, _pid, _amount, _nonce, _inviter));
@@ -362,6 +359,10 @@ contract Fundraise is Initializable, UUPSUpgradeable, OwnableUpgradeable {
         uint256 _amount,
         address _inviter
     ) external {
+        // Safe to stop only because the other exit is stopped too: cancelRequest refunds to the
+        // user's own address, and EscrowFactory now refuses that callback for a frozen account.
+        // Block one without the other and the stolen key would be left the only way out.
+        _requireNotFrozen(_investor);
         address gateway = amlGateway;
         if (gateway == address(0) || IEscrowFactory(gateway).escrows(_investor) != msg.sender) {
             revert NotAmlGateway();
@@ -385,6 +386,7 @@ contract Fundraise is Initializable, UUPSUpgradeable, OwnableUpgradeable {
     /// @param _investor Mandate owner, recorded as the investor
     /// @param _amount Amount of loan token, pulled from the calling escrow
     function investFromMandate(address _investor, uint256 _pid, uint256 _amount, address _inviter) external {
+        _requireNotFrozen(_investor);
         address factory = IManagerRegistry(managerRegistry).mandateFactory();
         if (factory == address(0)) revert NoMandateFactory();
         if (!IMandateFactory(factory).isEscrowOf(_investor, msg.sender)) {
@@ -399,6 +401,7 @@ contract Fundraise is Initializable, UUPSUpgradeable, OwnableUpgradeable {
     /// @param _projectId Project Id
     /// @param _investor Whose principal is returned; the recipient is decided here, not passed in
     function withdrawInvestment(uint256 _projectId, address _investor) external {
+        _requireNotFrozen(_investor);
         address escrow = _routeOf(_investor, _projectId);
         (address target, bool compromised) = _payoutTarget(_investor, escrow);
 
@@ -588,11 +591,18 @@ contract Fundraise is Initializable, UUPSUpgradeable, OwnableUpgradeable {
     /// @notice User claims his investment
     /// @param _projectId Project info
     /// @param _investor Whose payout is claimed; only he may call, unless his address was flagged
+    /// @dev An admin may press it for him. The money still goes to recipientOf(_investor), so the
+    ///      button cannot redirect anything — the same shape the reward contracts have had for
+    ///      their payouts all along.
     function claim(uint256 _projectId, address _investor) external {
+        _requireNotFrozen(_investor);
         address escrow = _routeOf(_investor, _projectId);
         (address target, bool compromised) = _payoutTarget(_investor, escrow);
 
-        if (msg.sender != _investor && !compromised) revert NotAllowed();
+        if (
+            msg.sender != _investor && !compromised
+                && !IManagerRegistry(managerRegistry).isAdmin(msg.sender)
+        ) revert NotAllowed();
 
         // Called here the payout would land on the escrow without onPayout and count as principal,
         // so under WALLET and LEND the interest would never go where the owner asked. A flagged
@@ -607,6 +617,7 @@ contract Fundraise is Initializable, UUPSUpgradeable, OwnableUpgradeable {
     ///      why the ordinary claim, whose money reaches a wallet, is not.
     /// @param _marketId Lending8 pool for the LEND direction; ignored by the others
     function claimForMandate(uint256 _projectId, address _investor, bytes32 _marketId) external {
+        _requireNotFrozen(_investor);
         address escrow = _routeOf(_investor, _projectId);
         if (escrow == address(0)) revert ProjectNotRouted(_projectId);
 
@@ -767,14 +778,31 @@ contract Fundraise is Initializable, UUPSUpgradeable, OwnableUpgradeable {
 
     /// @notice Update address of trusted signer
     /// @param _signer New address
+    /// @notice Appointing a signer is the owner's; zeroing it is also an admin's.
+    /// @dev Zero is the revocation, so the zero-address guard is deliberately gone. It stops
+    ///      investUpdateV2 and the whole secondary market, which reads this signer through
+    ///      IFundraise — accepted, because a leaked key has to be killable in one call by one
+    ///      person. Escrow and mandate investments carry no signature and keep working.
     function setTrustedSigner(address _signer) external {
-        if (!IManagerRegistry(managerRegistry).isManager(msg.sender)) revert NotAManager();
-        if (_signer == address(0)) revert ZeroAddress();
+        if (_signer == address(0)) {
+            if (msg.sender != owner() && !IManagerRegistry(managerRegistry).isAdmin(msg.sender)) {
+                revert NotAllowed();
+            }
+        } else if (msg.sender != owner()) {
+            revert NotAllowed();
+        }
         trustedSigner = _signer;
         emit TrustedSignerUpdated(_signer);
     }
 
     /// @dev Zero while no router is set, so every project then reads as unrouted.
+    /// @dev Read on whoever's money moves, not on the caller: a claim, a withdrawal and a mandate
+    ///      investment all name their investor, and the caller may be an operator or anyone at all
+    ///      once the address is compromised.
+    function _requireNotFrozen(address _user) internal view {
+        if (IManagerRegistry(managerRegistry).isFrozen(_user)) revert AccountFrozen(_user);
+    }
+
     function _routeOf(address _investor, uint256 _projectId) internal view returns (address) {
         address router = mandateRouter;
         return router == address(0) ? address(0) : IMandateRouter(router).routes(_investor, _projectId);
@@ -1005,20 +1033,6 @@ contract Fundraise is Initializable, UUPSUpgradeable, OwnableUpgradeable {
             uint256(loanPriceResult.price) * BASIS_POINTS,
             10 ** (uint256(priceDecimals) + uint256(loanTokenDecimals))
         );
-    }
-
-    /// @notice Writes off-chain USD history into `allTimeInvestedUSD` (BASIS_POINTS scale).
-    ///         Repeating a batch is a no-op.
-    /// @param _investors Investor addresses
-    /// @param _allTimeInvestedUSD All-time invested USD amounts in BASIS_POINTS scale: 1_000_000 = 1 USD
-    function migrateAllTimeInvestedUSD(address[] memory _investors, uint256[] memory _allTimeInvestedUSD) external {
-        if (!IManagerRegistry(managerRegistry).isManager(msg.sender)) revert NotAManager();
-        if (_investors.length != _allTimeInvestedUSD.length) revert ArrayLengthMismatch();
-        for (uint256 i = 0; i < _investors.length; i++) {
-            address investor = _investors[i];
-            allTimeInvestedUSD[investor] = _allTimeInvestedUSD[i];
-        }
-        emit AllTimeInvestedUSDMigrated(_investors.length);
     }
 
 }
