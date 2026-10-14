@@ -263,7 +263,7 @@ contract ManagerRegistry is Initializable, OwnableUpgradeable, UUPSUpgradeable {
     /// @notice View function for checking eligibility to call
     /// @param _sender Manager addr
     function isManager(address _sender) public view returns (bool) {
-        return managers[_sender] || _sender == rewardSystemAddress;
+        return managers[_sender];
     }
 
     function isAdmin(address _sender) public view returns (bool) {

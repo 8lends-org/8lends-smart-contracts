@@ -52,9 +52,12 @@ contract ManagerRegistryTest is Setup {
         assertTrue(managerRegistry.managers(who[0]));
     }
 
-    function test_isManager_includesRewardSystem() public view {
-        // RewardSystem address counts as a manager (line 119 of ManagerRegistry.sol)
-        assertTrue(managerRegistry.isManager(address(rewardSystem)));
+    /// @dev The reward system used to pass isManager by address. It never called an isManager
+    ///      gate — Rewards2 does the same work and never had the clause — and it hid a manager
+    ///      from the mapping and from ManagerUpdated, which is how the production list was read.
+    function test_isManager_doesNotIncludeTheRewardSystem() public view {
+        assertFalse(managerRegistry.isManager(address(rewardSystem)));
+        assertTrue(managerRegistry.isRewardSystem(address(rewardSystem)));
     }
 
     function test_isRewardSystem_includesRewards2() public view {
