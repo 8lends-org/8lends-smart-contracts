@@ -278,7 +278,7 @@ contract MandateEscrowV1 is IMandateEscrowV1 {
 
             if (project.innerStruct.stage != IFundraise.Stage.Open) revert ProjectNotOpen();
             // Both fail before the enrolled-list walk below. Open is not the same as accepting
-            // money: past the deadline Fundraise refuses with a bare InvestmentFailed.
+            // money: past the deadline Fundraise refuses with ProjectClosedYet.
             if (block.timestamp > openStageEndAt) revert ProjectWindowClosed(openStageEndAt);
             // The escrow holds USDC alone; anything else has Fundraise pull a token that is not here.
             if (loanToken != USDC) revert ProjectLoanTokenNotUsdc(loanToken);

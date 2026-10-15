@@ -326,7 +326,7 @@ contract MandateEscrowV1Test is Test {
         escrow.allocate(PID, address(0));
     }
 
-    /// Stage says Open, but the window has shut: Fundraise would answer a bare InvestmentFailed.
+    /// Stage says Open, but the window has shut: Fundraise would answer ProjectClosedYet.
     function test_allocate_refuses_a_project_past_its_window() public {
         _fund(5_000e6);
         fundraise.setProject(1_000_000e6, 0, IFundraise.Stage.Open);

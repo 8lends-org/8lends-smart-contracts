@@ -36,15 +36,12 @@ contract FundraiseTest is Setup {
         assertEq(uint8(inner.stage), uint8(Fundraise.Stage.PreFunded));
     }
 
-    function test_invest_transitionsToCanceled_whenExpiredBelowSoftCap() public {
-        // Invest below softCap
+    /// @dev Investing no longer moves the stage on its way past. The raise refuses, and the project
+    ///      is written off by a separate call that anyone may make.
+    function test_expiredBelowSoftCap_refusesTheInvestThenCancels() public {
         _investAs(investor, pid, 10_000e6, inviter);
-
-        // Warp past openStageEndAt
         vm.warp(block.timestamp + 8 days);
 
-        // Next invest triggers stage check → Canceled
-        // Need to prepare a new invest attempt that triggers the check
         vm.prank(owner);
         usdc.mint(investor2, 1_000e6);
         vm.prank(investor2);
@@ -53,9 +50,15 @@ contract FundraiseTest is Setup {
         uint256 currentNonce = fundraise.userNonces(investor2);
         bytes memory sig = _signInvest(investor2, pid, 1_000e6, currentNonce + 1, address(0));
 
-        // This invest call will trigger the Canceled transition and return silently
         vm.prank(investor2);
+        vm.expectRevert(Fundraise.ProjectClosedYet.selector);
         fundraise.investUpdateV2(pid, 1_000e6, currentNonce + 1, sig, address(0));
+
+        (,,,,,,, Fundraise.InnerProjectStruct memory stillOpen) = fundraise.projects(pid);
+        assertEq(uint8(stillOpen.stage), uint8(Fundraise.Stage.Open), "the refusal must not move the stage");
+
+        vm.prank(attacker);
+        fundraise.cancelProject(pid);
 
         (,,,,,,, Fundraise.InnerProjectStruct memory inner) = fundraise.projects(pid);
         assertEq(uint8(inner.stage), uint8(Fundraise.Stage.Canceled));
@@ -117,9 +120,12 @@ contract FundraiseTest is Setup {
         bytes memory sig = _signInvest(investor, futurePid, 5_000e6, nonceForSig, inviter);
 
         vm.prank(investor);
+        vm.expectRevert(
+            abi.encodeWithSelector(Fundraise.ProjectNotStarted.selector, futurePid, block.timestamp + 1 days)
+        );
         fundraise.investUpdateV2(futurePid, 5_000e6, nonceForSig, sig, inviter);
 
-        // FIX: nonce must NOT be incremented when _invest returns early
+        // The signature is not spent: the revert takes the increment with it.
         assertEq(fundraise.userNonces(investor), nonceBefore, "Nonce must not change on failed invest");
 
         // No tokens were transferred from investor
@@ -679,29 +685,44 @@ contract FundraiseLimitedSellerTest is Setup {
     /// @dev The soft cap is reached, not merely passed. A project sitting exactly on it when the
     ///      open stage runs out goes to PreFunded; one unit short is cancelled. The equality is the
     ///      whole difference between a funded project and a refunded one.
-    function test_invest_afterTheWindow_softCapMetExactly_preFunds() public {
+    function test_afterTheWindow_softCapMetExactly_preFunds() public {
         uint256 pid = _createProject(20_000e6, 50_000e6);
         _investAs(investor, pid, 20_000e6, inviter);
 
         vm.warp(block.timestamp + 8 days); // past openStageEndAt
-        // Any further invest walks the stage check first and is refused by it, not by the cap.
-        vm.prank(owner);
-        usdc.mint(investor2, 1_000e6);
-        vm.prank(investor2);
-        usdc.approve(address(fundraise), 1_000e6);
-        uint256 nonce = fundraise.userNonces(investor2) + 1;
-        vm.prank(investor2);
-        fundraise.investUpdateV2(pid, 1_000e6, nonce, _signInvest(investor2, pid, 1_000e6, nonce, inviter), inviter);
+        vm.prank(attacker); // settled by the clock and the amount raised, so anyone may record it
+        fundraise.moveProjectStage(pid);
 
         (, , , , , , , Fundraise.InnerProjectStruct memory inner) = fundraise.projects(pid);
         assertEq(uint8(inner.stage), uint8(Fundraise.Stage.PreFunded), "exactly the soft cap was treated as short");
     }
 
     /// @dev One short of the soft cap on the same clock cancels instead, so the equality above is
-    ///      measured rather than assumed.
-    function test_invest_afterTheWindow_oneUnderTheSoftCap_cancels() public {
+    ///      measured rather than assumed. The other half of the pair: moveProjectStage leaves it
+    ///      alone, and cancelProject is what records the outcome.
+    function test_afterTheWindow_oneUnderTheSoftCap_cancels() public {
         uint256 pid = _createProject(20_000e6, 50_000e6);
         _investAs(investor, pid, 20_000e6 - 1, inviter);
+
+        vm.warp(block.timestamp + 8 days);
+        vm.prank(attacker);
+        fundraise.moveProjectStage(pid);
+
+        (, , , , , , , Fundraise.InnerProjectStruct memory stillOpen) = fundraise.projects(pid);
+        assertEq(uint8(stillOpen.stage), uint8(Fundraise.Stage.Open), "one unit short was treated as met");
+
+        vm.prank(attacker);
+        fundraise.cancelProject(pid);
+
+        (, , , , , , , Fundraise.InnerProjectStruct memory inner) = fundraise.projects(pid);
+        assertEq(uint8(inner.stage), uint8(Fundraise.Stage.Canceled), "the raise did not settle as cancelled");
+    }
+
+    /// @dev Investing past the deadline is refused outright now, whichever side of the soft cap the
+    ///      raise sits on — the stage no longer moves as a side effect of someone trying.
+    function test_investAfterTheWindow_reverts() public {
+        uint256 pid = _createProject(20_000e6, 50_000e6);
+        _investAs(investor, pid, 20_000e6, inviter);
 
         vm.warp(block.timestamp + 8 days);
         vm.prank(owner);
@@ -709,11 +730,11 @@ contract FundraiseLimitedSellerTest is Setup {
         vm.prank(investor2);
         usdc.approve(address(fundraise), 1_000e6);
         uint256 nonce = fundraise.userNonces(investor2) + 1;
-        vm.prank(investor2);
-        fundraise.investUpdateV2(pid, 1_000e6, nonce, _signInvest(investor2, pid, 1_000e6, nonce, inviter), inviter);
+        bytes memory sig = _signInvest(investor2, pid, 1_000e6, nonce, inviter);
 
-        (, , , , , , , Fundraise.InnerProjectStruct memory inner) = fundraise.projects(pid);
-        assertEq(uint8(inner.stage), uint8(Fundraise.Stage.Canceled), "one unit short was treated as met");
+        vm.prank(investor2);
+        vm.expectRevert(Fundraise.ProjectClosedYet.selector);
+        fundraise.investUpdateV2(pid, 1_000e6, nonce, sig, inviter);
     }
 
     /// @dev projectCount is one past the last id, so claiming on it must be refused rather than

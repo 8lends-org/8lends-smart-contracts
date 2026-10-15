@@ -141,11 +141,6 @@
   },
   {
     "inputs": [],
-    "name": "InvestmentFailed",
-    "type": "error"
-  },
-  {
-    "inputs": [],
     "name": "InviterCannotBeInvestor",
     "type": "error"
   },
@@ -327,6 +322,22 @@
       }
     ],
     "name": "ProjectNotRouted",
+    "type": "error"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "projectId",
+        "type": "uint256"
+      },
+      {
+        "internalType": "uint256",
+        "name": "startAt",
+        "type": "uint256"
+      }
+    ],
+    "name": "ProjectNotStarted",
     "type": "error"
   },
   {

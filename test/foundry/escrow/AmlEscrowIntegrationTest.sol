@@ -287,9 +287,11 @@ contract AmlEscrowIntegrationTest is Setup {
         AmlEscrow escrow = _createEscrow(investor);
         uint256 requestId = _escrowInvest(escrow, investor, pid, 200e6, inviter);
 
-        // approveInvest should revert because _invest returns false for ComingSoon
+        // approveInvest must surface the refusal rather than report success
         vm.prank(backend);
-        vm.expectRevert(Fundraise.InvestmentFailed.selector);
+        vm.expectRevert(
+            abi.encodeWithSelector(Fundraise.ProjectNotStarted.selector, pid, block.timestamp + 1 days)
+        );
         escrowFactory.approveInvest(investor, requestId);
 
         // Request still Pending
@@ -459,7 +461,9 @@ contract AmlEscrowIntegrationTest is Setup {
 
         // First approve fails (ComingSoon, before startAt)
         vm.prank(backend);
-        vm.expectRevert(Fundraise.InvestmentFailed.selector);
+        vm.expectRevert(
+            abi.encodeWithSelector(Fundraise.ProjectNotStarted.selector, pid, block.timestamp + 1 days)
+        );
         escrowFactory.approveInvest(investor, requestId);
 
         // Request must still be Pending

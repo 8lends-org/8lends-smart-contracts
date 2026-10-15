@@ -241,9 +241,10 @@ contract FundraiseAmlTest is Setup {
         AmlEscrow escrow = _createEscrow(investor);
         uint256 reqId = _escrowInvest(escrow, investor, pid, 100e6, inviter);
 
-        // _invest returns false for ComingSoon before startAt; investFromEscrow requires(success)
         vm.prank(backend);
-        vm.expectRevert(Fundraise.InvestmentFailed.selector);
+        vm.expectRevert(
+            abi.encodeWithSelector(Fundraise.ProjectNotStarted.selector, pid, block.timestamp + 1 days)
+        );
         escrowFactory.approveInvest(investor, reqId);
     }
 
