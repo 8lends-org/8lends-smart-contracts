@@ -37,36 +37,17 @@ contract RewardSystemTest is Setup {
         assertEq(inviterUSDC, 1_500e6, "Inviter USDC reward incorrect");
     }
 
-    function test_recordInvestment_welcomeBonus_forNewUser() public {
-        // Investment >= 1000 USDC by new user → 30 USDC bonus
-        // Use small hardcap project so we can invest smaller amounts
-        uint256 smallPid = _createProject(500e6, 5_000e6);
-        _investAs(investor, smallPid, 1_000e6, inviter);
+    /// @dev The welcome bonus is gone from this contract — WelcomeBonus pays it. The setter still
+    ///      takes the argument, so the test sets it and proves it buys nothing.
+    function test_noWelcomeBonusIsCreditedWhateverTheParameterSays() public {
+        vm.prank(manager);
+        rewardSystem.setParameters(40_000, 100_000, 40_000, 1_000_000e6, 0, 25_000, 40);
 
-        (uint256 investorUSDC,,,,) = rewardSystem.getProjectRewards(investor, smallPid);
-        assertEq(investorUSDC, 30e6, "Welcome bonus should be 30 USDC");
-    }
+        uint256 pid = _createProject(500e6, 5_000e6);
+        _investAs(investor, pid, 1_000e6, inviter);
 
-    function test_recordInvestment_noWelcomeBonus_belowMinimum() public {
-        uint256 smallPid = _createProject(100e6, 5_000e6);
-        _investAs(investor, smallPid, 500e6, inviter);
-
-        (uint256 investorUSDC,,,,) = rewardSystem.getProjectRewards(investor, smallPid);
-        assertEq(investorUSDC, 0, "No welcome bonus for small investment");
-    }
-
-    function test_recordInvestment_welcomeBonus_onlyOnce() public {
-        uint256 smallPid = _createProject(1_000e6, 10_000e6);
-        _investAs(investor, smallPid, 2_000e6, inviter);
-
-        // First investment got welcome bonus
-        (uint256 usdcAfterFirst,,,,) = rewardSystem.getProjectRewards(investor, smallPid);
-        assertEq(usdcAfterFirst, 30e6, "First investment: welcome bonus");
-
-        // Second investment: no more welcome bonus (isNewUser = false)
-        _investAs(investor, smallPid, 2_000e6, inviter);
-        (uint256 usdcAfterSecond,,,,) = rewardSystem.getProjectRewards(investor, smallPid);
-        assertEq(usdcAfterSecond, 30e6, "Second investment: no additional welcome bonus");
+        (uint256 investorUSDC,,,,) = rewardSystem.getProjectRewards(investor, pid);
+        assertEq(investorUSDC, 0, "nothing is credited from here");
     }
 
     // ═══════════════════════════════════════════════════════════════

@@ -30,13 +30,12 @@ contract RewardSystem is Initializable, UUPSUpgradeable, OwnableUpgradeable, Ree
 
     // Reward system parameters (changeable)
     uint256 public referralPercentage; // 6% USDC for inviter
-    /// @notice DEPRECATED. The welcome bonus is paid by WelcomeBonus, not from here.
-    /// @dev Zero on Base as of Sep-2026, which is what keeps the branch in recordInvestment dead.
-    ///      Drop the reads at the next upgrade — the branch, the setParameters argument and the
-    ///      WelcomeBonusRecorded event. The variable itself stays declared to hold its slot, and
-    ///      so does minInvestmentForBonus, which only ever gated this branch.
+    /// @notice DEPRECATED, read by nothing. WelcomeBonus is what pays the welcome bonus; the
+    ///         branch that credited it here as well is gone.
+    /// @dev Still settable through setParameters, whose signature is kept so the backend does not
+    ///      have to change; the value is simply never read. Both variables hold their slots.
     uint256 public welcomeBonusAmount;
-    /// @notice DEPRECATED with welcomeBonusAmount — it gates nothing else.
+    /// @notice DEPRECATED with welcomeBonusAmount — it only ever gated that branch.
     uint256 public minInvestmentForBonus;
     uint256 public tokenPercentage; // 6% tokens for investor
     /// @notice When > 0, enables buy-back-and-burn during reward activation. Value represents the burn percentage in BASIS_POINTS.
@@ -244,16 +243,6 @@ contract RewardSystem is Initializable, UUPSUpgradeable, OwnableUpgradeable, Ree
 
         refData.totalRewardsTokens += tokensAmount;
         rewardTokensAmount[_projectId] += tokensAmount;
-
-        // DEPRECATED, see welcomeBonusAmount: dead while the amount is zero, to be removed at the
-        // next upgrade. Paying it from here would double the bonus WelcomeBonus already pays.
-        if(welcomeBonusAmount > 0) {
-            if (userInfo.isNewUser && _convertToUSD(_amount, _loanToken) >= minInvestmentForBonus) {
-                refData.totalRewardsUSDC += welcomeBonusAmount;
-                userInfo.isNewUser = false;
-                emit WelcomeBonusRecorded(_user, welcomeBonusAmount);
-            }
-        }
 
         emit InvestmentRecorded(_user, _amount, _projectId);
     }
