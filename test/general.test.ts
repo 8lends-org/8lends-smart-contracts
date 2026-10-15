@@ -388,30 +388,20 @@ describe("🚀 8lends Protocol - General Flow Tests", function () {
 
 
 
-    it("🎁 Claim USDC rewards by investor", async function () {
+    it("🚫 Investor has no USDC rewards — tokens only", async function () {
       const projectRewards = await rewardSystem.getProjectRewards(await investor.getAddress(), 0);
-      const initialBalance = await usdcToken.balanceOf(await investor.getAddress());
-
-
-      const balanceOfRewardSystem = await usdcToken.balanceOf(await rewardSystem.getAddress());
-      log("💵 BALANCE OF REWARD SYSTEM", formatUnits(balanceOfRewardSystem, 6));
 
       log("💵 PROJECT REWARDS TOTAL USDC", formatUnits(projectRewards.totalUSDC, 6));
       log("🪙 PROJECT REWARDS TOTAL TOKENS", formatEther(projectRewards.totalTokens));
 
-      // 30 USDC for new user bonus
-      expect(projectRewards.totalUSDC).to.be.eq(30e6);
+      // USDC here is the referral reward and belongs to the inviter — see the next test. The
+      // investor's own side is tokens; WelcomeBonus is what pays a new user in USDC.
+      expect(projectRewards.totalUSDC).to.be.eq(0);
       expect(projectRewards.totalTokens).to.be.greaterThan(0);
 
-      
-      await rewardSystem.connect(investor).claimUSDCForProject(0);
-      
-      const finalBalance = await usdcToken.balanceOf(await investor.getAddress());
-      expect(finalBalance - initialBalance).to.equal(projectRewards.totalUSDC);
-
-      const balanceOfRewardSystemAfter = await usdcToken.balanceOf(await rewardSystem.getAddress());
-      expect(balanceOfRewardSystemAfter).to.equal(balanceOfRewardSystem - projectRewards.totalUSDC);
-      await trackBalances("Investor claimed USDC rewards");
+      await expect(rewardSystem.connect(investor).claimUSDCForProject(0))
+        .to.be.revertedWith("No USDC rewards for this project");
+      await trackBalances("Investor has no USDC to claim");
     });
 
     it("🎁 Claim USDC rewards by inviter", async function () {
