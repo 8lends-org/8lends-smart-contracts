@@ -188,7 +188,7 @@ contract ManagerRegistry is Initializable, OwnableUpgradeable, UUPSUpgradeable {
         require(_investor != address(0), "Invalid investor address");
         require(_claimAddress != address(0), "Invalid claim address");
 
-        address canonical = _canonical(_investor);
+        address canonical = headOf(_investor);
         require(_claimAddress != canonical, "Claim address is the investor");
         // Unknown in both directions: a canonicalOf entry means it is superseded, a forward entry
         // means it heads another chain. Grafting onto either would cost a second hop.
@@ -238,7 +238,7 @@ contract ManagerRegistry is Initializable, OwnableUpgradeable, UUPSUpgradeable {
     /// @notice Where payouts for this user must go; the user's own address if nothing was overridden.
     /// @dev Accepts any address of a chain: A -> B -> C returns C for all three.
     function recipientOf(address _user) public view returns (address) {
-        address canonical = _canonical(_user);
+        address canonical = headOf(_user);
         address claimAddress = investorClaimAddresses[canonical];
         return claimAddress != address(0) ? claimAddress : canonical;
     }
@@ -250,8 +250,11 @@ contract ManagerRegistry is Initializable, OwnableUpgradeable, UUPSUpgradeable {
         return recipientOf(_user) != _user;
     }
 
-    /// @dev The key of the forward mapping. One hop, never a walk.
-    function _canonical(address _user) private view returns (address) {
+    /// @notice The address a chain is filed under: the head for a superseded wallet, the wallet
+    ///         itself for everyone else.
+    /// @dev The counterpart of recipientOf — that one says where money goes, this one where state
+    ///      lives. One hop, never a walk.
+    function headOf(address _user) public view returns (address) {
         address canonical = canonicalOf[_user];
         return canonical != address(0) ? canonical : _user;
     }

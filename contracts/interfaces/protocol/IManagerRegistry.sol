@@ -30,4 +30,8 @@ interface IManagerRegistry {
     function setMandateFactory(address _mandateFactory) external;
     function recipientOf(address _user) external view returns (address);
     function isCompromised(address _user) external view returns (bool);
+    /// @notice The head of a compromise chain for a superseded address, zero for everyone else.
+    function canonicalOf(address _user) external view returns (address);
+    /// @notice Where a user's records are filed: the head of the chain, or the address itself.
+    function headOf(address _user) external view returns (address);
 }
