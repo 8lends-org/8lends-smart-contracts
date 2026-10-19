@@ -241,6 +241,28 @@ const DEPLOY_DESCRIPTORS: Record<string, DeployDescriptor> = {
     configKey: "WelcomeBonus",
     configKeyImpl: "WelcomeBonus_impl",
   },
+  // The four terms are the campaign, and marketing moves them: they are arguments here and setters
+  // on the contract, not constants. A participant keeps whatever they were when he entered.
+  EasyStart: {
+    useProxy: true,
+    initializer: "initialize",
+    getProxyArgs: (config) => {
+      if (!config.ManagerRegistry || !config.USDC) {
+        throw new Error("ManagerRegistry and USDC required in config");
+      }
+      return [
+        config.ManagerRegistry,
+        config.USDC,
+        process.env.EASY_START_DEPOSIT ?? "97000000", // 97 USDC
+        process.env.EASY_START_TERM ?? String(6 * 24 * 60 * 60), // 6 days
+        process.env.EASY_START_PAYOUT_COUNT ?? "2",
+        process.env.EASY_START_REWARD ?? "4000000", // 4 USDC, the whole gift
+      ];
+    },
+    configKey: "EasyStart",
+    configKeyImpl: "EasyStart_impl",
+  },
+
   MaclearBonus: {
     useProxy: true,
     initializer: "initialize",
