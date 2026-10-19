@@ -30,8 +30,8 @@ contract ManagerRegistry is Initializable, OwnableUpgradeable, UUPSUpgradeable {
     mapping(address => bool) public admins;
     /// @notice Support staff — the only role that can lift a freeze.
     mapping(address => bool) public supportStaff;
-    /// @notice Accounts stopped on chain. Reversible, and no substitute for a recovery address.
-    mapping(address => bool) public frozen;
+    /// @notice No substitute for a recovery address: it buys time, it does not redirect money.
+    mapping(address => uint64) public frozenUntil;
 
     event ManagerUpdated(address manager, bool status);
     event OperatorUpdated(address operator, bool status);
@@ -44,7 +44,7 @@ contract ManagerRegistry is Initializable, OwnableUpgradeable, UUPSUpgradeable {
     event MandateFactorySet(address mandateFactory);
     event AdminUpdated(address indexed admin, bool status);
     event SupportUpdated(address indexed support, bool status);
-    event AccountFrozen(address indexed user, address indexed by);
+    event AccountFrozen(address indexed user, address indexed by, uint64 until);
     event AccountUnfrozen(address indexed user, address indexed by);
 
     /// @custom:oz-upgrades-unsafe-allow constructor
@@ -80,8 +80,13 @@ contract ManagerRegistry is Initializable, OwnableUpgradeable, UUPSUpgradeable {
     /// @dev Stops an account without a second signature and without naming a recovery address,
     ///      which is why one person may press it. The operator too: the backend spots a theft
     ///      before support reads the ticket.
+    /// @dev Support and the operator keep a button of their own because freezing costs gas, and a
+    ///      user whose claims the operator pays for holds no ETH to press his.
     function freeze(address _user) external {
-        require(supportStaff[msg.sender] || operators[msg.sender], "ManagerRegistry: Not authorized");
+        require(
+            supportStaff[msg.sender] || operators[msg.sender] || msg.sender == _user,
+            "ManagerRegistry: Not authorized"
+        );
         _freeze(_user);
     }
 
@@ -89,7 +94,7 @@ contract ManagerRegistry is Initializable, OwnableUpgradeable, UUPSUpgradeable {
         require(supportStaff[msg.sender] || operators[msg.sender], "ManagerRegistry: Not authorized");
         require(_users.length <= 200, "ManagerRegistry: Too many addresses");
         for (uint256 i = 0; i < _users.length; i++) {
-            if (_users[i] == address(0) || frozen[_users[i]]) continue;
+            if (_users[i] == address(0) || isFrozen(_users[i])) continue;
             _freeze(_users[i]);
         }
     }
@@ -98,15 +103,43 @@ contract ManagerRegistry is Initializable, OwnableUpgradeable, UUPSUpgradeable {
     ///      Not a batch either — freezing is panic, lifting is a verdict on one false positive.
     function unfreeze(address _user) external {
         require(supportStaff[msg.sender], "ManagerRegistry: Not support");
-        require(frozen[_user], "ManagerRegistry: Not frozen");
-        frozen[_user] = false;
+        require(isFrozen(_user), "ManagerRegistry: Not frozen");
+        frozenUntil[_user] = 0;
         emit AccountUnfrozen(_user, msg.sender);
     }
 
     function _freeze(address _user) private {
         require(_user != address(0), "ManagerRegistry: Zero address");
-        frozen[_user] = true;
-        emit AccountFrozen(_user, msg.sender);
+        // No expiry: a freeze stands until support lifts it or a recovery address replaces it.
+        // The slot still holds a deadline so one can be introduced without touching storage.
+        frozenUntil[_user] = type(uint64).max;
+        emit AccountFrozen(_user, msg.sender, type(uint64).max);
+    }
+
+    /// @notice The gate a contract passes before money leaves for a wallet. Reverts to refuse.
+    /// @dev **Its selector is permanent.** Mandate clones are immutable and will call it forever;
+    ///      removing or renaming it stops withdrawals from every mandate at once.
+    /// @dev **Deliberately not `view`.** A second factor has to spend a nonce, or a signed
+    ///      assertion could be replayed out of public calldata, and an immutable clone cannot be
+    ///      taught later to call a mutating function instead.
+    /// @param _action e.g. `keccak256("MANDATE_WITHDRAW")`, so an authorization for one operation
+    ///        cannot be spent on another.
+    /// @param _user Whose rules are read — the person being protected, not whoever is calling.
+    ///        On the secondary market that is the seller, absent at settlement.
+    /// @param _amount Or `type(uint256).max` when the figure is only known at execution and the
+    ///        user could not have signed it.
+    /// @param _context Whatever else identifies this one operation — a sale id, a project id.
+    ///        Empty when `_token` and `_amount` already say everything.
+    /// @param _auth Parsed here, never by the caller; empty while no factor is required.
+    function requirePayoutAllowed(
+        bytes32 _action,
+        address _user,
+        address _token,
+        uint256 _amount,
+        bytes32 _context,
+        bytes calldata _auth
+    ) external {
+        require(!isFrozen(_user), "ManagerRegistry: Account frozen");
     }
 
     /// @notice Update manager status
@@ -197,16 +230,17 @@ contract ManagerRegistry is Initializable, OwnableUpgradeable, UUPSUpgradeable {
 
         // A recovery address that is itself frozen would be handed out unusable — and support may
         // have frozen it by mistake a minute earlier.
-        require(!frozen[_claimAddress], "Claim address is frozen");
+        require(!isFrozen(_claimAddress), "Claim address is frozen");
 
         investorClaimAddresses[canonical] = _claimAddress;
         canonicalOf[_claimAddress] = canonical;
 
-        // The freeze has done its job: payouts now go elsewhere by isCompromised, and holding the
-        // old address only blocks what the recovery already redirects.
-        if (frozen[canonical]) {
-            frozen[canonical] = false;
-            emit AccountUnfrozen(canonical, msg.sender);
+        // The freeze has done its job: payouts go elsewhere by isCompromised, and holding the
+        // address only blocks what the recovery already redirects. On the one support was told
+        // about, because that is the one it froze.
+        if (isFrozen(_investor)) {
+            frozenUntil[_investor] = 0;
+            emit AccountUnfrozen(_investor, msg.sender);
         }
 
         emit InvestorClaimAddressSet(canonical, _claimAddress);
@@ -278,7 +312,7 @@ contract ManagerRegistry is Initializable, OwnableUpgradeable, UUPSUpgradeable {
     }
 
     function isFrozen(address _user) public view returns (bool) {
-        return frozen[_user];
+        return block.timestamp < frozenUntil[_user];
     }
 
     function isOperator(address _sender) public view returns (bool) {

@@ -51,6 +51,28 @@ contract RegistryStub {
 
     function setFrozen(address a, bool v) external { frozen[a] = v; }
     function isFrozen(address a) external view returns (bool) { return frozen[a]; }
+
+    error AccountFrozen(address user);
+
+    address public seenOwner;
+    address public seenToken;
+    uint256 public seenAmount;
+    bytes public seenAuth;
+
+    /// @dev Mutating on purpose: the real one spends a nonce, and the clone's call has to work
+    ///      against a registry that writes.
+    bytes32 public seenAction;
+
+    function requirePayoutAllowed(
+        bytes32 action, address u, address token, uint256 amount, bytes32, bytes calldata auth
+    ) external {
+        if (frozen[u]) revert AccountFrozen(u);
+        seenAction = action;
+        seenOwner = u;
+        seenToken = token;
+        seenAmount = amount;
+        seenAuth = auth;
+    }
 }
 
 /// @dev Stands in for MandateRouter. `outstanding` and `exposure` are set by the test so the
@@ -413,15 +435,15 @@ contract MandateEscrowV1Test is Test {
 
         vm.prank(owner);
         vm.expectRevert(abi.encodeWithSignature("AccountFrozen(address)", owner));
-        escrow.withdraw(address(usdc), 400e6);
+        escrow.withdraw(address(usdc), 400e6, "");
 
         vm.prank(owner);
         vm.expectRevert(abi.encodeWithSignature("AccountFrozen(address)", owner));
-        escrow.withdrawAll(address(usdc));
+        escrow.withdrawAll(address(usdc), "");
 
         registry.setFrozen(owner, false);
         vm.prank(owner);
-        escrow.withdrawAll(address(usdc));
+        escrow.withdrawAll(address(usdc), "");
         assertEq(usdc.balanceOf(owner), 1_000e6);
     }
 
@@ -431,11 +453,11 @@ contract MandateEscrowV1Test is Test {
         escrow.pause();
 
         vm.prank(owner);
-        escrow.withdraw(address(usdc), 400e6);
+        escrow.withdraw(address(usdc), 400e6, "");
         assertEq(usdc.balanceOf(owner), 400e6);
 
         vm.prank(owner);
-        escrow.withdrawAll(address(usdc));
+        escrow.withdrawAll(address(usdc), "");
         assertEq(usdc.balanceOf(owner), 1_000e6);
         assertEq(escrow.freeBalance(), 0);
     }
@@ -446,16 +468,36 @@ contract MandateEscrowV1Test is Test {
         registry.setRecovery(owner, recovery);
 
         vm.prank(owner);
-        escrow.withdrawAll(address(usdc));
+        escrow.withdrawAll(address(usdc), "");
         assertEq(usdc.balanceOf(recovery), 1_000e6, "a stolen key cannot redirect the money");
         assertEq(usdc.balanceOf(owner), 0);
+    }
+
+    /// @dev The two decisions the clone can never take back: that `auth` exists at all, and that
+    ///      withdrawAll names no figure. Both are checked here because an immutable clone offers
+    ///      no second chance — a wrong ABI would have to be lived with for the life of the mandate.
+    function test_withdrawal_asks_the_registry_and_hands_it_the_whole_request() public {
+        _fund(1_000e6);
+        bytes memory auth = hex"c0ffee";
+
+        vm.prank(owner);
+        escrow.withdraw(address(usdc), 400e6, auth);
+        assertEq(registry.seenAction(), keccak256("MANDATE_WITHDRAW"), "the clone names what it is doing");
+        assertEq(registry.seenOwner(), owner, "rules are read on the owner, not the caller");
+        assertEq(registry.seenToken(), address(usdc));
+        assertEq(registry.seenAmount(), 400e6, "the figure is the one being taken");
+        assertEq(registry.seenAuth(), auth, "auth reaches the registry untouched");
+
+        vm.prank(owner);
+        escrow.withdrawAll(address(usdc), auth);
+        assertEq(registry.seenAmount(), type(uint256).max, "withdrawAll names no figure");
     }
 
     function test_withdraw_is_owner_only() public {
         _fund(1_000e6);
         vm.expectRevert(MandateEscrowV1.NotOwner.selector);
         vm.prank(operator);
-        escrow.withdraw(address(usdc), 1);
+        escrow.withdraw(address(usdc), 1, "");
     }
 
     // ── sweep ───────────────────────────────────────────────────────────────────

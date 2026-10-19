@@ -31,17 +31,6 @@
     "type": "constructor"
   },
   {
-    "inputs": [
-      {
-        "internalType": "address",
-        "name": "user",
-        "type": "address"
-      }
-    ],
-    "name": "AccountFrozen",
-    "type": "error"
-  },
-  {
     "inputs": [],
     "name": "AlreadyInitialized",
     "type": "error"
@@ -692,6 +681,11 @@
         "internalType": "uint256",
         "name": "amount",
         "type": "uint256"
+      },
+      {
+        "internalType": "bytes",
+        "name": "auth",
+        "type": "bytes"
       }
     ],
     "name": "withdraw",
@@ -705,6 +699,11 @@
         "internalType": "address",
         "name": "token",
         "type": "address"
+      },
+      {
+        "internalType": "bytes",
+        "name": "auth",
+        "type": "bytes"
       }
     ],
     "name": "withdrawAll",

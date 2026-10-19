@@ -388,9 +388,11 @@ contract Fundraise is Initializable, UUPSUpgradeable, OwnableUpgradeable {
     /// @param _projectId Project Id
     /// @param _investor Whose principal is returned; the recipient is decided here, not passed in
     function withdrawInvestment(uint256 _projectId, address _investor) external {
-        _requireNotFrozen(_investor);
         address escrow = _routeOf(_investor, _projectId);
         (address target, bool compromised) = _payoutTarget(_investor, escrow);
+        // On the target, not the address named: on a chain the named one is the wallet that was
+        // taken, and freezing it must not hold money that is already routed somewhere else.
+        _requireNotFrozen(target);
 
         // Clean address: nobody may call for it, the platform included. Flagged: anybody may, and
         // the money still goes where this contract decides. The operator branch is not a
@@ -593,9 +595,9 @@ contract Fundraise is Initializable, UUPSUpgradeable, OwnableUpgradeable {
     ///      button cannot redirect anything — the same shape the reward contracts have had for
     ///      their payouts all along.
     function claim(uint256 _projectId, address _investor) external {
-        _requireNotFrozen(_investor);
         address escrow = _routeOf(_investor, _projectId);
         (address target, bool compromised) = _payoutTarget(_investor, escrow);
+        _requireNotFrozen(target);
 
         if (
             msg.sender != _investor && !compromised
@@ -615,11 +617,11 @@ contract Fundraise is Initializable, UUPSUpgradeable, OwnableUpgradeable {
     ///      why the ordinary claim, whose money reaches a wallet, is not.
     /// @param _marketId Lending8 pool for the LEND direction; ignored by the others
     function claimForMandate(uint256 _projectId, address _investor, bytes32 _marketId) external {
-        _requireNotFrozen(_investor);
         address escrow = _routeOf(_investor, _projectId);
         if (escrow == address(0)) revert ProjectNotRouted(_projectId);
 
         (address target, bool compromised) = _payoutTarget(_investor, escrow);
+        _requireNotFrozen(target);
         if (
             msg.sender != _investor && !compromised
                 && !IManagerRegistry(managerRegistry).isOperator(msg.sender)
