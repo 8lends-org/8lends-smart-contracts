@@ -492,5 +492,24 @@
       },
       "evmVersion": "cancun"
     }
+  },
+  "EasyStart": {
+    "proxy": "0xCe08b185F2e74E3A8bCC913507F37CBA9d791Fe9",
+    "impl": "0x0000B6a8683e93B204643b5759fa2624496f98de",
+    "buildHash": "0xc23f1c882ea2a1da184aaf55604885a3cbcb1a0c090cf39fbdbc195157f0a4e8",
+    "matchesDeployed": true,
+    "deployedFrom": "5360ba8",
+    "deployedAt": "Oct-19-2026",
+    "build": {
+      "solc": "v0.8.23+commit.f704f362",
+      "optimizer": {
+        "enabled": true,
+        "runs": 50,
+        "details": {
+          "yul": true
+        }
+      },
+      "evmVersion": "paris"
+    }
   }
 }
