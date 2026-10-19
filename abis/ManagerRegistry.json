@@ -98,6 +98,12 @@
         "internalType": "address",
         "name": "by",
         "type": "address"
+      },
+      {
+        "indexed": false,
+        "internalType": "uint64",
+        "name": "until",
+        "type": "uint64"
       }
     ],
     "name": "AccountFrozen",
@@ -443,12 +449,12 @@
         "type": "address"
       }
     ],
-    "name": "frozen",
+    "name": "frozenUntil",
     "outputs": [
       {
-        "internalType": "bool",
+        "internalType": "uint64",
         "name": "",
-        "type": "bool"
+        "type": "uint64"
       }
     ],
     "stateMutability": "view",
@@ -903,6 +909,44 @@
   {
     "inputs": [],
     "name": "renounceOwnership",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "bytes32",
+        "name": "_action",
+        "type": "bytes32"
+      },
+      {
+        "internalType": "address",
+        "name": "_user",
+        "type": "address"
+      },
+      {
+        "internalType": "address",
+        "name": "_token",
+        "type": "address"
+      },
+      {
+        "internalType": "uint256",
+        "name": "_amount",
+        "type": "uint256"
+      },
+      {
+        "internalType": "bytes32",
+        "name": "_context",
+        "type": "bytes32"
+      },
+      {
+        "internalType": "bytes",
+        "name": "_auth",
+        "type": "bytes"
+      }
+    ],
+    "name": "requirePayoutAllowed",
     "outputs": [],
     "stateMutability": "nonpayable",
     "type": "function"

@@ -6,6 +6,16 @@ interface IManagerRegistry {
     function isManager(address sender) external view returns (bool);
     function isOperator(address sender) external view returns (bool);
     function isFrozen(address user) external view returns (bool);
+    /// @notice Gate before money leaves for a wallet; reverts to refuse. Not `view` — a second
+    ///         factor spends a nonce. Its selector is permanent, immutable clones depend on it.
+    function requirePayoutAllowed(
+        bytes32 _action,
+        address _user,
+        address _token,
+        uint256 _amount,
+        bytes32 _context,
+        bytes calldata _auth
+    ) external;
     function isAdmin(address sender) external view returns (bool);
     function isSupport(address sender) external view returns (bool);
     function isFundraise(address sender) external view returns (bool);

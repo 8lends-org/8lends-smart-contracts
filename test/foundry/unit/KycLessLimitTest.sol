@@ -76,6 +76,11 @@ contract KycLessLimitTest is Setup {
     ///      leave the stolen key the way out. The cancel gate lives in EscrowFactory because the
     ///      escrows are minimal clones and can never be upgraded — the factory they call back can.
     function test_aFrozenUsersPendingEscrowRequestGoesNowhere() public {
+        // Cut first: `cancelAfter` is fixed when the request is made, and at the default thirty
+        // days the request outlives any freeze — which is its own case, below.
+        vm.prank(escrowFactory.owner());
+        escrowFactory.setRefundTimeout(1 days);
+
         uint256 pid = _createProject(100e6, 10_000e6);
         AmlEscrow escrow = _createEscrow(investor);
         uint256 reqId = _escrowInvest(escrow, investor, pid, 300e6, inviter);
@@ -90,12 +95,17 @@ contract KycLessLimitTest is Setup {
         vm.expectRevert(abi.encodeWithSignature("AccountFrozen(address)", investor));
         escrowFactory.approveInvest(investor, reqId);
 
-        vm.warp(block.timestamp + 366 days);
+        // Inside the window neither side can move it.
+        vm.warp(block.timestamp + 1 days);
         vm.prank(investor);
         vm.expectRevert("Account is frozen");
         escrow.cancelRequest(reqId);
 
         assertEq(usdc.balanceOf(address(escrow)), 300e6, "the money waits where neither can take it");
+
+        // It stands until support lifts it; waiting does not help.
+        vm.warp(block.timestamp + 365 days);
+        assertTrue(managerRegistry.isFrozen(investor), "the freeze does not expire");
 
         vm.prank(support);
         managerRegistry.unfreeze(investor);
@@ -103,6 +113,7 @@ contract KycLessLimitTest is Setup {
         escrow.cancelRequest(reqId);
         assertEq(usdc.balanceOf(address(escrow)), 0);
     }
+
 
     // ─────────────────────────────────────────────────────────────────────────
     // GAP-001: investFromEscrow exact $500 (500e6 USDC) — should succeed

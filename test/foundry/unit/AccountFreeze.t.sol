@@ -124,7 +124,7 @@ contract AccountFreezeTest is Setup {
     ///      freeze is the one action a single key performs alone.
     function test_bothEventsNameWhoPressed() public {
         vm.expectEmit(true, true, false, false, address(managerRegistry));
-        emit ManagerRegistry.AccountFrozen(user, support);
+        emit ManagerRegistry.AccountFrozen(user, support, 0);
         vm.prank(support);
         managerRegistry.freeze(user);
 
@@ -203,16 +203,18 @@ contract AccountFreezeTest is Setup {
         fundraise.claim(pid, user);
     }
 
-    /// @dev The gate sits ahead of the routing check, so a frozen account is turned away before
-    ///      the contract looks at whether there is a mandate at all.
-    function test_frozenInvestorCannotClaimThroughAMandate() public {
+    /// @dev The freeze is read on the payout target, which is computed after the route, so an
+    ///      unrouted project is turned away for the reason it actually has. Where a route exists
+    ///      the target is the owner's own escrow, never a wallet: the freeze stops the money
+    ///      leaving on the escrow's own way out, not landing there.
+    function test_aFrozenInvestorIsTurnedAwayByTheRoutingCheck() public {
         uint256 pid = _createProject(1_000e6, 10_000e6);
 
         vm.prank(support);
         managerRegistry.freeze(user);
 
         vm.prank(user);
-        vm.expectRevert(abi.encodeWithSignature("AccountFrozen(address)", user));
+        vm.expectRevert(abi.encodeWithSignature("ProjectNotRouted(uint256)", pid));
         fundraise.claimForMandate(pid, user, bytes32(0));
     }
 

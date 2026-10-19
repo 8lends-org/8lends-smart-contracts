@@ -111,15 +111,20 @@ interface IMandateEscrowV1 {
         bytes calldata sig
     ) external;
 
-    /// @notice Unconditional: no backend signature, no manager approval, any state. Pays to the
-    ///         claim address if the wallet is flagged as compromised.
+    /// @notice The owner's way out. Any state, no manager approval. Pays to the claim address if
+    ///         the wallet is flagged as compromised.
     /// @dev The token is an argument rather than hardwired to USDC so that anything landing here can
     ///      leave — a payout in another token, an airdrop, a mistaken transfer. An immutable clone
     ///      cannot gain a rescue function later, which is why it is here from v1.
-    function withdraw(address token, uint256 amount) external;
+    /// @param auth Handed to `ManagerRegistry.requirePayoutAllowed` unread, so a second factor can
+    ///        be switched on there without touching this ABI. Empty until one is.
+    function withdraw(address token, uint256 amount, bytes calldata auth) external;
 
-    /// @notice Full balance of that token. Same guard and recipient as withdraw.
-    function withdrawAll(address token) external;
+    /// @notice Full balance of that token. Same gate and recipient as withdraw.
+    /// @dev The registry is told `type(uint256).max` rather than the balance: the figure is only
+    ///      known at execution, and a shared one would let an assertion signed for `withdraw` be
+    ///      spent here — some amount turning into all of it.
+    function withdrawAll(address token, bytes calldata auth) external;
 
     function pause() external;
     function resume() external;
