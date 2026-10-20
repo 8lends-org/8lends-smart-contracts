@@ -177,7 +177,7 @@ const DEPLOY_DESCRIPTORS: Record<string, DeployDescriptor> = {
     // as a pool days ahead of the exchange window; BUYBACK_PRICE opens it at deploy, setPrice any
     // time after. A default price here would turn into a live offer the moment the mark lands.
     getProxyArgs: (config) => {
-      if (!config.ManagerRegistry || !config.token || !config.USDC) {
+      if (!config.ManagerRegistry || !config.Token || !config.USDC) {
         throw new Error("ManagerRegistry, token, USDC required in config");
       }
       const price = process.env.BUYBACK_PRICE?.trim() || "0";
@@ -188,7 +188,7 @@ const DEPLOY_DESCRIPTORS: Record<string, DeployDescriptor> = {
         );
       }
       console.log("Buyback price:", price === "0" ? "0 (closed, open it with setPrice)" : price);
-      return [config.ManagerRegistry, config.token, config.USDC, price];
+      return [config.ManagerRegistry, config.Token, config.USDC, price];
     },
     configKey: "Buyback",
     configKeyImpl: "Buyback_impl",
