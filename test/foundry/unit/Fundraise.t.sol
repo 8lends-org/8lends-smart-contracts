@@ -36,15 +36,12 @@ contract FundraiseTest is Setup {
         assertEq(uint8(inner.stage), uint8(Fundraise.Stage.PreFunded));
     }
 
-    function test_invest_transitionsToCanceled_whenExpiredBelowSoftCap() public {
-        // Invest below softCap
+    /// @dev Investing no longer moves the stage on its way past. The raise refuses, and the project
+    ///      is written off by a separate call that anyone may make.
+    function test_expiredBelowSoftCap_refusesTheInvestThenCancels() public {
         _investAs(investor, pid, 10_000e6, inviter);
-
-        // Warp past openStageEndAt
         vm.warp(block.timestamp + 8 days);
 
-        // Next invest triggers stage check → Canceled
-        // Need to prepare a new invest attempt that triggers the check
         vm.prank(owner);
         usdc.mint(investor2, 1_000e6);
         vm.prank(investor2);
@@ -53,9 +50,15 @@ contract FundraiseTest is Setup {
         uint256 currentNonce = fundraise.userNonces(investor2);
         bytes memory sig = _signInvest(investor2, pid, 1_000e6, currentNonce + 1, address(0));
 
-        // This invest call will trigger the Canceled transition and return silently
         vm.prank(investor2);
+        vm.expectRevert(Fundraise.ProjectClosedYet.selector);
         fundraise.investUpdateV2(pid, 1_000e6, currentNonce + 1, sig, address(0));
+
+        (,,,,,,, Fundraise.InnerProjectStruct memory stillOpen) = fundraise.projects(pid);
+        assertEq(uint8(stillOpen.stage), uint8(Fundraise.Stage.Open), "the refusal must not move the stage");
+
+        vm.prank(attacker);
+        fundraise.cancelProject(pid);
 
         (,,,,,,, Fundraise.InnerProjectStruct memory inner) = fundraise.projects(pid);
         assertEq(uint8(inner.stage), uint8(Fundraise.Stage.Canceled));
@@ -117,9 +120,12 @@ contract FundraiseTest is Setup {
         bytes memory sig = _signInvest(investor, futurePid, 5_000e6, nonceForSig, inviter);
 
         vm.prank(investor);
+        vm.expectRevert(
+            abi.encodeWithSelector(Fundraise.ProjectNotStarted.selector, futurePid, block.timestamp + 1 days)
+        );
         fundraise.investUpdateV2(futurePid, 5_000e6, nonceForSig, sig, inviter);
 
-        // FIX: nonce must NOT be incremented when _invest returns early
+        // The signature is not spent: the revert takes the increment with it.
         assertEq(fundraise.userNonces(investor), nonceBefore, "Nonce must not change on failed invest");
 
         // No tokens were transferred from investor

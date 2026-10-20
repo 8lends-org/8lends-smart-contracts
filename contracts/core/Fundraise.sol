@@ -34,6 +34,7 @@ contract Fundraise is Initializable, UUPSUpgradeable, OwnableUpgradeable {
     error ProjectNotFound();
     error CannotInvestInOwnProject();
     error ProjectClosedYet();
+    error ProjectNotStarted(uint256 projectId, uint256 startAt);
     error InvestmentExceedsHardCap();
     error NotAManager();
     error ProjectDoesNotExist();
@@ -76,7 +77,6 @@ contract Fundraise is Initializable, UUPSUpgradeable, OwnableUpgradeable {
     error KycLessLimitExceeded();
     error NotAmlGateway();
     error LoanTokenNotUsdc();
-    error InvestmentFailed();
     error StalePriceData();
     error ProjectPayoutExceedsRepaid();
 
@@ -121,7 +121,7 @@ contract Fundraise is Initializable, UUPSUpgradeable, OwnableUpgradeable {
     ///         can trust the answer until it changes.
     /// @dev No version() at all means a deployment older than this field, which signs the way
     ///      things were signed before EIP-712.
-    uint256 public constant version = 1;
+    uint256 public constant version = 2;
 
     uint256 public constant BASIS_POINTS = 1000000; // 1% = 10000
     uint256 public constant MAX_KYC_LESS_INVEST_USD = 500 * BASIS_POINTS; // 500_000_000 = 500 USD
@@ -256,10 +256,8 @@ contract Fundraise is Initializable, UUPSUpgradeable, OwnableUpgradeable {
 
         bytes32 structHash = keccak256(abi.encode(INVEST_TYPEHASH, msg.sender, _pid, _amount, _nonce, _inviter));
         _verifySignature(MessageHashUtils.toTypedDataHash(_domainSeparator(), structHash), _sig);
-        bool success = _invest(msg.sender, _pid, _amount, _inviter);
-        if (success) {
-            userNonces[msg.sender]++;
-        }
+        _invest(msg.sender, _pid, _amount, _inviter);
+        userNonces[msg.sender]++;
     }
 
     /// @dev Built per call rather than cached: a cold SLOAD costs more than hashing three words,
@@ -274,7 +272,7 @@ contract Fundraise is Initializable, UUPSUpgradeable, OwnableUpgradeable {
         if (ECDSA.recover(digest, _sig) != trustedSigner) revert NotTrustedSigner();
     }
 
-    function _invest(address _investor, uint256 _pid, uint256 _amount, address _inviter) internal returns (bool) {
+    function _invest(address _investor, uint256 _pid, uint256 _amount, address _inviter) internal {
         if (_inviter == _investor) revert InviterCannotBeInvestor();
         Project storage project = projects[_pid];
         if (!(project.softCap > 0 || project.hardCap > 0)) revert ProjectNotFound();
@@ -285,21 +283,13 @@ contract Fundraise is Initializable, UUPSUpgradeable, OwnableUpgradeable {
                 project.innerStruct.stage = Stage.Open;
                 emit ProjectStatusChanged(_pid, uint8(Stage.Open));
             } else {
-                return false;
+                revert ProjectNotStarted(_pid, project.startAt);
             }
         }
-        if (project.innerStruct.stage != Stage.Open) revert ProjectClosedYet();
-        if (block.timestamp > project.openStageEndAt) {
-            if (project.totalInvested >= project.softCap) {
-                project.innerStruct.stage = Stage.PreFunded;
-                project.openStageEndAt = block.timestamp;
-                emit ProjectStatusChanged(_pid, uint8(Stage.PreFunded));
-                return false;
-            } else {
-                project.innerStruct.stage = Stage.Canceled;
-                emit ProjectStatusChanged(_pid, uint8(Stage.Canceled));
-                return false;
-            }
+        // Past the deadline the raise is over whatever the stage still says. Recording that is
+        // moveProjectStage's and cancelProject's job, so this one only refuses.
+        if (project.innerStruct.stage != Stage.Open || block.timestamp > project.openStageEndAt) {
+            revert ProjectClosedYet();
         }
 
         if (project.totalInvested + _amount > project.hardCap) revert InvestmentExceedsHardCap();
@@ -335,7 +325,6 @@ contract Fundraise is Initializable, UUPSUpgradeable, OwnableUpgradeable {
         }
 
         emit Invest(_pid, _investor, _amount);
-        return true;
     }
 
     /// @notice Invest on behalf of a KYC-less investor via escrow (AML-cleared, capped at $500 lifetime).
@@ -363,8 +352,7 @@ contract Fundraise is Initializable, UUPSUpgradeable, OwnableUpgradeable {
             revert KycLessLimitExceeded();
         }
 
-        bool success = _invest(_investor, _pid, _amount, _inviter);
-        if (!success) revert InvestmentFailed();
+        _invest(_investor, _pid, _amount, _inviter);
     }
 
     /// @notice In case if project got cancelled, user can withdraw his investment
@@ -420,6 +408,17 @@ contract Fundraise is Initializable, UUPSUpgradeable, OwnableUpgradeable {
             )
         ) {
             revert InvalidStageForCancellation();
+        }
+        // The raise ran out of time without its soft cap: settled by the clock and the amount
+        // raised, so anyone may record it — including an investor who wants their principal back.
+        if (
+            project.innerStruct.stage == Stage.Open &&
+            block.timestamp > project.openStageEndAt &&
+            project.totalInvested < project.softCap
+        ) {
+            project.innerStruct.stage = Stage.Canceled;
+            emit ProjectStatusChanged(_projectId, uint8(Stage.Canceled));
+            return;
         }
         if (
             project.innerStruct.stage == Stage.PreFunded &&
@@ -638,18 +637,28 @@ contract Fundraise is Initializable, UUPSUpgradeable, OwnableUpgradeable {
     /// @notice Update project stage
     /// @param _projectId Project id
     function moveProjectStage(uint256 _projectId) external {
-        if (!IManagerRegistry(managerRegistry).isManager(msg.sender)) revert NotAManager();
+        // Was implied by the manager gate. Without it an id past the end reads as a ComingSoon
+        // whose startAt is zero, and anyone could emit a status for a project that does not exist.
+        if (_projectId >= projectCount) revert ProjectDoesNotExist();
 
         Project storage project = projects[_projectId];
 
+        // Open on time: the condition is the clock alone, so nobody has to be trusted with it.
         if (project.innerStruct.stage == Stage.ComingSoon && block.timestamp >= project.startAt) {
             project.innerStruct.stage = Stage.Open;
             emit ProjectStatusChanged(_projectId, uint8(Stage.Open));
             return;
         }
         if (project.innerStruct.stage == Stage.Open && project.totalInvested >= project.softCap) {
+            // Past the deadline the outcome is settled and recording it is bookkeeping. Before it,
+            // closing the raise forfeits the room left up to the hard cap — that is a decision.
+            bool early = block.timestamp <= project.openStageEndAt;
+            if (early && !IManagerRegistry(managerRegistry).isManager(msg.sender)) revert NotAManager();
+
             project.innerStruct.stage = Stage.PreFunded;
-            project.openStageEndAt = block.timestamp;
+            // Only an early close ends the raise now; past the deadline it ended at the deadline,
+            // and preFundDuration is counted from there.
+            if (early) project.openStageEndAt = block.timestamp;
             emit ProjectStatusChanged(_projectId, uint8(Stage.PreFunded));
             return;
         }
