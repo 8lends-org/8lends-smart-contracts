@@ -545,7 +545,7 @@ contract FundraiseTest is Setup {
     }
 
     // ═══════════════════════════════════════════════════════════════
-    //              PROJECT HASH IS SPENT ONCE (EL-2016)
+    //              PROJECT HASH IS SPENT ONCE
     // ═══════════════════════════════════════════════════════════════
 
     function test_createProject_sameHashTwice_reverts() public {

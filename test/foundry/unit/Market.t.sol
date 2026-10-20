@@ -253,7 +253,7 @@ contract MarketTest is Test, Eip712Signing {
     }
 
     // ═══════════════════════════════════════════════════════════════
-    //                    PROCEEDS RECIPIENT (EL-1816)
+    //                    PROCEEDS RECIPIENT
     // ═══════════════════════════════════════════════════════════════
 
     MockFactory_MKT internal factory;
@@ -588,7 +588,7 @@ contract MarketTest is Test, Eip712Signing {
     }
 
     // ═══════════════════════════════════════════════════════════════
-    //                    CANCEL GUARD (EL-1816)
+    //                    CANCEL GUARD
     // ═══════════════════════════════════════════════════════════════
 
     /// A compromised seller cannot relist, so returning the position is all that is left to them.
@@ -646,7 +646,7 @@ contract MarketTest is Test, Eip712Signing {
     }
 
     // ═══════════════════════════════════════════════════════════════
-    //              LISTING NEEDS THE BACKEND (EL-2037)
+    //              LISTING NEEDS THE BACKEND
     // ═══════════════════════════════════════════════════════════════
 
     function test_sell_revert_expiredSignature() public {
