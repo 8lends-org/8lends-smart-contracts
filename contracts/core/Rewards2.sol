@@ -75,8 +75,8 @@ contract Rewards2 is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentra
     ///         says what was actually sent, which a reader cannot reconstruct without the cutover.
     event ClaimPaid(address indexed user, address indexed to, uint256 tokens, uint256 usdc);
     
-    modifier onlyManager() {
-        require(IManagerRegistry(managerRegistry).isManager(msg.sender), "Not a manager");
+    modifier onlyAdmin() {
+        require(IManagerRegistry(managerRegistry).isAdmin(msg.sender), "Not an admin");
         _;
     }
 
@@ -146,7 +146,7 @@ contract Rewards2 is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentra
     /// @notice Set the rate vesting is redeemed at.
     /// @param _rate USDC per 1e18 tokens — 20000 is $0.02 against six-decimal USDC. Zero is
     ///        rejected so it keeps meaning "never set" and cannot be used to stop claims.
-    function setRedemptionRate(uint256 _rate) external onlyOwner {
+    function setRedemptionRate(uint256 _rate) external onlyAdmin {
         require(_rate > 0, "Invalid rate");
         redemptionRate = _rate;
         emit RedemptionRateSet(_rate);
@@ -157,12 +157,14 @@ contract Rewards2 is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentra
         require(userVestingCount[msg.sender] > 0, "No vestings found");
         require(cutover != 0, "Cutover not set");
 
+        (address to, bool allowed) = _payoutTarget(msg.sender);
+        require(allowed, "Account frozen");
+
         uint256 tokens = _tokensOwed(msg.sender);
         require(tokens > 0, "No tokens to claim");
         require(token.balanceOf(address(this)) >= tokens, "Not enough tokens to claim");
 
         _settleTokens(msg.sender);
-        address to = managerRegistry.getInvestorClaimAddress(msg.sender);
         _sendTokens(to, tokens);
         emit ClaimPaid(msg.sender, to, tokens, 0);
     }
@@ -177,38 +179,42 @@ contract Rewards2 is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentra
         // vesting and pay nothing for it.
         require(redemptionRate > 0, "Redemption rate not set");
 
+        (address to, bool allowed) = _payoutTarget(msg.sender);
+        require(allowed, "Account frozen");
+
         uint256 usdcAmount = _settleUsdc(msg.sender);
         require(usdcAmount > 0, "No USDC to claim");
         require(usdc.balanceOf(address(this)) >= usdcAmount, "Not enough USDC to claim");
-        address to = managerRegistry.getInvestorClaimAddress(msg.sender);
         usdc.safeTransfer(to, usdcAmount);
         emit ClaimPaid(msg.sender, to, 0, usdcAmount);
     }
 
-    /// @notice Pay the token era for many users (manager only)
+    /// @notice Pay the token era for many users
     /// @dev A user the contract cannot pay in full is skipped and keeps the vesting.
     /// @param _users Array of user addresses
-    function claimTokensBatch(address[] calldata _users) external onlyManager nonReentrant {
+    function claimTokensBatch(address[] calldata _users) external onlyAdmin nonReentrant {
         _requireBatch(_users.length);
 
         for (uint256 j = 0; j < _users.length; j++) {
             address user = _users[j];
             if (user == address(0)) continue;
 
+            (address to, bool allowed) = _payoutTarget(user);
+            if (!allowed) continue;
+
             uint256 tokens = _tokensOwed(user);
             if (tokens == 0 || token.balanceOf(address(this)) < tokens) continue;
 
             _settleTokens(user);
-            address to = managerRegistry.getInvestorClaimAddress(user);
             _sendTokens(to, tokens);
             emit ClaimPaid(user, to, tokens, 0);
         }
     }
 
-    /// @notice Pay the USDC half for many users (manager only)
+    /// @notice Pay the USDC half for many users
     /// @dev A user the contract cannot pay in full is skipped and keeps the vesting.
     /// @param _users Array of user addresses
-    function claimUsdcBatch(address[] calldata _users) external onlyManager nonReentrant {
+    function claimUsdcBatch(address[] calldata _users) external onlyAdmin nonReentrant {
         _requireBatch(_users.length);
         require(redemptionRate > 0, "Redemption rate not set");
 
@@ -216,14 +222,23 @@ contract Rewards2 is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentra
             address user = _users[j];
             if (user == address(0)) continue;
 
+            (address to, bool allowed) = _payoutTarget(user);
+            if (!allowed) continue;
+
             uint256 usdcAmount = _usdcOwed(user);
             if (usdcAmount == 0 || usdc.balanceOf(address(this)) < usdcAmount) continue;
 
             _settleUsdc(user);
-            address to = managerRegistry.getInvestorClaimAddress(user);
             usdc.safeTransfer(to, usdcAmount);
             emit ClaimPaid(user, to, 0, usdcAmount);
         }
+    }
+
+    /// @dev Read on the address the money reaches, never on the caller. Returned rather than
+    ///      enforced, because a single claim refuses and a batch skips.
+    function _payoutTarget(address _user) private view returns (address to, bool allowed) {
+        to = managerRegistry.recipientOf(_user);
+        allowed = !managerRegistry.isFrozen(to);
     }
 
     function _requireBatch(uint256 _length) private view {

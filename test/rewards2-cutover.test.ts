@@ -76,7 +76,7 @@ describe("Rewards2 cutover on the Base fork", function () {
     const usdc = await ethers.getContractAt("@openzeppelin/contracts/token/ERC20/IERC20.sol:IERC20", usdcAddress);
     const registry = await ethers.getContractAt("ManagerRegistry", config.ManagerRegistry);
 
-    const [, a, b, manager] = await ethers.getSigners();
+    const [, a, b, admin] = await ethers.getSigners();
     const totalA = parseEther("10000");
     const totalB = parseEther("8000");
 
@@ -122,9 +122,10 @@ describe("Rewards2 cutover on the Base fork", function () {
     expect(oldOwedB).to.equal(unlocked(totalB, 10, BONUS_B));
 
     // ── USDC era ──
-    await rewards2.connect(safe).setRedemptionRate(RATE);
+    // The rate and the batches are the admin's, so the role has to exist on the fork first.
+    await registry.connect(safe).setAdminStatus(admin.address, true);
+    await rewards2.connect(admin).setRedemptionRate(RATE);
     await setErc20Balance(usdcAddress, proxyAddress, parseUnits("1000000", 6));
-    await registry.connect(safe).setManagerStatus(manager.address, true);
 
     const balances = async (who: string) => [await token.balanceOf(who), await usdc.balanceOf(who)];
 
@@ -140,8 +141,8 @@ describe("Rewards2 cutover on the Base fork", function () {
 
     await time.setNextBlockTimestamp(start + 20 * WEEK + DAYS3 + 60);
     let [bTok, bUsd] = await balances(b.address);
-    await rewards2.connect(manager).claimTokensBatch([b.address]);
-    await rewards2.connect(manager).claimUsdcBatch([b.address]);
+    await rewards2.connect(admin).claimTokensBatch([b.address]);
+    await rewards2.connect(admin).claimUsdcBatch([b.address]);
     let [bTok2, bUsd2] = await balances(b.address);
     expect(bTok2 - bTok).to.equal(oldOwedB, "the batch pays the token era in tokens too");
     expect(bUsd2 - bUsd).to.equal(usdcFor(unlocked(totalB, 20, BONUS_B) - unlocked(totalB, 10, BONUS_B)));
@@ -156,8 +157,8 @@ describe("Rewards2 cutover on the Base fork", function () {
     expect(aUsd2 - aUsd).to.equal(usdcFor(totalA - unlocked(totalA, 20)));
 
     [bTok, bUsd] = await balances(b.address);
-    await rewards2.connect(manager).claimTokensBatch([b.address]);
-    await rewards2.connect(manager).claimUsdcBatch([b.address]);
+    await rewards2.connect(admin).claimTokensBatch([b.address]);
+    await rewards2.connect(admin).claimUsdcBatch([b.address]);
     [bTok2, bUsd2] = await balances(b.address);
     expect(bTok2 - bTok).to.equal(0n);
     expect(bUsd2 - bUsd).to.equal(usdcFor(totalB - unlocked(totalB, 20, BONUS_B)));

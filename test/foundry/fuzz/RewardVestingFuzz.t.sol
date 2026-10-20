@@ -68,10 +68,10 @@ contract RewardVestingFuzzTest is Setup {
 
         vm.prank(owner);
         rewards2.seedVestings(users, amounts);
-        vm.startPrank(owner);
+        vm.prank(admin);
         rewards2.setRedemptionRate(RATE);
+        vm.prank(owner);
         usdc.mint(address(rewards2), totalAmount * RATE / 1e18 + 1e6);
-        vm.stopPrank();
 
         // Claim at weeks1
         vm.warp(block.timestamp + weeks1 * 1 weeks);
@@ -123,8 +123,9 @@ contract RewardVestingFuzzTest is Setup {
         rewards2.seedVestings(users, amounts);
         rewards2.setCutover(t0 + cutoverWeek * 1 weeks);
 
-        vm.startPrank(owner);
+        vm.prank(admin);
         rewards2.setRedemptionRate(RATE);
+        vm.startPrank(owner);
         usdc.mint(address(rewards2), totalAmount * RATE / 1e18 + 1e6);
         token.mint(address(rewards2), totalAmount);
         vm.stopPrank();

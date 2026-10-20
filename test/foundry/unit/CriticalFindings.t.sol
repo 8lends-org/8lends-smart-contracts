@@ -11,9 +11,9 @@ contract CriticalFindingsTest is Setup {
     //   project, invest via an accomplice, and drain RewardSystem USDC.
     // ═══════════════════════════════════════════════════════════════
 
-    function test_HIGH1_managerDrainsRewardSystem() public {
-        // Step 1: Compromised manager sets referral to 100%
-        vm.prank(manager);
+    function test_HIGH1_adminDrainsRewardSystem() public {
+        // Step 1: Compromised admin sets referral to 100% — the role the parameter sits under.
+        vm.prank(admin);
         rewardSystem.setParameters(
             1_000_000,  // referralPercentage = 100% (max allowed)
             25_000,     // weeklyUnlock
@@ -133,9 +133,11 @@ contract CriticalFindingsTest is Setup {
         uint256[] memory amounts = new uint256[](1);
         amounts[0] = 10_000e18;
 
+        vm.prank(admin);
+        rewards2.setRedemptionRate(20_000);
+
         vm.startPrank(owner);
         rewards2.seedVestings(users, amounts);
-        rewards2.setRedemptionRate(20_000);
         usdc.mint(address(rewards2), 200e6);
         vm.stopPrank();
 

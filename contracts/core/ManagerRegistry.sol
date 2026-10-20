@@ -263,9 +263,8 @@ contract ManagerRegistry is Initializable, OwnableUpgradeable, UUPSUpgradeable {
         emit Rewards2AddressSet(_rewards2Address);
     }
 
-    /// @notice The old name for recipientOf, kept because deployed call sites read it.
-    /// @dev An alias, not a second rule. Rewards2, RewardSystem and LimitedSeller all pay through
-    ///      this getter, so it answers the head of the chain like recipientOf does.
+    /// @notice An alias for recipientOf, under the name deployed call sites know.
+    /// @dev TODO: remove at the next upgrade of this contract, once nothing on chain reads it.
     function getInvestorClaimAddress(address _investor) public view returns (address) {
         return recipientOf(_investor);
     }

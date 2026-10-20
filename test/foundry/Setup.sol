@@ -48,6 +48,10 @@ abstract contract Setup is Test, Eip712Signing {
     /// @dev Operator role only — deliberately NOT a manager, so tests can prove the
     ///      two roles are separate and a manager cannot call operator methods.
     address public operator;
+    /// @dev Admin role only, and held by nobody else: parameters and the claim-for-user buttons
+    ///      moved here from the manager and the owner, and a fixture that blurred the sets would
+    ///      pass whichever of the three still had the right.
+    address public admin;
 
     // backend = trusted signer (we need its private key for vm.sign)
     uint256 public backendPk;
@@ -68,6 +72,7 @@ abstract contract Setup is Test, Eip712Signing {
         inviter = makeAddr("inviter");
         attacker = makeAddr("attacker");
         operator = makeAddr("operator");
+        admin = makeAddr("admin");
         (backend, backendPk) = makeAddrAndKey("backend");
 
         // Foundry starts at timestamp=1. Set a realistic timestamp.
@@ -163,6 +168,9 @@ abstract contract Setup is Test, Eip712Signing {
         // is that a hot backend key cannot also create projects, so the test fixture must not
         // blur the two sets.
         managerRegistry.setOperatorStatus(operator, true);
+
+        // Admin role: platform parameters and the support buttons that move a payout forward.
+        managerRegistry.setAdminStatus(admin, true);
 
         managerRegistry.setContractAddresses(
             address(rewardSystem),
@@ -316,6 +324,6 @@ abstract contract Setup is Test, Eip712Signing {
         pids[0] = _pid;
 
         vm.prank(owner);
-        rewardSystem.distributeVestingTokens(users, amounts, pids);
+        rewardSystem.seedVestings(users, amounts, pids);
     }
 }

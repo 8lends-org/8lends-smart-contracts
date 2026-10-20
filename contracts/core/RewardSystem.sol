@@ -121,8 +121,8 @@ contract RewardSystem is Initializable, UUPSUpgradeable, OwnableUpgradeable, Ree
         uint256 newAmount
     );
 
-    modifier onlyManager() {
-        require(IManagerRegistry(managerRegistry).isManager(msg.sender), "Not a manager");
+    modifier onlyAdmin() {
+        require(IManagerRegistry(managerRegistry).isAdmin(msg.sender), "Not an admin");
         _;
     }
 
@@ -292,7 +292,7 @@ contract RewardSystem is Initializable, UUPSUpgradeable, OwnableUpgradeable, Ree
     /// @notice Set the rate vesting is redeemed at.
     /// @param _rate USDC per 1e18 tokens — 20000 is $0.02 against six-decimal USDC. Zero is
     ///        rejected so it keeps meaning "never set" and cannot be used to stop claims.
-    function setRedemptionRate(uint256 _rate) external onlyOwner {
+    function setRedemptionRate(uint256 _rate) external onlyAdmin {
         require(_rate > 0, "Invalid rate");
         redemptionRate = _rate;
         emit RedemptionRateSet(_rate);
@@ -307,7 +307,7 @@ contract RewardSystem is Initializable, UUPSUpgradeable, OwnableUpgradeable, Ree
         uint256 _referralPercentage,
         uint256 _weeklyUnlock,
         uint256 _vestingWeeks
-    ) external onlyManager {
+    ) external onlyAdmin {
         require(
             _referralPercentage >= 1_000 && _referralPercentage <= 1_000_000,
             "Referral percentage must be between 1000 and 1000000"
@@ -461,32 +461,6 @@ contract RewardSystem is Initializable, UUPSUpgradeable, OwnableUpgradeable, Ree
         emit TokenAddressUpdated(_token);
     }
 
-    /// @notice Distribute vesting tokens to multiple users (owner only)
-    /// @param _users Array of user addresses
-    /// @param _amounts Array of token amounts to distribute
-    /// @param _projectIds Array of project IDs for each user
-    function distributeVestingTokens(
-        address[] calldata _users,
-        uint256[] calldata _amounts,
-        uint256[] calldata _projectIds
-    ) external onlyOwner {
-        require(_users.length == _amounts.length, "Users and amounts length mismatch");
-        require(_users.length == _projectIds.length, "Users and projectIds length mismatch");
-        require(_users.length > 0, "Empty arrays");
-
-        for (uint256 i = 0; i < _users.length; i++) {
-            require(_users[i] != address(0), "Invalid user address");
-            require(_amounts[i] > 0, "Invalid amount");
-            
-            uint256 projectId = _projectIds[i];
-            
-            // Update ReferralData for each user
-            ReferralData storage refData = projectReferrals[_users[i]][projectId];
-            refData.totalRewardsTokens += _amounts[i];
-            rewardTokensAmount[projectId] += _amounts[i];
-        }
-    }
-
     function deactivateProject(uint256 _projectId) external onlyOwner {
         projectVestingStartTime[_projectId] = 0;
         emit ProjectRewardsDeactivated(_projectId);
@@ -530,21 +504,6 @@ contract RewardSystem is Initializable, UUPSUpgradeable, OwnableUpgradeable, Ree
         }
     }
 
-    function distributeTokens(address[] calldata _users, uint256[] calldata _amounts) external onlyOwner {
-        require(_users.length == _amounts.length, "Users and amounts length mismatch");
-        require(_users.length > 0, "Empty arrays");
-        for (uint256 i = 0; i < _users.length; i++) {
-            require(_users[i] != address(0), "Invalid user address");
-            require(_amounts[i] > 0, "Invalid amount");
-            require(IToken(token).balanceOf(address(this)) >= _amounts[i], "Not enough tokens to distribute");
-
-            address claimAddress = IManagerRegistry(managerRegistry).getInvestorClaimAddress(_users[i]);
-            IManagerRegistry(managerRegistry).setPoolStatusForReward(claimAddress, true);
-            IERC20(address(token)).safeTransfer(claimAddress, _amounts[i]);
-            IManagerRegistry(managerRegistry).setPoolStatusForReward(claimAddress, false);
-        }
-    }
-
     function withdraw(address _token, uint256 _amount, address _recipient) external onlyOwner nonReentrant {
         require(_token != address(0), "Invalid token");
         require(_recipient != address(0), "Invalid recipient");
@@ -568,13 +527,14 @@ contract RewardSystem is Initializable, UUPSUpgradeable, OwnableUpgradeable, Ree
         require(_user != address(0), "Invalid user address");
         require(projectVestingStartTime[_projectId] > 0, "Project rewards not activated");
 
+        address claimAddress = _payoutTarget(_user);
+
         ReferralData storage refData = projectReferrals[_user][_projectId];
         require(refData.totalRewardsUSDC > 0, "No USDC rewards for this project");
 
         uint256 amount = refData.totalRewardsUSDC;
         refData.totalRewardsUSDC = 0;
 
-        address claimAddress = IManagerRegistry(managerRegistry).getInvestorClaimAddress(_user);
         IERC20(address(usdc)).safeTransfer(claimAddress, amount);
 
         emit BonusUSDCClaimed(_user, amount, _projectId);
@@ -601,6 +561,7 @@ contract RewardSystem is Initializable, UUPSUpgradeable, OwnableUpgradeable, Ree
     /// @notice Pay what unlocked before the cutover, in tokens.
     function _sendVestingTokens(address _user, uint256 _projectId) internal {
         _requireVesting(_user, _projectId);
+        address claimAddress = _payoutTarget(_user);
 
         (uint256 tokens,) = _split(_user, _projectId);
         require(tokens > 0, "No tokens to claim");
@@ -608,7 +569,6 @@ contract RewardSystem is Initializable, UUPSUpgradeable, OwnableUpgradeable, Ree
 
         _settle(_user, _projectId, tokens, false);
 
-        address claimAddress = IManagerRegistry(managerRegistry).getInvestorClaimAddress(_user);
         _sendTokens(claimAddress, tokens);
         emit VestingPaid(_user, _projectId, claimAddress, tokens, 0);
     }
@@ -619,6 +579,7 @@ contract RewardSystem is Initializable, UUPSUpgradeable, OwnableUpgradeable, Ree
     ///      next one.
     function _sendVestingUsdc(address _user, uint256 _projectId) internal {
         _requireVesting(_user, _projectId);
+        address claimAddress = _payoutTarget(_user);
         // There is no token fallback here, so an unset rate stops the claim rather than consume the
         // position and pay nothing for it.
         require(redemptionRate > 0, "Redemption rate not set");
@@ -634,9 +595,16 @@ contract RewardSystem is Initializable, UUPSUpgradeable, OwnableUpgradeable, Ree
         // vesting it actually bought.
         _settle(_user, _projectId, Math.mulDiv(usdcAmount, 1e18, redemptionRate), true);
 
-        address claimAddress = IManagerRegistry(managerRegistry).getInvestorClaimAddress(_user);
         usdc.safeTransfer(claimAddress, usdcAmount);
         emit VestingPaid(_user, _projectId, claimAddress, 0, usdcAmount);
+    }
+
+    /// @dev Read on the address the money reaches, never on the caller: the caller may be an
+    ///      admin pressing the support button on someone else's behalf.
+    function _payoutTarget(address _user) internal view returns (address) {
+        address claimAddress = IManagerRegistry(managerRegistry).recipientOf(_user);
+        require(!IManagerRegistry(managerRegistry).isFrozen(claimAddress), "Account frozen");
+        return claimAddress;
     }
 
     /// @dev 8LNDS moves only to a pool while buying is disabled, so the recipient is flagged for the
@@ -678,22 +646,22 @@ contract RewardSystem is Initializable, UUPSUpgradeable, OwnableUpgradeable, Ree
 
 
     // SENDS
-    function sendVestingTokensForProjectToUser(address _user, uint256 _projectId) external onlyManager {
+    function sendVestingTokensForProjectToUser(address _user, uint256 _projectId) external onlyAdmin {
         _sendVestingTokens(_user, _projectId);
     }
 
-    function sendVestingUsdcForProjectToUser(address _user, uint256 _projectId) external onlyManager {
+    function sendVestingUsdcForProjectToUser(address _user, uint256 _projectId) external onlyAdmin {
         _sendVestingUsdc(_user, _projectId);
     }
 
-    function sendUSDCForProjectToUser(address _user, uint256 _projectId) external onlyManager {
+    function sendUSDCForProjectToUser(address _user, uint256 _projectId) external onlyAdmin {
         _sendUSDCForProjectToUser(_user, _projectId);
     }
 
     // BATCHES SENDS
     function sendVestingTokensForProjectToUserBatch(address[] calldata _users, uint256[] calldata _projectIds)
         external
-        onlyManager
+        onlyAdmin
     {
         require(_users.length == _projectIds.length, "Users and projectIds length mismatch");
         require(_users.length > 0, "Empty arrays");
@@ -704,7 +672,7 @@ contract RewardSystem is Initializable, UUPSUpgradeable, OwnableUpgradeable, Ree
 
     function sendVestingUsdcForProjectToUserBatch(address[] calldata _users, uint256[] calldata _projectIds)
         external
-        onlyManager
+        onlyAdmin
     {
         require(_users.length == _projectIds.length, "Users and projectIds length mismatch");
         require(_users.length > 0, "Empty arrays");
@@ -713,7 +681,7 @@ contract RewardSystem is Initializable, UUPSUpgradeable, OwnableUpgradeable, Ree
         }
     }
 
-    function sendUSDCForProjectToUserBatch(address[] calldata _users, uint256[] calldata _projectIds) external onlyManager {
+    function sendUSDCForProjectToUserBatch(address[] calldata _users, uint256[] calldata _projectIds) external onlyAdmin {
         require(_users.length == _projectIds.length, "Users and projectIds length mismatch");
         require(_users.length > 0, "Empty arrays");
         for (uint256 i = 0; i < _users.length; i++) {

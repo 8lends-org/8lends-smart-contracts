@@ -21,7 +21,7 @@ contract RewardSystemRedemptionTest is Setup {
     }
 
     function _setRate() internal {
-        vm.prank(owner);
+        vm.prank(admin);
         rewardSystem.setRedemptionRate(RATE);
     }
 
@@ -40,7 +40,7 @@ contract RewardSystemRedemptionTest is Setup {
         vm.stopPrank();
         (, uint256 claimedAtOldRate,,,) = rewardSystem.getVestingInfoForProject(investor, pid);
 
-        vm.prank(owner);
+        vm.prank(admin);
         rewardSystem.setRedemptionRate(RATE * 2);
         assertEq(rewardSystem.redemptionRate(), RATE * 2);
 
@@ -67,14 +67,20 @@ contract RewardSystemRedemptionTest is Setup {
         assertEq(rewardSystem.getUSDCForTokens(VESTING), VESTING * RATE / 1e18);
     }
 
-    function test_rateIsOwnerOnly() public {
+    /// @dev The rate is a platform parameter, so the admin sets it — and neither the manager nor
+    ///      the owner can any more.
+    function test_rateIsAdminOnly() public {
         vm.prank(manager);
-        vm.expectRevert();
+        vm.expectRevert("Not an admin");
+        rewardSystem.setRedemptionRate(RATE);
+
+        vm.prank(owner);
+        vm.expectRevert("Not an admin");
         rewardSystem.setRedemptionRate(RATE);
     }
 
     function test_rateCannotBeZero() public {
-        vm.prank(owner);
+        vm.prank(admin);
         vm.expectRevert("Invalid rate");
         rewardSystem.setRedemptionRate(0);
     }
@@ -322,7 +328,7 @@ contract RewardSystemRedemptionTest is Setup {
 
     // ── the manager pays on a user's behalf ──
 
-    function test_managerPaysBothHalves() public {
+    function test_adminPaysBothHalves() public {
         uint256 t0 = block.timestamp;
         rewardSystem.setCutover(t0 + 10 weeks);
         _setRate();
@@ -330,7 +336,7 @@ contract RewardSystemRedemptionTest is Setup {
 
         (uint256 inTokens, uint256 usdcAmount) = rewardSystem.getVestingClaimable(investor, pid);
 
-        vm.startPrank(manager);
+        vm.startPrank(admin);
         rewardSystem.sendVestingTokensForProjectToUser(investor, pid);
         rewardSystem.sendVestingUsdcForProjectToUser(investor, pid);
         vm.stopPrank();
@@ -339,12 +345,21 @@ contract RewardSystemRedemptionTest is Setup {
         assertEq(usdc.balanceOf(investor), usdcAmount);
     }
 
-    function test_managerSendsAreManagerOnly() public {
+    /// @dev The button moves someone else's payout forward, so it sits with the admin — the
+    ///      manager who used to press it cannot any more.
+    function test_theSendsAreAdminOnly() public {
         _setRate();
         vm.startPrank(attacker);
-        vm.expectRevert("Not a manager");
+        vm.expectRevert("Not an admin");
         rewardSystem.sendVestingTokensForProjectToUser(investor, pid);
-        vm.expectRevert("Not a manager");
+        vm.expectRevert("Not an admin");
+        rewardSystem.sendVestingUsdcForProjectToUser(investor, pid);
+        vm.stopPrank();
+
+        vm.startPrank(manager);
+        vm.expectRevert("Not an admin");
+        rewardSystem.sendVestingTokensForProjectToUser(investor, pid);
+        vm.expectRevert("Not an admin");
         rewardSystem.sendVestingUsdcForProjectToUser(investor, pid);
         vm.stopPrank();
     }

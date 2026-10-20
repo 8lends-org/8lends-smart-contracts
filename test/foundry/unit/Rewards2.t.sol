@@ -33,7 +33,7 @@ contract Rewards2Test is Setup {
     function test_getUSDCForTokens_quotesTheRate() public {
         assertEq(rewards2.getUSDCForTokens(10_000e18), 0, "no rate, no quote");
 
-        vm.prank(owner);
+        vm.prank(admin);
         rewards2.setRedemptionRate(RATE);
         assertEq(rewards2.getUSDCForTokens(10_000e18), 200e6, "$0.02 per token");
     }
@@ -71,7 +71,7 @@ contract Rewards2Test is Setup {
 
     function test_claim_usdcRunsShort_reverts() public {
         _seedVesting(investor, 10_000e18);
-        vm.prank(owner);
+        vm.prank(admin);
         rewards2.setRedemptionRate(RATE);
 
         vm.warp(block.timestamp + 10 weeks);
@@ -255,14 +255,14 @@ contract Rewards2Test is Setup {
     //                  REDEMPTION RATE
     // ═══════════════════════════════════════════════════════════════
 
-    function test_setRedemptionRate_onlyOwner() public {
+    function test_setRedemptionRate_onlyAdmin() public {
         vm.prank(attacker);
         vm.expectRevert();
         rewards2.setRedemptionRate(RATE);
     }
 
     function test_setRedemptionRate_zero_reverts() public {
-        vm.prank(owner);
+        vm.prank(admin);
         vm.expectRevert("Invalid rate");
         rewards2.setRedemptionRate(0);
     }
@@ -275,7 +275,7 @@ contract Rewards2Test is Setup {
         vm.warp(block.timestamp + 10 weeks);
         _claimAll(investor);
 
-        vm.prank(owner);
+        vm.prank(admin);
         rewards2.setRedemptionRate(RATE * 2);
 
         vm.warp(block.timestamp + 10 weeks);
@@ -401,12 +401,22 @@ contract Rewards2Test is Setup {
     //                    BATCH CLAIMS
     // ═══════════════════════════════════════════════════════════════
 
-    function test_claimUsdcBatch_managerOnly() public {
+    /// @dev The owner is refused too: the button moves someone else's payout, and that is the
+    ///      admin's job, not the multisig's.
+    function test_claimUsdcBatch_adminOnly() public {
         address[] memory users = new address[](1);
         users[0] = investor;
 
         vm.prank(attacker);
-        vm.expectRevert("Not a manager");
+        vm.expectRevert("Not an admin");
+        rewards2.claimUsdcBatch(users);
+
+        vm.prank(manager);
+        vm.expectRevert("Not an admin");
+        rewards2.claimUsdcBatch(users);
+
+        vm.prank(owner);
+        vm.expectRevert("Not an admin");
         rewards2.claimUsdcBatch(users);
     }
 
@@ -424,7 +434,7 @@ contract Rewards2Test is Setup {
         users[0] = investor;
         users[1] = investor2;
 
-        vm.prank(manager);
+        vm.prank(admin);
         rewards2.claimTokensBatch(users);
 
         assertEq(token.balanceOf(investor), 2_750e18);
@@ -446,7 +456,7 @@ contract Rewards2Test is Setup {
         users[0] = investor;
         users[1] = investor2;
 
-        vm.prank(manager);
+        vm.prank(admin);
         rewards2.claimUsdcBatch(users);
 
         assertEq(usdc.balanceOf(investor), 5_000e18 * RATE / 1e18);
@@ -462,7 +472,7 @@ contract Rewards2Test is Setup {
         address[] memory users = new address[](1);
         users[0] = investor;
 
-        vm.prank(manager);
+        vm.prank(admin);
         vm.expectRevert("Redemption rate not set");
         rewards2.claimUsdcBatch(users);
 
@@ -476,10 +486,10 @@ contract Rewards2Test is Setup {
         _seedVesting(investor, 5_000e18);
         _seedVesting(investor2, 3_000e18);
 
-        vm.startPrank(owner);
+        vm.prank(admin);
         rewards2.setRedemptionRate(RATE);
+        vm.prank(owner);
         usdc.mint(address(rewards2), 3_000e18 * RATE / 1e18); // enough for investor2 alone
-        vm.stopPrank();
 
         vm.warp(block.timestamp + 41 weeks);
 
@@ -487,7 +497,7 @@ contract Rewards2Test is Setup {
         users[0] = investor;
         users[1] = investor2;
 
-        vm.prank(manager);
+        vm.prank(admin);
         rewards2.claimUsdcBatch(users);
 
         assertEq(usdc.balanceOf(investor), 0, "nothing paid");
@@ -630,10 +640,10 @@ contract Rewards2Test is Setup {
 
     /// @dev Vesting is paid in USDC, so a claim needs both the rate and the money.
     function _fundClaims() internal {
-        vm.startPrank(owner);
+        vm.prank(admin);
         rewards2.setRedemptionRate(RATE);
+        vm.prank(owner);
         usdc.mint(address(rewards2), 1_000_000e6);
-        vm.stopPrank();
     }
 
     /// @dev The token era pays out of the contract's own 8LNDS.
@@ -770,14 +780,14 @@ contract Rewards2Test is Setup {
         users[0] = investor;
         for (uint256 i = 1; i < ceiling; i++) users[i] = address(uint160(i + 1));
 
-        uint256 before = token.balanceOf(investor);
-        vm.prank(manager);
-        rewards2.claimBatch(users);
-        assertGt(token.balanceOf(investor) - before, 0, "the batch at the ceiling paid nothing");
+        uint256 before = usdc.balanceOf(investor);
+        vm.prank(admin);
+        rewards2.claimUsdcBatch(users);
+        assertGt(usdc.balanceOf(investor) - before, 0, "the batch at the ceiling paid nothing");
 
         address[] memory tooMany = new address[](ceiling + 1);
         for (uint256 i = 0; i <= ceiling; i++) tooMany[i] = address(uint160(i + 1));
-        vm.prank(manager);
+        vm.prank(admin);
         vm.expectRevert("Too many users");
         rewards2.claimBatch(tooMany);
     }
