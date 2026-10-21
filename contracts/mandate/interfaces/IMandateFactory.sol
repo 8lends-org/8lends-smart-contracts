@@ -101,7 +101,7 @@ interface IMandateFactory {
     ///      immutable, and an out-of-range set would yield a working escrow at a derived address
     ///      that passes isEscrowOf.
     /// @param p Both rules of the mandate, baked into the address. All three {InterestDirection}
-    ///          values are accepted from phase 1 — KEEP, WALLET and LEND. The lending pool is not part of these params — it is supplied per call as
+    ///          values are accepted. The lending pool is not part of these params — it is supplied per call as
     ///          the third argument of Fundraise.claimForMandate and forwarded through onPayout; no
     ///          constant is stored on chain. There is no second params argument:
     ///          the mandate has no mutable settings, so paramsHash covers everything the owner

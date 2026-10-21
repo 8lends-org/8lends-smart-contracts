@@ -291,7 +291,7 @@ const DEPLOY_DESCRIPTORS: Record<string, DeployDescriptor> = {
     configKey: "CryptoCourseBonus",
     configKeyImpl: "CryptoCourseBonus_impl",
   },
-  // ── mandate (EL-1869) ──────────────────────────────────────────────────────
+  // ── mandate ────────────────────────────────────────────────────────────────
   //
   // Order matters and part of it cannot be undone:
   //   registry upgrade -> MandateFactory -> factory address into the registry ->

@@ -3,7 +3,7 @@ pragma solidity ^0.8.23;
 
 import "../Setup.sol";
 
-/// @notice Tests for RewardSystem.reduceReferralUSDC — EL-1529 out-of-window cancellation.
+/// @notice Tests for RewardSystem.reduceReferralUSDC — cancellation outside the window.
 /// @dev The function subtracts a specified `reduction` from projectReferrals[inviter][pid].totalRewardsUSDC
 ///      using OPTIMISTIC CONCURRENCY CONTROL:
 ///        * current == expected → subtract `reduction` (happy path)
