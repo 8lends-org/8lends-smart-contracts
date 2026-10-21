@@ -1476,4 +1476,56 @@ contract MarketTest is Test, Eip712Signing {
         return market.sellFor(owner_, projectId, price, positionIndex, deadline, sig);
     }
 
+    // ═══════════════════════════════════════════════════════════════
+    //                     GUARDS THAT REFUSE
+    // ═══════════════════════════════════════════════════════════════
+
+    /// @dev The refusing side of each guard. The passing side is covered above; a guard never seen
+    ///      to refuse is a guard nobody has tested.
+
+
+
+
+    /// @dev One position, one live sale: a second listing of the same index would sell it twice.
+    function test_sell_refusesASecondSaleOfTheSamePosition() public {
+        uint256 dl = block.timestamp + 1 hours;
+        vm.startPrank(investor);
+        market.sell(PID, 10_000e6, 0, dl, _signMarketSell(investor, PID, 10_000e6, 0, dl));
+        vm.expectRevert("Active sale exists for position");
+        market.sell(PID, 9_000e6, 0, dl, _signMarketSell(investor, PID, 9_000e6, 0, dl));
+        vm.stopPrank();
+    }
+
+    function test_buy_refusesTheSellersOwnSale() public {
+        uint256 dl = block.timestamp + 1 hours;
+        vm.prank(investor);
+        uint256 saleId = market.sell(PID, 10_000e6, 0, dl, _signMarketSell(investor, PID, 10_000e6, 0, dl));
+
+        vm.prank(investor);
+        vm.expectRevert("Cannot buy own sale");
+        market.buy(saleId, _signMarketBuy(investor, saleId));
+    }
+
+    function test_cancel_refusesAnyoneButTheSeller() public {
+        uint256 dl = block.timestamp + 1 hours;
+        vm.prank(investor);
+        uint256 saleId = market.sell(PID, 10_000e6, 0, dl, _signMarketSell(investor, PID, 10_000e6, 0, dl));
+
+        vm.prank(attacker);
+        vm.expectRevert("Not seller");
+        market.cancel(saleId);
+    }
+
+    /// @dev A sale leaves Active exactly once; the second attempt has nothing to cancel.
+    function test_cancel_refusesASaleThatIsNotActive() public {
+        uint256 dl = block.timestamp + 1 hours;
+        vm.startPrank(investor);
+        uint256 saleId = market.sell(PID, 10_000e6, 0, dl, _signMarketSell(investor, PID, 10_000e6, 0, dl));
+        market.cancel(saleId);
+        vm.expectRevert("Sale not active");
+        market.cancel(saleId);
+        vm.stopPrank();
+    }
+
+
 }

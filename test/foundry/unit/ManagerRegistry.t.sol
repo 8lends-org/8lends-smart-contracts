@@ -322,4 +322,97 @@ contract ManagerRegistryTest is Setup {
         assertTrue(managerRegistry.isTreasury(address(treasury)));
         assertFalse(managerRegistry.isTreasury(attacker));
     }
+
+    // ═══════════════════════════════════════════════════════════════
+    //                     GUARDS THAT REFUSE
+    // ═══════════════════════════════════════════════════════════════
+
+    /// @dev Everything below exercises the refusing side of a guard. The passing side is covered by
+    ///      the tests above; a guard that was never seen to refuse is a guard nobody has tested.
+
+
+    function test_unfreeze_refusesEveryoneButSupport() public {
+        address support = makeAddr("supportGuard");
+        vm.prank(owner);
+        managerRegistry.setSupportStatus(support, true);
+        vm.prank(support);
+        managerRegistry.freeze(investor);
+
+        vm.prank(operator);
+        vm.expectRevert("ManagerRegistry: Not support");
+        managerRegistry.unfreeze(investor);
+
+        vm.prank(owner);
+        vm.expectRevert("ManagerRegistry: Not support");
+        managerRegistry.unfreeze(investor);
+    }
+
+
+
+    function test_requirePayoutAllowed_refusesAFrozenUser() public {
+        vm.prank(operator);
+        managerRegistry.freeze(investor);
+
+        vm.expectRevert("ManagerRegistry: Account frozen");
+        managerRegistry.requirePayoutAllowed(bytes32(0), investor, address(usdc), 1, bytes32(0), "");
+    }
+
+
+    /// @dev Granting is the Safe's alone — an admin may only take the role away.
+    function test_setOperatorStatus_grantingIsTheOwnersAlone() public {
+        address admin = makeAddr("adminGrant");
+        vm.prank(owner);
+        managerRegistry.setAdminStatus(admin, true);
+
+        vm.prank(admin);
+        vm.expectRevert("ManagerRegistry: Not authorized");
+        managerRegistry.setOperatorStatus(attacker, true);
+
+        // Revoking goes through, which is the asymmetry the guard exists for.
+        vm.prank(admin);
+        managerRegistry.setOperatorStatus(operator, false);
+        assertFalse(managerRegistry.isOperator(operator));
+    }
+
+
+
+    // ── setInvestorClaimAddress: what it refuses ────────────────────────────────
+
+
+    /// @dev Pointing a wallet at itself would record a chain of one and mark it compromised.
+    function test_setClaimAddress_refusesTheInvestorItself() public {
+        vm.prank(owner);
+        vm.expectRevert("Claim address is the investor");
+        managerRegistry.setInvestorClaimAddress(investor, investor);
+    }
+
+    /// @dev Both directions are refused: a recovery address that is already superseded, and one
+    ///     that already heads a chain. Either would cost a second hop to resolve.
+    function test_setClaimAddress_refusesAnAddressAlreadyInAChain() public {
+        address b = makeAddr("chainB");
+        vm.prank(owner);
+        managerRegistry.setInvestorClaimAddress(investor, b);
+
+        // b is superseded-to, so it carries a canonicalOf entry.
+        vm.prank(owner);
+        vm.expectRevert("Claim address already in a chain");
+        managerRegistry.setInvestorClaimAddress(investor2, b);
+
+        // investor heads a chain, so it carries a forward entry.
+        address c = makeAddr("chainC");
+        vm.prank(owner);
+        vm.expectRevert("Claim address already in a chain");
+        managerRegistry.setInvestorClaimAddress(c, investor);
+    }
+
+    /// @dev A frozen recovery address would be handed out unusable.
+    function test_setClaimAddress_refusesAFrozenTarget() public {
+        address recovery = makeAddr("frozenRecovery");
+        vm.prank(operator);
+        managerRegistry.freeze(recovery);
+
+        vm.prank(owner);
+        vm.expectRevert("Claim address is frozen");
+        managerRegistry.setInvestorClaimAddress(investor, recovery);
+    }
 }
