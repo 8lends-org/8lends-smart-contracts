@@ -36,7 +36,7 @@ async function main() {
   console.log("Pool added to managerRegistry successfully");
 
   // Check for required addresses in config
-  if (!config.token) {
+  if (!config.Token) {
     throw new Error("Token address not found in config");
   }
   if (!config.USDC) {
@@ -52,14 +52,14 @@ async function main() {
     throw new Error("Pool address not found in config");
   }
 
-  console.log("Token address:", config.token);
+  console.log("Token address:", config.Token);
   console.log("USDC address:", config.USDC);
   console.log("Router:", config.uniswapV2Router);
   console.log("Factory:", config.uniswapV2Factory);
   console.log("Pool:", config.pool);
 
   // Get contract instances
-  const tokenContract = await ethers.getContractAt("Token", config.token);
+  const tokenContract = await ethers.getContractAt("Token", config.Token);
   const usdcContract = await ethers.getContractAt("@openzeppelin/contracts/token/ERC20/IERC20.sol:IERC20", config.USDC);
   const routerContract = await ethers.getContractAt("IUniswapV2Router02", config.uniswapV2Router);
   const factoryContract = await ethers.getContractAt("IUniswapV2Factory", config.uniswapV2Factory);
@@ -108,7 +108,7 @@ async function main() {
   const deadline = Math.floor(Date.now() / 1000) + 60 * 20; // 20 minutes from now
 
   const removeLiquidityTx = await (routerContract as any).removeLiquidity(
-    config.token,
+    config.Token,
     config.USDC,
     lpBalance,
     tokenAmount, // 5% slippage tolerance

@@ -16,8 +16,8 @@ Contracts are UUPS-upgradeable and owned by a Gnosis Safe on production.
 
 ```bash
 npm ci                # installs cleanly, no --legacy-peer-deps needed
-npm test              # Hardhat: 66 tests
-npm run forge:test    # Foundry: 661 tests
+npm test              # Hardhat
+npm run forge:test    # Foundry
 ```
 
 Both suites run without any secrets. `npm test` forks Base at `latest`, falling back to the public
@@ -30,6 +30,7 @@ variable for day-to-day work.
 contracts/
   core/         Fundraise, RewardSystem, Rewards2, ManagerRegistry,
                 Treasury, TreasuryLending, LimitedSeller, market/Market
+  mandate/      auto-reinvest: the per-user escrow, its factory and the payout router
   bonus/        five independent bonus campaigns
   token/        Token (8LNDS), BTC8L
   escrow/       AML escrow and its factory
@@ -41,7 +42,7 @@ contracts/
 scripts/        deployment, migrations, Safe batch preparation
   utils/        shared helpers: owner guard, batch progress, Safe encoding
 test/           Hardhat suites (need the Base fork)
-  foundry/      unit · fuzz · invariant · upgrade
+  foundry/      unit · fuzz · invariant · upgrade · mandate · escrow · mocks
 ```
 
 `contracts/interfaces/protocol/` must stay in step with the deployed ABI; `external/` mirrors
@@ -65,6 +66,9 @@ third-party ABIs and is not ours to change.
 | `FlashLiquidator` | Liquidations, flash-funded or from own balance |
 | `AdaptiveCurveIrm` / `FixedRateIrm` | Interest rate models |
 | `AmlEscrow` / `EscrowFactory` | Per-user escrow for AML-gated investments |
+| `MandateEscrowV1` | Auto-reinvest: one immutable clone per (owner, rules), holds the free USDC and splits payouts |
+| `MandateFactory` | Creates those clones and answers whether an address really is one |
+| `MandateRouter` | Where each project's payouts go, and which projects a mandate holds |
 | `WelcomeBonus`, `MaclearBonus`, `LeagueBonus`, `CustomBonus`, `CryptoCourseBonus` | Campaign payouts |
 
 ## Testing
@@ -155,7 +159,12 @@ Both scripts, what to check before signing, and the dry-run mode are covered in
 ## CI
 
 Four jobs on every pull request and on pushes to `main`, `master` and `develop`: Foundry tests,
-coverage, Hardhat tests, Slither. All of them gate — a red job is a real failure.
+coverage, Hardhat tests, Slither. The two test jobs gate — a red one is a real failure.
+
+Coverage does not gate: it compiles differently from what ships (the optimizer is off, so it needs
+`--ir-minimum` to fit the stack at all), and a figure taken from another build must not block a
+merge. A run that produces no summary leaves the badge at its previous value rather than publishing
+a zero, which would be indistinguishable from genuinely bad coverage.
 
 Slither runs with `fail-on: none`, so findings are reported to the Security tab without blocking.
 Three high-severity findings are outstanding; raising the gate to `high` before triaging them would

@@ -64,23 +64,29 @@ contract CriticalFindingsTest is Setup {
 
     // ═══════════════════════════════════════════════════════════════
     //   HIGH-2: MANAGER CAN ADD MANAGERS → PERSISTENT BACKDOOR
-    //   A compromised manager adds new managers, creating persistent
-    //   access even after the original key is revoked.
+    //   Closed: the role is handed out by the owner or an admin, and
+    //   a manager no longer reaches the list he is on.
     // ═══════════════════════════════════════════════════════════════
 
-    function test_HIGH2_managerCreatesBackdoor() public {
-        address backdoor1 = makeAddr("backdoor1");
-
-        // Current behavior: any existing manager can add another manager.
+    /// @dev Neither rank can entrench itself: a manager no longer reaches the list he is on, and
+    ///      an admin hands out every role but his own, so a stolen admin key spends its rights and
+    ///      cannot outlive the Safe taking them back.
+    function test_HIGH2_noRoleCanEntrenchItself() public {
         vm.prank(manager);
-        managerRegistry.setManagerStatus(backdoor1, true);
-        assertTrue(managerRegistry.managers(backdoor1));
+        vm.expectRevert("ManagerRegistry: Not authorized");
+        managerRegistry.setManagerStatus(makeAddr("backdoor"), true);
 
-        // The promoted backdoor manager can keep escalating access.
-        vm.prank(backdoor1);
-        address backdoor2 = makeAddr("backdoor2");
-        managerRegistry.setManagerStatus(backdoor2, true);
-        assertTrue(managerRegistry.managers(backdoor2));
+        address admin = makeAddr("admin");
+        vm.prank(owner);
+        managerRegistry.setAdminStatus(admin, true);
+
+        vm.prank(admin);
+        vm.expectRevert(abi.encodeWithSignature("OwnableUnauthorizedAccount(address)", admin));
+        managerRegistry.setAdminStatus(makeAddr("second"), true);
+
+        // What he can do is hand out the roles below him.
+        vm.prank(admin);
+        managerRegistry.setManagerStatus(makeAddr("newManager"), true);
     }
 
     // ═══════════════════════════════════════════════════════════════
@@ -90,27 +96,32 @@ contract CriticalFindingsTest is Setup {
     //   With USDC this is safe (no hooks), but loanToken is arbitrary.
     // ═══════════════════════════════════════════════════════════════
 
+    /// @dev claim() has no reentrancy guard. With USDC the CEI ordering makes that safe, and the
+    ///      concern is defence in depth for an arbitrary loanToken. What is measurable here is the
+    ///      half of it that decides whether a re-entrant call could take anything: a second claim
+    ///      pays zero and moves no watermark, so re-entering buys a caller nothing.
     function test_HIGH3_noReentrancyGuard_claim() public {
-        // This test verifies that claim() CAN be re-entered.
-        // With USDC the CEI pattern makes it safe, but the missing
-        // guard is a defense-in-depth concern for arbitrary loanTokens.
-
         uint256 pid = _createProject(10_000e6, 50_000e6);
         _investAs(investor, pid, 25_000e6, inviter);
         _fundProject(pid);
         _repayFull(pid);
 
-        // Investor claims — works fine, no reentrancy issue with USDC
+        uint256 before = usdc.balanceOf(investor);
+        vm.prank(investor);
+        fundraise.claim(pid, investor);
+        uint256 first = usdc.balanceOf(investor) - before;
+        assertGt(first, 0, "the first claim paid nothing, the case is degenerate");
+
+        (, uint256 claimedAfterFirst) = fundraise.investorInfo(investor, pid);
+        assertEq(fundraise.availableToClaim(pid, investor), 0, "something is still claimable");
+
+        // The second claim goes through rather than reverting — it just pays nothing.
         vm.prank(investor);
         fundraise.claim(pid, investor);
 
-        // Second claim: claimable = 0, but it doesn't revert!
-        // It just transfers 0 USDC (gas waste, confusing events)
-        vm.prank(investor);
-        fundraise.claim(pid, investor);  // Does NOT revert
-
-        // Compare with RewardSystem which properly reverts on zero:
-        // vm.expectRevert("No USDC rewards for this project");
+        assertEq(usdc.balanceOf(investor) - before, first, "the second claim paid again");
+        (, uint256 claimedAfterSecond) = fundraise.investorInfo(investor, pid);
+        assertEq(claimedAfterSecond, claimedAfterFirst, "the watermark moved on a zero payout");
     }
 
     // ═══════════════════════════════════════════════════════════════

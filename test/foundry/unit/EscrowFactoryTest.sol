@@ -9,6 +9,19 @@ import {EscrowFactory} from "../../../contracts/escrow/EscrowFactory.sol";
 import {IAmlEscrow} from "../../../contracts/interfaces/protocol/IAmlEscrow.sol";
 import "../mocks/MockUSDC.sol";
 
+contract RegistryStub {
+    mapping(address => bool) public adminAccounts;
+    mapping(address => bool) public frozenAccounts;
+    mapping(address => bool) public operatorAccounts;
+
+    function setAdmin(address a, bool v) external { adminAccounts[a] = v; }
+    function setFrozen(address a, bool v) external { frozenAccounts[a] = v; }
+    function setOperator(address a, bool v) external { operatorAccounts[a] = v; }
+    function isAdmin(address a) external view returns (bool) { return adminAccounts[a]; }
+    function isFrozen(address a) external view returns (bool) { return frozenAccounts[a]; }
+    function isOperator(address a) external view returns (bool) { return operatorAccounts[a]; }
+}
+
 contract EscrowFactoryTest is Test {
     AmlEscrow public escrowImpl;
     EscrowFactory public factory;
@@ -21,15 +34,19 @@ contract EscrowFactoryTest is Test {
     address public attacker = makeAddr("attacker");
     address public mockFundraise = makeAddr("mockFundraise");
     MockUSDC public usdc;
+    RegistryStub public registry;
 
     function setUp() public {
         usdc = new MockUSDC();
         escrowImpl = new AmlEscrow();
+        registry = new RegistryStub();
+        // The AML approver is the operator role now; this is the address that used to hold it.
+        registry.setOperator(signer, true);
 
         factoryImpl = new EscrowFactory();
         bytes memory initData = abi.encodeCall(
             EscrowFactory.initialize,
-            (address(escrowImpl), mockFundraise, address(usdc), signer)
+            (address(escrowImpl), mockFundraise, address(usdc), address(registry))
         );
 
         vm.prank(owner);
@@ -55,7 +72,7 @@ contract EscrowFactoryTest is Test {
         EscrowFactory newImpl = new EscrowFactory();
         bytes memory initData = abi.encodeCall(
             EscrowFactory.initialize,
-            (address(0), mockFundraise, address(usdc), signer)
+            (address(0), mockFundraise, address(usdc), address(registry))
         );
         vm.expectRevert("Zero address");
         new ERC1967Proxy(address(newImpl), initData);
@@ -69,7 +86,7 @@ contract EscrowFactoryTest is Test {
         EscrowFactory newImpl = new EscrowFactory();
         bytes memory initData = abi.encodeCall(
             EscrowFactory.initialize,
-            (address(escrowImpl), address(0), address(usdc), signer)
+            (address(escrowImpl), address(0), address(usdc), address(registry))
         );
         vm.expectRevert("Zero address");
         new ERC1967Proxy(address(newImpl), initData);
@@ -83,7 +100,7 @@ contract EscrowFactoryTest is Test {
         EscrowFactory newImpl = new EscrowFactory();
         bytes memory initData = abi.encodeCall(
             EscrowFactory.initialize,
-            (address(escrowImpl), mockFundraise, address(0), signer)
+            (address(escrowImpl), mockFundraise, address(0), address(registry))
         );
         vm.expectRevert("Zero address");
         new ERC1967Proxy(address(newImpl), initData);
@@ -93,7 +110,7 @@ contract EscrowFactoryTest is Test {
     // 5. test_Initialize_ZeroSigner_Reverts
     // =========================================================================
 
-    function test_Initialize_ZeroSigner_Reverts() public {
+    function test_Initialize_ZeroManagerRegistry_Reverts() public {
         EscrowFactory newImpl = new EscrowFactory();
         bytes memory initData = abi.encodeCall(
             EscrowFactory.initialize,
@@ -108,9 +125,8 @@ contract EscrowFactoryTest is Test {
     // =========================================================================
 
     function test_Initialize_TwiceReverts() public {
-        // InvalidInitialization is the OZ error thrown when already initialized
-        vm.expectRevert();
-        factory.initialize(address(escrowImpl), mockFundraise, address(usdc), signer);
+        vm.expectRevert(abi.encodeWithSignature("InvalidInitialization()"));
+        factory.initialize(address(escrowImpl), mockFundraise, address(usdc), address(registry));
     }
 
     // =========================================================================
@@ -188,7 +204,7 @@ contract EscrowFactoryTest is Test {
     // 11. test_CreateEscrow_FromSigner_Succeeds
     // =========================================================================
 
-    function test_CreateEscrow_FromSigner_Succeeds() public {
+    function test_CreateEscrow_FromTheOperator_Succeeds() public {
         vm.prank(signer);
         address escrow = factory.createEscrow(user);
 
@@ -229,7 +245,7 @@ contract EscrowFactoryTest is Test {
         factory.createEscrow(user);
 
         vm.prank(attacker);
-        vm.expectRevert("Not signer");
+        vm.expectRevert("Not operator");
         factory.approveInvest(user, 0);
     }
 
@@ -252,7 +268,7 @@ contract EscrowFactoryTest is Test {
         factory.createEscrow(user);
 
         vm.prank(attacker);
-        vm.expectRevert("Not signer");
+        vm.expectRevert("Not operator");
         factory.rejectInvest(user, 0);
     }
 
@@ -267,49 +283,73 @@ contract EscrowFactoryTest is Test {
     }
 
     // =========================================================================
-    // 18. test_SetSigner_OnlyOwner
+    // 18. the approver role moved to the registry
     // =========================================================================
 
-    function test_SetSigner_OnlyOwner() public {
+    /// @dev Approving an AML request is the operator role, read from the registry — there is no
+    ///      stored approver any more, and nothing falls back to one.
+    function test_approvingIsTheOperatorRole() public {
+        vm.prank(user);
+        factory.createEscrow(user);
+
         vm.prank(attacker);
-        vm.expectRevert();
-        factory.setSigner(attacker);
-    }
+        vm.expectRevert("Not operator");
+        factory.approveInvest(user, 0);
 
-    // =========================================================================
-    // 19. test_SetSigner_ZeroAddress_Reverts
-    // =========================================================================
-
-    function test_SetSigner_ZeroAddress_Reverts() public {
-        vm.prank(owner);
-        vm.expectRevert("Zero address");
-        factory.setSigner(address(0));
-    }
-
-    // =========================================================================
-    // 20. test_SetSigner_EmitsEvent
-    // =========================================================================
-
-    function test_SetSigner_EmitsEvent() public {
-        address newSigner = makeAddr("newSigner");
-
-        address oldSigner = factory.signer();
-        vm.prank(owner);
-        vm.expectEmit(true, true, false, false);
-        emit EscrowFactory.SignerUpdated(oldSigner, newSigner);
-        factory.setSigner(newSigner);
-
-        assertEq(factory.signer(), newSigner, "Signer should be updated");
+        // Past the role check and into the escrow, where request 0 does not exist. The index
+        // panic is what proves the call got that far rather than stopping at the role.
+        vm.prank(signer);
+        vm.expectRevert(stdError.indexOOBError);
+        factory.approveInvest(user, 0);
     }
 
     // =========================================================================
     // 21. test_SetMaxInvestAmount_OnlyOwner
     // =========================================================================
 
-    function test_SetMaxInvestAmount_OnlyOwner() public {
+    function test_setManagerRegistry_onlyOwner_andNeverZero() public {
         vm.prank(attacker);
-        vm.expectRevert();
+        vm.expectRevert(abi.encodeWithSignature("OwnableUnauthorizedAccount(address)", attacker));
+        factory.setManagerRegistry(address(registry));
+
+        vm.prank(owner);
+        vm.expectRevert("Zero address");
+        factory.setManagerRegistry(address(0));
+
+        RegistryStub other = new RegistryStub();
+        vm.prank(owner);
+        vm.expectEmit(true, false, false, false, address(factory));
+        emit EscrowFactory.ManagerRegistryUpdated(address(other));
+        factory.setManagerRegistry(address(other));
+        assertEq(factory.managerRegistry(), address(other));
+    }
+
+    /// @dev The AML ceiling, the floor and the refund window are platform parameters, so the admin
+    ///      sets them. Wiring and the implementation stay with the Safe.
+    function test_SetMaxInvestAmount_OwnerOrAdmin() public {
+        vm.prank(attacker);
+        vm.expectRevert("Not authorized");
         factory.setMaxInvestAmount(1000e6);
+
+        address admin = makeAddr("admin");
+        registry.setAdmin(admin, true);
+
+        vm.prank(admin);
+        factory.setMaxInvestAmount(1000e6);
+        assertEq(factory.maxInvestAmount(), 1000e6);
+
+        vm.prank(admin);
+        factory.setMinInvestAmount(2e6);
+        assertEq(factory.minInvestAmount(), 2e6);
+
+        vm.prank(admin);
+        factory.setRefundTimeout(60 days);
+        assertEq(factory.refundTimeout(), 60 days);
+
+        // The wiring is not his.
+        vm.prank(admin);
+        vm.expectRevert(abi.encodeWithSignature("OwnableUnauthorizedAccount(address)", admin));
+        factory.setImplementation(address(escrowImpl));
     }
 
     // =========================================================================
@@ -392,7 +432,7 @@ contract EscrowFactoryTest is Test {
     function test_SetImplementation_OnlyOwner_ZeroReverts() public {
         // Non-owner reverts
         vm.prank(attacker);
-        vm.expectRevert();
+        vm.expectRevert(abi.encodeWithSignature("OwnableUnauthorizedAccount(address)", attacker));
         factory.setImplementation(address(escrowImpl));
 
         // Owner setting zero reverts
@@ -418,7 +458,7 @@ contract EscrowFactoryTest is Test {
     function test_SetFundraise_OnlyOwner_ZeroReverts() public {
         // Non-owner reverts
         vm.prank(attacker);
-        vm.expectRevert();
+        vm.expectRevert(abi.encodeWithSignature("OwnableUnauthorizedAccount(address)", attacker));
         factory.setFundraise(mockFundraise);
 
         // Owner setting zero reverts
@@ -444,7 +484,7 @@ contract EscrowFactoryTest is Test {
     function test_SetUsdc_OnlyOwner_ZeroReverts() public {
         // Non-owner reverts
         vm.prank(attacker);
-        vm.expectRevert();
+        vm.expectRevert(abi.encodeWithSignature("OwnableUnauthorizedAccount(address)", attacker));
         factory.setUsdc(address(usdc));
 
         // Owner setting zero reverts
@@ -484,7 +524,6 @@ contract EscrowFactoryTest is Test {
         assertEq(factory.maxInvestAmount(), 500e6, "maxInvestAmount should be preserved after upgrade");
         assertEq(factory.minInvestAmount(), 1e6, "minInvestAmount should be preserved after upgrade");
         assertEq(factory.refundTimeout(), 30 days, "refundTimeout should be preserved after upgrade");
-        assertEq(factory.signer(), signer, "signer should be preserved after upgrade");
         assertEq(factory.fundraise(), mockFundraise, "fundraise should be preserved after upgrade");
         assertEq(factory.usdc(), address(usdc), "usdc should be preserved after upgrade");
     }
@@ -497,7 +536,7 @@ contract EscrowFactoryTest is Test {
         EscrowFactory v2 = new EscrowFactory();
 
         vm.prank(attacker);
-        vm.expectRevert();
+        vm.expectRevert(abi.encodeWithSignature("OwnableUnauthorizedAccount(address)", attacker));
         factory.upgradeToAndCall(address(v2), "");
     }
 
@@ -563,5 +602,19 @@ contract EscrowFactoryTest is Test {
         vm.prank(owner);
         factory.setRefundTimeout(365 days);  // boundary should succeed
         assertEq(factory.refundTimeout(), 365 days);
+    }
+
+    /// @dev The two bounds may meet: a minimum equal to the maximum pins the ticket to one size,
+    ///      and only past the maximum is it refused.
+    function test_setMinInvestAmount_acceptsExactlyTheMaximum() public {
+        uint256 max = factory.maxInvestAmount();
+
+        vm.prank(owner);
+        factory.setMinInvestAmount(max);
+        assertEq(factory.minInvestAmount(), max);
+
+        vm.prank(owner);
+        vm.expectRevert("Invalid amount");
+        factory.setMinInvestAmount(max + 1);
     }
 }

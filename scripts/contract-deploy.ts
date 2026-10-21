@@ -27,6 +27,12 @@ type DeployDescriptor = {
   initializer?: string;
   getProxyArgs?: (config: Config, owner: string) => unknown[];
   getConstructorArgs?: (config: Config) => unknown[];
+  /**
+   * Addresses the contract keeps in `immutable` fields. Needed only for provenance: the deployed
+   * code carries them, a compiled artifact carries zeroes, and the two are compared by masking the
+   * values out. Leave it off and matchesDeployed is false for every build, faithful or not.
+   */
+  getImmutables?: (config: Config) => string[];
   configKey: string;
   configKeyImpl?: string;
 };
@@ -107,10 +113,10 @@ const DEPLOY_DESCRIPTORS: Record<string, DeployDescriptor> = {
     useProxy: true,
     initializer: "initialize",
     getProxyArgs: (config) => {
-      if (!config.ManagerRegistry || !config.token || !config.USDC || !config.uniswapV2Router) {
+      if (!config.ManagerRegistry || !config.Token || !config.USDC || !config.uniswapV2Router) {
         throw new Error("ManagerRegistry, token, USDC, uniswapV2Router required in config");
       }
-      return [config.ManagerRegistry, config.token, config.USDC, config.uniswapV2Router];
+      return [config.ManagerRegistry, config.Token, config.USDC, config.uniswapV2Router];
     },
     configKey: "RewardSystem",
     configKeyImpl: "RewardSystem_impl",
@@ -119,10 +125,10 @@ const DEPLOY_DESCRIPTORS: Record<string, DeployDescriptor> = {
     useProxy: true,
     initializer: "initialize",
     getProxyArgs: (config) => {
-      if (!config.ManagerRegistry || !config.token || !config.USDC || !config.uniswapV2Router) {
+      if (!config.ManagerRegistry || !config.Token || !config.USDC || !config.uniswapV2Router) {
         throw new Error("ManagerRegistry, token, USDC, uniswapV2Router required in config");
       }
-      return [config.ManagerRegistry, config.token, config.USDC, config.uniswapV2Router];
+      return [config.ManagerRegistry, config.Token, config.USDC, config.uniswapV2Router];
     },
     configKey: "Rewards2",
     configKeyImpl: "Rewards2_impl",
@@ -146,13 +152,13 @@ const DEPLOY_DESCRIPTORS: Record<string, DeployDescriptor> = {
         !config.ManagerRegistry ||
         !config.uniswapV2Router ||
         !config.USDC ||
-        !config.token
+        !config.Token
       ) {
         console.log("Fundraise:", config.Fundraise);
         console.log("ManagerRegistry:", config.ManagerRegistry);
         console.log("uniswapV2Router:", config.uniswapV2Router);
         console.log("USDC:", config.USDC);
-        console.log("token:", config.token);
+        console.log("token:", config.Token);
         throw new Error(
           "Fundraise, ManagerRegistry, uniswapV2Router, USDC, token required in config"
         );
@@ -162,7 +168,7 @@ const DEPLOY_DESCRIPTORS: Record<string, DeployDescriptor> = {
         config.Fundraise,
         config.uniswapV2Router,
         config.USDC,
-        config.token,
+        config.Token,
         percent,
         config.ManagerRegistry,
       ];
@@ -214,9 +220,10 @@ const DEPLOY_DESCRIPTORS: Record<string, DeployDescriptor> = {
       if (!config.AmlEscrow) throw new Error("AmlEscrow required in config (deploy AmlEscrow first)");
       if (!config.Fundraise) throw new Error("Fundraise required in config");
       if (!config.USDC) throw new Error("USDC required in config");
-      const signerAddr = (config as Record<string, string>).escrowSigner || (config as Record<string, string>).trustedSigner;
-      if (!signerAddr) throw new Error("escrowSigner or trustedSigner required in config");
-      return [config.AmlEscrow, config.Fundraise, config.USDC, signerAddr];
+      if (!config.ManagerRegistry) throw new Error("ManagerRegistry required in config");
+      // Approving an AML request is the operator role, so the registry has to be known from the
+      // first block: there is no fallback, and a factory without one answers nothing.
+      return [config.AmlEscrow, config.Fundraise, config.USDC, config.ManagerRegistry];
     },
     configKey: "EscrowFactory",
     configKeyImpl: "EscrowFactory_impl",
@@ -262,6 +269,67 @@ const DEPLOY_DESCRIPTORS: Record<string, DeployDescriptor> = {
     configKey: "CryptoCourseBonus",
     configKeyImpl: "CryptoCourseBonus_impl",
   },
+  // ── mandate ────────────────────────────────────────────────────────────────
+  //
+  // Order matters and part of it cannot be undone:
+  //   registry upgrade -> MandateFactory -> factory address into the registry ->
+  //   MandateRouter -> MandateEscrowV1 -> register it in the factory ->
+  //   Fundraise upgrade -> Market upgrade
+
+  MandateFactory: {
+    useProxy: true,
+    initializer: "initialize",
+    getProxyArgs: (config, owner) => {
+      const kycSigner = process.env.KYC_SIGNER ?? config.trustedSigner;
+      if (!kycSigner) throw new Error("Set KYC_SIGNER, or trustedSigner in the chain config");
+      // Read to tell an admin from anyone else when the KYC signer is revoked. Passed at
+      // initialize rather than set afterwards, so there is no window where revoking is owner-only.
+      if (!config.ManagerRegistry) throw new Error("ManagerRegistry required in config");
+      return [owner, kycSigner, config.ManagerRegistry];
+    },
+    configKey: "MandateFactory",
+    configKeyImpl: "MandateFactory_impl",
+  },
+
+  MandateRouter: {
+    useProxy: true,
+    initializer: "initialize",
+    getProxyArgs: (config, owner) => {
+      if (!config.ManagerRegistry || !config.Fundraise) {
+        throw new Error("ManagerRegistry and Fundraise required in config");
+      }
+      return [owner, config.ManagerRegistry, config.Fundraise];
+    },
+    configKey: "MandateRouter",
+    configKeyImpl: "MandateRouter_impl",
+  },
+
+  // Not a proxy, and the one deployment that cannot be taken back: every address below is burned
+  // into the bytecode, and clones point at it forever. Deploy it only after the router exists, and
+  // never redeploy the four dependencies — a replaced Fundraise or registry orphans every mandate
+  // already created.
+  MandateEscrowV1: {
+    useProxy: false,
+    getConstructorArgs: (config) => {
+      const needed = ["USDC", "Fundraise", "ManagerRegistry", "MandateRouter", "Lending8"];
+      const missing = needed.filter((k) => !config[k]);
+      if (missing.length > 0) {
+        throw new Error(`Missing in config: ${missing.join(", ")}`);
+      }
+      return [config.USDC, config.Fundraise, config.ManagerRegistry, config.MandateRouter, config.Lending8];
+    },
+    // The same five, and that is not a coincidence: every constructor argument of this contract is
+    // stored `immutable`, which is what makes step 5 of the mandate rollout irreversible.
+    getImmutables: (config) => [
+      config.USDC,
+      config.Fundraise,
+      config.ManagerRegistry,
+      config.MandateRouter,
+      config.Lending8,
+    ],
+    configKey: "MandateEscrowV1",
+  },
+
   CustomBonus: {
     useProxy: true,
     initializer: "initialize",
@@ -383,9 +451,6 @@ async function main(): Promise<void> {
     }
   }
 
-  saveConfig(net.chainId, config);
-  console.log("Config updated:", descriptor.configKey, "=", proxyOrContractAddress);
-
   // A fresh deployment is the one case where every field is known for certain: it was built from
   // this tree and went live in a block we just watched. Leaving them empty would throw that away.
   await verifyOnExplorer(hre, implAddress ?? proxyOrContractAddress, constructorArgs);
@@ -394,9 +459,17 @@ async function main(): Promise<void> {
     contractName,
     proxyOrContractAddress,
     implAddress,
-    { deployedAtBlock }
+    { deployedAtBlock, immutables: descriptor.getImmutables?.(config) }
   );
+
+  // Recorded before the config is written, and the order is load-bearing. saveConfig routes each
+  // key to one of the two files, and it tells ours from an external address by looking for an
+  // existing record or a companion `Name_impl` key. A contract deployed for the first time without
+  // a proxy has neither, so writing the config first files its address among the external ones.
   saveDeployment(net.chainId, descriptor.configKey, deploymentRecord);
+  saveConfig(net.chainId, config);
+  console.log("Config updated:", descriptor.configKey, "=", proxyOrContractAddress);
+
   printDeploymentRecord(deploymentRecord, notes);
 }
 

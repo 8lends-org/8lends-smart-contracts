@@ -30,8 +30,13 @@ contract RewardSystem is Initializable, UUPSUpgradeable, OwnableUpgradeable, Ree
 
     // Reward system parameters (changeable)
     uint256 public referralPercentage; // 6% USDC for inviter
-    uint256 public welcomeBonusAmount; // 30 USDC for investor (6 decimals)
-    uint256 public minInvestmentForBonus; // Minimum 1000 USDC for bonus
+    /// @notice DEPRECATED, read by nothing. WelcomeBonus is what pays the welcome bonus; the
+    ///         branch that credited it here as well is gone.
+    /// @dev Still settable through setParameters, whose signature is kept so the backend does not
+    ///      have to change; the value is simply never read. Both variables hold their slots.
+    uint256 public welcomeBonusAmount;
+    /// @notice DEPRECATED with welcomeBonusAmount — it only ever gated that branch.
+    uint256 public minInvestmentForBonus;
     uint256 public tokenPercentage; // 6% tokens for investor
     /// @notice When > 0, enables buy-back-and-burn during reward activation. Value represents the burn percentage in BASIS_POINTS.
     uint256 public burnPercentage;
@@ -156,7 +161,7 @@ contract RewardSystem is Initializable, UUPSUpgradeable, OwnableUpgradeable, Ree
     }
 
     /// @notice Backward-compatible overload for old Fundraise contract (before upgrade).
-    /// @dev TODO: remove after Fundraise upgrade deploys. Assumes loanToken = USDC.
+    /// @dev TODO: remove with the next upgrade. Assumes loanToken = USDC.
     function recordInvestment(address _user, uint256 _amount, address _inviter, uint256 _projectId)
         external
         onlyFundraise
@@ -238,15 +243,6 @@ contract RewardSystem is Initializable, UUPSUpgradeable, OwnableUpgradeable, Ree
 
         refData.totalRewardsTokens += tokensAmount;
         rewardTokensAmount[_projectId] += tokensAmount;
-
-        // Bonus for investor (if investment USD value >= minimum and this is new user)
-        if(welcomeBonusAmount > 0) {
-            if (userInfo.isNewUser && _convertToUSD(_amount, _loanToken) >= minInvestmentForBonus) {
-                refData.totalRewardsUSDC += welcomeBonusAmount;
-                userInfo.isNewUser = false;
-                emit WelcomeBonusRecorded(_user, welcomeBonusAmount);
-            }
-        }
 
         emit InvestmentRecorded(_user, _amount, _projectId);
     }
@@ -344,7 +340,7 @@ contract RewardSystem is Initializable, UUPSUpgradeable, OwnableUpgradeable, Ree
     /// @param _referralPercentage referral percentage 60000 is 6%
     /// @param _burnPercentage burn percentage 60000 is 6%
     /// @param _tokenPercentage token percentage 60000 is 6%
-    /// @param _welcomeBonusAmount welcome bonus amount in USDC-decimal units (dynamic, not hardcoded to 6 decimals)
+    /// @param _welcomeBonusAmount DEPRECATED, pass zero. Kept only to preserve the signature.
     /// @param _minInvestmentForBonus min investment for bonus in USDC-decimal units (dynamic, not hardcoded to 6 decimals)
     /// @param _weeklyUnlock weekly unlock 25000 is 2.5%
     /// @param _vestingWeeks vesting weeks 40 is 40 weeks

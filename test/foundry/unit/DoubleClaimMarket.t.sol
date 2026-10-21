@@ -4,18 +4,16 @@ pragma solidity ^0.8.23;
 import "../Setup.sol";
 import "../../../contracts/core/market/Market.sol";
 
-/// @notice Regression suite for CRITICAL finding #1 + HIGH finding #2 (.docs/findings.md),
-///         locking in fix variant A (single source of truth for the claimed watermark).
+/// @notice Regression suite for the double-claim across the secondary market, locking in a
+///         single source of truth for the claimed watermark.
 ///
-/// Fix A: `Fundraise.transferPosition` derives the claimed watermark a position carries from
-/// the holder's aggregate (`aggClaimed * posAmount / aggInvested`, rounded up) instead of
-/// reading the stale per-position field that `claim()` never updates. The Market price gate
-/// derives the same value, and `claim()` enforces a per-project solvency backstop
-/// (`projectTotalClaimed[pid] <= totalRepaid`).
+/// `Fundraise.positionClaimed` derives what a position has claimed from the holder's aggregate,
+/// rounded up, instead of reading the stale per-position field that `claim()` never updates.
+/// The transfer and the Market price gate both read it, and `claim()` keeps a per-project
+/// solvency backstop (`projectTotalClaimed[pid] <= totalRepaid`).
 ///
-/// These tests assert the SECURE (post-fix) behavior: a buyer of an already-claimed position
-/// inherits the correct watermark and can claim nothing extra. If finding #1 is ever
-/// reintroduced, they go red.
+/// These tests assert the post-fix behaviour: a buyer of an already-claimed position inherits
+/// the correct watermark and can claim nothing extra. Reintroduce the bug and they go red.
 contract DoubleClaimMarketTest is Setup {
     Market public market;
 
@@ -238,8 +236,66 @@ contract DoubleClaimMarketTest is Setup {
         assertEq(sale.maxReturn, 36_000e6, "maxReturn unchanged");
     }
 
+    /// The watermark a position carries is apportioned from the holder's aggregate and rounded UP,
+    /// in the pool's favour. This is the only place that direction is measured: the test above
+    /// cannot, because one position holding the whole aggregate makes the apportioning an identity
+    /// and the rounding a no-op, and the invariant suite bounds the excess a round-up creates —
+    /// rounding down makes less of it, not more. Here the seller holds three positions and the
+    /// division leaves a remainder, so the pro rata and its direction are both pinned, read off
+    /// the price gate and off what the buyer ends up carrying.
+    function test_theCarriedWatermarkIsApportionedAndRoundedUp() public {
+        uint256 pid = _createProject(10_000e6, 30_000e6);
+        _investAs(investor, pid, 10_000e6, inviter);
+        _investAs(investor, pid, 7_000e6, inviter); // the one that gets sold
+        _investAs(investor, pid, 3_000e6, inviter);
+        _fundProject(pid);
+
+        // One wei past a round number, so 7/20 of it does not divide evenly.
+        uint256 repaid = 10_000e6 + 1;
+        _repay(pid, repaid);
+        vm.prank(investor);
+        fundraise.claim(pid, investor);
+
+        (uint256 aggInvested, uint256 aggClaimed) = fundraise.investorInfo(investor, pid);
+        assertEq(aggClaimed, repaid, "sole investor takes the whole repayment");
+
+        uint256 posInvested = 7_000e6;
+        uint256 expected = Math.mulDiv(aggClaimed, posInvested, aggInvested, Math.Rounding.Ceil);
+        // Strict, so the division really left a remainder and the rounding direction is measured.
+        assertGt(expected * aggInvested, aggClaimed * posInvested, "the case is degenerate, Ceil never bites");
+
+        // Stated independently of positionOwed, so a regression there cannot hide here. The two
+        // scales coincide in this fixture because the seller is the whole pool.
+        uint256 maxReturn = posInvested + (posInvested * INVESTOR_INTEREST) / BASIS_POINTS;
+
+        // Market's number, read off the bound it enforces and off the snapshot it stores.
+        uint256 dl = block.timestamp + 15 minutes;
+        bytes memory sg = _signMarketSell(investor, pid, maxReturn - expected + 1, 1, dl);
+        vm.prank(investor);
+        vm.expectRevert("Price exceeds buyer return");
+        market.sell(pid, maxReturn - expected + 1, 1, dl, sg);
+
+        uint256 saleId = _sellAs(investor, pid, maxReturn - expected, 1);
+        assertEq(market.getSale(saleId).totalClaimed, expected, "Market derived a different watermark");
+
+        // Fundraise's number, read off what the buyer ends up carrying.
+        uint256 price = maxReturn - expected;
+        vm.prank(owner);
+        usdc.mint(investor2, price);
+        bytes memory sig = _signMarketBuy(investor2, saleId);
+        vm.startPrank(investor2);
+        usdc.approve(address(market), price);
+        market.buy(saleId, sig);
+        vm.stopPrank();
+
+        Fundraise.InvestorInfo[] memory bought = fundraise.getInvestorPositions(investor2, pid);
+        assertEq(bought.length, 1, "the buyer carries exactly the position that was sold");
+        assertEq(bought[0].investedAmount, posInvested, "size survived the transfer");
+        assertEq(bought[0].totalClaimed, expected, "Fundraise derived a different watermark than Market");
+    }
+
     // ═══════════════════════════════════════════════════════════════════
-    //  Mandatory CI invariant (findings.md): invest→repay→claim→sell→buy→claim
+    //  Mandatory CI invariant: invest→repay→claim→sell→buy→claim
     //  never pays out more than totalRepaid.
     // ═══════════════════════════════════════════════════════════════════
 
@@ -291,4 +347,81 @@ contract DoubleClaimMarketTest is Setup {
         assertEq(fundraise.projectTotalClaimed(pid), 20_000e6, "counter tracks second round");
         assertLe(fundraise.projectTotalClaimed(pid), _totalRepaid(pid), "still never exceeds repaid");
     }
+
+    /// @dev transferPosition takes index 0 out of the market cell on every buy, and the cell is
+    ///      derived from the sale id, so each lot has its own holding exactly one position. Two
+    ///      lots from the same project prove it: the buyer of the second must get the second
+    ///      position, not whatever sits at index 0 of the seller's own list.
+    function test_buy_theSecondLotDeliversTheSecondPosition() public {
+        uint256 pid = _createProject(10_000e6, 30_000e6);
+        _investAs(investor, pid, 10_000e6, inviter);
+        _investAs(investor, pid, 7_000e6, inviter);
+        _investAs(investor, pid, 3_000e6, inviter);
+        _fundProject(pid);
+
+        uint256 dl = block.timestamp + 15 minutes;
+        vm.startPrank(investor);
+        uint256 first = market.sell(pid, 1_000e6, 1, dl, _signMarketSell(investor, pid, 1_000e6, 1, dl));
+        uint256 second = market.sell(pid, 500e6, 2, dl, _signMarketSell(investor, pid, 500e6, 2, dl));
+        vm.stopPrank();
+        assertTrue(market.getSale(first).marketCell != market.getSale(second).marketCell, "one cell for two lots");
+
+        vm.prank(owner);
+        usdc.mint(investor2, 500e6);
+        bytes memory sig = _signMarketBuy(investor2, second);
+        vm.startPrank(investor2);
+        usdc.approve(address(market), 500e6);
+        market.buy(second, sig);
+        vm.stopPrank();
+
+        Fundraise.InvestorInfo[] memory bought = fundraise.getInvestorPositions(investor2, pid);
+        assertEq(bought.length, 1, "the buyer got more than the lot");
+        assertEq(bought[0].investedAmount, 3_000e6, "the buyer got the wrong position");
+
+        // And the first lot is untouched, still sitting in its own cell.
+        assertEq(
+            fundraise.getInvestorPositions(market.getSale(first).marketCell, pid)[0].investedAmount,
+            7_000e6,
+            "the other lot moved"
+        );
+    }
+
+    function _signMarketSellFor(
+        address caller,
+        address owner_,
+        uint256 projectId,
+        uint256 price,
+        uint256 positionIndex,
+        uint256 deadline
+    ) internal view returns (bytes memory sig) {
+        bytes32 structHash = keccak256(
+            abi.encode(SELL_FOR_TYPEHASH, caller, owner_, projectId, price, positionIndex, deadline)
+        );
+        (uint8 v, bytes32 r, bytes32 s) = vm.sign(backendPk, _eip712(address(market), structHash));
+        sig = abi.encodePacked(r, s, v);
+    }
+
+    /// @notice List as `seller` and name where the proceeds go. The payee is not part of the
+    ///         approval, so this reuses the plain listing signature.
+    function _sellToAs(address seller, uint256 projectId, uint256 price, uint256 positionIndex, address payee)
+        internal
+        returns (uint256 saleId)
+    {
+        uint256 deadline = block.timestamp + 15 minutes;
+        bytes memory sig = _signMarketSell(seller, projectId, price, positionIndex, deadline);
+        vm.prank(seller);
+        return market.sell(projectId, price, positionIndex, payee, deadline, sig);
+    }
+
+    /// @notice List `owner_`'s position from its recovery address `caller`.
+    function _sellForAs(address caller, address owner_, uint256 projectId, uint256 price, uint256 positionIndex)
+        internal
+        returns (uint256 saleId)
+    {
+        uint256 deadline = block.timestamp + 15 minutes;
+        bytes memory sig = _signMarketSellFor(caller, owner_, projectId, price, positionIndex, deadline);
+        vm.prank(caller);
+        return market.sellFor(owner_, projectId, price, positionIndex, deadline, sig);
+    }
+
 }

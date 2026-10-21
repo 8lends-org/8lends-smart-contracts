@@ -38,10 +38,12 @@ contract FundraiseAmlTest is Setup {
         EscrowFactory factoryImpl = new EscrowFactory();
         bytes memory initData = abi.encodeCall(
             EscrowFactory.initialize,
-            (address(escrowImpl), address(fundraise), address(usdc), backend)
+            (address(escrowImpl), address(fundraise), address(usdc), address(managerRegistry))
         );
         ERC1967Proxy proxy = new ERC1967Proxy(address(factoryImpl), initData);
         escrowFactory = EscrowFactory(address(proxy));
+        vm.prank(owner);
+        managerRegistry.setOperatorStatus(backend, true);
 
         vm.prank(owner);
         fundraise.setAmlGateway(address(escrowFactory));
@@ -80,7 +82,7 @@ contract FundraiseAmlTest is Setup {
         address newGateway = makeAddr("newGateway");
         vm.prank(attacker);
         // OwnableUpgradeable reverts with a custom error OwnableUnauthorizedAccount
-        vm.expectRevert();
+        vm.expectRevert(abi.encodeWithSignature("OwnableUnauthorizedAccount(address)", attacker));
         fundraise.setAmlGateway(newGateway);
     }
 
@@ -304,7 +306,4 @@ contract FundraiseAmlTest is Setup {
         assertEq(fundraise.userNonces(investor), 1, "userNonce should be 1");
     }
 
-    // ─────────────────────────────────────────────────────────────────────────
-    // Test 12 — legacy investUpdate still works
-    // ─────────────────────────────────────────────────────────────────────────
 }

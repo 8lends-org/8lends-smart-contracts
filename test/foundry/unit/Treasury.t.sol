@@ -6,7 +6,7 @@ import "../Setup.sol";
 contract TreasuryTest is Setup {
     function test_withdraw_onlyOwner() public {
         vm.prank(attacker);
-        vm.expectRevert();
+        vm.expectRevert(abi.encodeWithSignature("OwnableUnauthorizedAccount(address)", attacker));
         treasury.withdraw(address(usdc), 100e6, attacker);
     }
 

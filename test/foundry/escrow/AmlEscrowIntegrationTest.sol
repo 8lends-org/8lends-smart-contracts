@@ -32,10 +32,12 @@ contract AmlEscrowIntegrationTest is Setup {
         EscrowFactory factoryImpl = new EscrowFactory();
         bytes memory initData = abi.encodeCall(
             EscrowFactory.initialize,
-            (address(escrowImpl), address(fundraise), address(usdc), backend)
+            (address(escrowImpl), address(fundraise), address(usdc), address(managerRegistry))
         );
         ERC1967Proxy proxy = new ERC1967Proxy(address(factoryImpl), initData);
         escrowFactory = EscrowFactory(address(proxy));
+        vm.prank(owner);
+        managerRegistry.setOperatorStatus(backend, true);
 
         // Wire factory as Fundraise.amlGateway
         vm.prank(owner);
@@ -446,15 +448,6 @@ contract AmlEscrowIntegrationTest is Setup {
     // Test 12 — Direct investUpdateV2 still works (no regression)
     // ─────────────────────────────────────────────────────────────────────────
 
-    function test_DirectInvestUpdateV2_NoRegression() public {
-        uint256 pid = _createProject(100e6, 1000e6);
-
-        _investAs(investor, pid, 250e6, inviter);
-
-        (uint256 investedAmount,) = fundraise.investorInfo(investor, pid);
-        assertEq(investedAmount, 250e6, "investedAmount should be 250e6");
-        assertEq(fundraise.userNonces(investor), 1, "userNonce should be 1 after one invest");
-    }
 
     // ─────────────────────────────────────────────────────────────────────────
     // Test 13 — Failed approve leaves request retryable

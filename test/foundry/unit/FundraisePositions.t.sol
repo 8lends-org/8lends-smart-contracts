@@ -20,7 +20,7 @@ contract FundraisePositionsTest is Setup {
     }
 
     // ═══════════════════════════════════════════════════════════════
-    //                    POSITION STORAGE (Task 1.1)
+    //                    POSITION STORAGE
     // ═══════════════════════════════════════════════════════════════
 
     function test_invest_createsSinglePosition() public {
@@ -75,7 +75,7 @@ contract FundraisePositionsTest is Setup {
     }
 
     // ═══════════════════════════════════════════════════════════════
-    //                    TRANSFER POSITION (Task 1.2)
+    //                    TRANSFER POSITION
     // ═══════════════════════════════════════════════════════════════
 
     function test_transferPosition_movesSpecificPosition() public {
@@ -167,7 +167,7 @@ contract FundraisePositionsTest is Setup {
     }
 
     // ═══════════════════════════════════════════════════════════════
-    //                    WITHDRAW + POSITIONS (Task 1.3)
+    //                    WITHDRAW + POSITIONS
     // ═══════════════════════════════════════════════════════════════
 
     function test_withdrawInvestment_clearsPositions() public {
@@ -191,114 +191,5 @@ contract FundraisePositionsTest is Setup {
         assertEq(positions.length, 2, "positions array length preserved");
         assertEq(positions[0].investedAmount, 0, "position 0 zeroed");
         assertEq(positions[1].investedAmount, 0, "position 1 zeroed");
-    }
-
-    // ═══════════════════════════════════════════════════════════════
-    //                    BACKFILL (Task 2.2)
-    // ═══════════════════════════════════════════════════════════════
-
-    function test_backfillPositions_success() public {
-        // Simulate old-style aggregate-only investor by directly setting investorInfo
-        // We invest normally (which creates positions), then test backfill on a different investor
-        // For a clean test: invest as investor, then backfill for investor2 who has aggregate but no positions
-
-        // Invest as investor2 via normal flow (creates positions)
-        _investAs(investor2, pid, 10_000e6, inviter);
-        _investAs(investor2, pid, 5_000e6, inviter);
-
-        // Verify positions were created via invest
-        assertEq(fundraise.getPositionCount(investor2, pid), 2);
-
-        // For backfill test, we need an investor with aggregate but NO positions
-        // We can't simulate this easily in foundry since _invest always creates positions now
-        // Instead, test the backfill on a fresh project where we manually set aggregate via transferInvestment
-
-        // Create a new project and invest as investor
-        uint256 pid2 = _createProject(50_000e6, 100_000e6);
-        _investAs(investor, pid2, 20_000e6, inviter);
-
-        // Transfer the entire aggregate to investor2 via old transferInvestment (no position created for investor2)
-        vm.prank(marketCaller);
-        fundraise.transferInvestment(pid2, investor, investor2, false, 999);
-
-        // investor2 now has aggregate but the positions came from transferInvestment which doesn't create positions in new array
-        // Actually transferInvestment still updates aggregate but doesn't touch _investorPositions for to
-        // Wait — _investAs created positions for investor on pid2, and transferInvestment moved aggregate but not positions
-        // So investor2 has aggregate of 20_000e6 on pid2 but 0 positions
-
-        // Actually let me check: transferInvestment moves entire aggregate. It doesn't touch _investorPositions.
-        // So investor2 gets aggregate = 20k, but _investorPositions[investor2][pid2] is empty.
-        assertEq(fundraise.getPositionCount(investor2, pid2), 0, "no positions from old transfer");
-        (uint256 aggAmount,) = fundraise.investorInfo(investor2, pid2);
-        assertEq(aggAmount, 20_000e6, "aggregate present from transfer");
-
-        // Now backfill
-        uint256[] memory amounts = new uint256[](1);
-        amounts[0] = 20_000e6;
-        vm.prank(manager);
-        fundraise.backfillPositions(investor2, pid2, amounts);
-
-        assertEq(fundraise.getPositionCount(investor2, pid2), 1);
-        Fundraise.InvestorInfo[] memory positions = fundraise.getInvestorPositions(investor2, pid2);
-        assertEq(positions[0].investedAmount, 20_000e6);
-    }
-
-    function test_backfillPositions_revert_sumMismatch() public {
-        uint256 pid2 = _createProject(50_000e6, 100_000e6);
-        _investAs(investor, pid2, 20_000e6, inviter);
-
-        vm.prank(marketCaller);
-        fundraise.transferInvestment(pid2, investor, investor2, false, 999);
-
-        uint256[] memory amounts = new uint256[](1);
-        amounts[0] = 15_000e6; // wrong amount
-        vm.prank(manager);
-        vm.expectRevert(Fundraise.SumMismatchWithAggregate.selector);
-        fundraise.backfillPositions(investor2, pid2, amounts);
-    }
-
-    function test_backfillPositions_revert_alreadyExists() public {
-        _investAs(investor, pid, 5_000e6, inviter);
-
-        // investor already has positions from invest
-        uint256[] memory amounts = new uint256[](1);
-        amounts[0] = 5_000e6;
-        vm.prank(manager);
-        vm.expectRevert(Fundraise.PositionsAlreadyExist.selector);
-        fundraise.backfillPositions(investor, pid, amounts);
-    }
-
-    function test_backfillPositions_revert_notManager() public {
-        uint256[] memory amounts = new uint256[](1);
-        amounts[0] = 1_000e6;
-        vm.prank(attacker);
-        vm.expectRevert(Fundraise.NotAManager.selector);
-        fundraise.backfillPositions(investor, pid, amounts);
-    }
-
-    function test_backfillPositions_revert_investorHasClaimed() public {
-        // Invest enough to hit softCap → fund → partial repay → claim → transfer aggregate
-        _investAs(investor, pid, 20_000e6, inviter);
-        _fundProject(pid);
-        _repay(pid, 5_000e6);
-
-        vm.prank(investor);
-        fundraise.claim(pid, investor);
-
-        // investor now has totalClaimed > 0. Transfer aggregate to investor2 (no positions for investor2)
-        vm.prank(marketCaller);
-        fundraise.transferInvestment(pid, investor, investor2, false, 999);
-
-        // investor2 has aggregate with totalClaimed > 0 but no positions
-        assertEq(fundraise.getPositionCount(investor2, pid), 0);
-        (, uint256 claimed) = fundraise.investorInfo(investor2, pid);
-        assertGt(claimed, 0, "investor2 should have claimed > 0");
-
-        // Backfill should revert
-        uint256[] memory amounts = new uint256[](1);
-        amounts[0] = 20_000e6;
-        vm.prank(manager);
-        vm.expectRevert(Fundraise.InvestorHasClaimed.selector);
-        fundraise.backfillPositions(investor2, pid, amounts);
     }
 }

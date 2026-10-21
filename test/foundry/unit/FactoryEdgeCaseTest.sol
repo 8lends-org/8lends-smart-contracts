@@ -20,10 +20,12 @@ contract FactoryEdgeCaseTest is Setup {
         EscrowFactory factoryImpl = new EscrowFactory();
         bytes memory initData = abi.encodeCall(
             EscrowFactory.initialize,
-            (address(escrowImpl), address(fundraise), address(usdc), backend)
+            (address(escrowImpl), address(fundraise), address(usdc), address(managerRegistry))
         );
         ERC1967Proxy proxy = new ERC1967Proxy(address(factoryImpl), initData);
         escrowFactory = EscrowFactory(address(proxy));
+        vm.prank(owner);
+        managerRegistry.setOperatorStatus(backend, true);
 
         vm.prank(owner);
         fundraise.setAmlGateway(address(escrowFactory));
@@ -60,34 +62,6 @@ contract FactoryEdgeCaseTest is Setup {
         vm.prank(backend);
         vm.expectRevert(bytes("Zero address"));
         escrowFactory.createEscrow(address(0));
-    }
-
-    // ─────────────────────────────────────────────────────────────────────────
-    // GAP-055: setSigner mid-flight: old signer revert, new signer succeed
-    // ─────────────────────────────────────────────────────────────────────────
-
-    function test_GAP055_setSigner_midFlight() public {
-        // GAP-055: setSigner mid-flight: old signer → revert "Not signer", new signer → succeed
-        uint256 pid = _createProject(100e6, 10_000e6);
-        AmlEscrow escrow = _createEscrow(investor);
-        uint256 reqId = _escrowInvest(escrow, investor, pid, 100e6, inviter);
-
-        // Change signer
-        address newSigner = makeAddr("newSigner");
-        vm.prank(escrowFactory.owner());
-        escrowFactory.setSigner(newSigner);
-
-        // Old signer (backend) should fail
-        vm.prank(backend);
-        vm.expectRevert(bytes("Not signer"));
-        escrowFactory.approveInvest(investor, reqId);
-
-        // New signer should succeed
-        vm.prank(newSigner);
-        escrowFactory.approveInvest(investor, reqId);
-
-        (uint256 investedAmount,) = fundraise.investorInfo(investor, pid);
-        assertEq(investedAmount, 100e6);
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -145,7 +119,9 @@ contract FactoryEdgeCaseTest is Setup {
         // Now approveInvest should try to call investFromEscrow on the dummy address
         // which will revert (EOA, no code)
         vm.prank(backend);
-        vm.expectRevert(); // call to non-contract
+        // Left without a selector on purpose: the target is an EOA, so the call reverts on the
+        // compiler's extcodesize check with no revert data to match against.
+        vm.expectRevert();
         escrowFactory.approveInvest(investor, reqId);
 
         // Restore original fundraise
@@ -182,10 +158,14 @@ contract FactoryEdgeCaseTest is Setup {
 
         uint256 pid = _createProject(100e6, 10_000e6);
 
-        // invest() reads f.usdc() which now returns newUsdc
-        // safeTransferFrom(investor, escrow, 100e6) on newUsdc will fail because investor has no newUsdc balance
+        // invest() reads f.usdc(), which now returns newUsdc. The approve above was given on the
+        // old token, so the pull stops at the allowance and never reaches the balance check.
         vm.prank(investor);
-        vm.expectRevert(); // ERC20 transfer fails — no balance
+        vm.expectRevert(
+            abi.encodeWithSignature(
+                "ERC20InsufficientAllowance(address,uint256,uint256)", address(escrow), 0, 100e6
+            )
+        );
         escrow.invest(pid, 100e6, inviter);
     }
 }

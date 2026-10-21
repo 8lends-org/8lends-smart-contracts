@@ -16,8 +16,49 @@ contract SetterImprovementsTest is Setup {
         address newSigner = makeAddr("newSigner");
         vm.expectEmit(false, false, false, true, address(fundraise));
         emit Fundraise.TrustedSignerUpdated(newSigner);
-        vm.prank(manager);
+        vm.prank(owner);
         fundraise.setTrustedSigner(newSigner);
+    }
+
+    /// @dev What revoking actually costs, so nobody reaches for it as a routine stop: every path
+    ///      that carries a signature shuts. The escrow and mandate routes have none and keep going.
+    function test_zeroingTheSignerStopsSignedInvesting() public {
+        uint256 pid = _createProject(1_000e6, 10_000e6);
+        uint256 nonce = fundraise.userNonces(investor) + 1;
+        bytes memory sig = _signInvest(investor, pid, 1_000e6, nonce, address(0));
+
+        vm.prank(owner);
+        fundraise.setTrustedSigner(address(0));
+
+        vm.prank(owner);
+        usdc.mint(investor, 1_000e6);
+        vm.prank(investor);
+        usdc.approve(address(fundraise), 1_000e6);
+
+        vm.prank(investor);
+        vm.expectRevert(Fundraise.NotTrustedSigner.selector);
+        fundraise.investUpdateV2(pid, 1_000e6, nonce, sig, address(0));
+    }
+
+    /// @dev Appointing waits for the Safe; revoking must not. Zero is the revocation, which is why
+    ///      the zero-address guard is gone from this one setter.
+    function test_fundraise_setTrustedSigner_isAppointedByOwner_revokedByAdminToo() public {
+        address admin = makeAddr("admin");
+        vm.prank(owner);
+        managerRegistry.setAdminStatus(admin, true);
+
+        vm.prank(manager);
+        vm.expectRevert(Fundraise.NotAllowed.selector);
+        fundraise.setTrustedSigner(makeAddr("newSigner"));
+
+        // Not even the admin may appoint one.
+        vm.prank(admin);
+        vm.expectRevert(Fundraise.NotAllowed.selector);
+        fundraise.setTrustedSigner(makeAddr("newSigner"));
+
+        vm.prank(admin);
+        fundraise.setTrustedSigner(address(0));
+        assertEq(fundraise.trustedSigner(), address(0));
     }
 
     function test_fundraise_setManagerRegistry_emitsEvent() public {
@@ -47,12 +88,6 @@ contract SetterImprovementsTest is Setup {
     // ═══════════════════════════════════════════════════════════════
     //                    FUNDRAISE — ZERO-ADDRESS CHECKS
     // ═══════════════════════════════════════════════════════════════
-
-    function test_fundraise_setTrustedSigner_revertsOnZeroAddress() public {
-        vm.prank(manager);
-        vm.expectRevert(Fundraise.ZeroAddress.selector);
-        fundraise.setTrustedSigner(address(0));
-    }
 
     function test_fundraise_setManagerRegistry_revertsOnZeroAddress() public {
         vm.prank(owner);

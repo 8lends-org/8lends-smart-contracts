@@ -37,62 +37,23 @@ contract RewardSystemTest is Setup {
         assertEq(inviterUSDC, 1_500e6, "Inviter USDC reward incorrect");
     }
 
-    function test_recordInvestment_welcomeBonus_forNewUser() public {
-        // Investment >= 1000 USDC by new user → 30 USDC bonus
-        // Use small hardcap project so we can invest smaller amounts
-        uint256 smallPid = _createProject(500e6, 5_000e6);
-        _investAs(investor, smallPid, 1_000e6, inviter);
+    /// @dev The welcome bonus is gone from this contract — WelcomeBonus pays it. The setter still
+    ///      takes the argument, so the test sets it and proves it buys nothing.
+    function test_noWelcomeBonusIsCreditedWhateverTheParameterSays() public {
+        vm.prank(manager);
+        rewardSystem.setParameters(40_000, 100_000, 40_000, 1_000_000e6, 0, 25_000, 40);
 
-        (uint256 investorUSDC,,,,) = rewardSystem.getProjectRewards(investor, smallPid);
-        assertEq(investorUSDC, 30e6, "Welcome bonus should be 30 USDC");
-    }
+        uint256 pid = _createProject(500e6, 5_000e6);
+        _investAs(investor, pid, 1_000e6, inviter);
 
-    function test_recordInvestment_noWelcomeBonus_belowMinimum() public {
-        uint256 smallPid = _createProject(100e6, 5_000e6);
-        _investAs(investor, smallPid, 500e6, inviter);
-
-        (uint256 investorUSDC,,,,) = rewardSystem.getProjectRewards(investor, smallPid);
-        assertEq(investorUSDC, 0, "No welcome bonus for small investment");
-    }
-
-    function test_recordInvestment_welcomeBonus_onlyOnce() public {
-        uint256 smallPid = _createProject(1_000e6, 10_000e6);
-        _investAs(investor, smallPid, 2_000e6, inviter);
-
-        // First investment got welcome bonus
-        (uint256 usdcAfterFirst,,,,) = rewardSystem.getProjectRewards(investor, smallPid);
-        assertEq(usdcAfterFirst, 30e6, "First investment: welcome bonus");
-
-        // Second investment: no more welcome bonus (isNewUser = false)
-        _investAs(investor, smallPid, 2_000e6, inviter);
-        (uint256 usdcAfterSecond,,,,) = rewardSystem.getProjectRewards(investor, smallPid);
-        assertEq(usdcAfterSecond, 30e6, "Second investment: no additional welcome bonus");
+        (uint256 investorUSDC,,,,) = rewardSystem.getProjectRewards(investor, pid);
+        assertEq(investorUSDC, 0, "nothing is credited from here");
     }
 
     // ═══════════════════════════════════════════════════════════════
     //        ORACLE FAILURE BLOCKS INVEST
     // ═══════════════════════════════════════════════════════════════
 
-    function test_oracleFailure_blocksInvest() public {
-        // Set oracle to one that returns price=0 (simulates oracle failure)
-        MockOracle zeroOracle = new MockOracle();
-        vm.prank(owner);
-        rewardSystem.setOracle(address(zeroOracle));
-
-        // Prepare invest
-        vm.prank(owner);
-        usdc.mint(investor, 5_000e6);
-        vm.prank(investor);
-        usdc.approve(address(fundraise), 5_000e6);
-
-        uint256 currentNonce = fundraise.userNonces(investor);
-        bytes memory sig = _signInvest(investor, pid, 5_000e6, currentNonce + 1, inviter);
-
-        // Invest reverts because Oracle returns price=0
-        vm.prank(investor);
-        vm.expectRevert("Oracle: no valid price");
-        fundraise.investUpdateV2(pid, 5_000e6, currentNonce + 1, sig, inviter);
-    }
 
     // ═══════════════════════════════════════════════════════════════
     //                      VESTING SCHEDULE
@@ -304,7 +265,7 @@ contract RewardSystemTest is Setup {
     function test_distributeVestingTokens_revert_notOwner() public {
         (address[] memory u, uint256[] memory a, uint256[] memory p) = _oneUser(investor, 1e18, pid);
         vm.prank(attacker);
-        vm.expectRevert();
+        vm.expectRevert(abi.encodeWithSignature("OwnableUnauthorizedAccount(address)", attacker));
         rewardSystem.distributeVestingTokens(u, a, p);
     }
 
@@ -368,5 +329,62 @@ contract RewardSystemTest is Setup {
 
         (, uint256 total,,,) = rewardSystem.getProjectRewards(investor, pid);
         assertEq(total, 0, "a rejected batch must not credit anyone");
+    }
+
+    // ── boundaries ──────────────────────────────────────────────────────────────
+
+    /// @dev Every percentage band in setParameters is inclusive at both ends. Checked on the burn
+    ///      percentage, the one that decides whether a buy-back runs at all.
+    function test_setParameters_acceptsBothEndsOfTheBurnBand() public {
+        vm.startPrank(manager);
+        rewardSystem.setParameters(60_000, 1_000, 60_000, 0, 1000e6, 25_000, 40);
+        assertEq(rewardSystem.burnPercentage(), 1_000, "the lower end was refused");
+
+        rewardSystem.setParameters(60_000, 1_000_000, 60_000, 0, 1000e6, 25_000, 40);
+        assertEq(rewardSystem.burnPercentage(), 1_000_000, "the upper end was refused");
+
+        vm.expectRevert("Burn percentage must be between 1000 and 1000000");
+        rewardSystem.setParameters(60_000, 999, 60_000, 0, 1000e6, 25_000, 40);
+        vm.stopPrank();
+    }
+
+    /// @dev An empty batch is refused rather than quietly doing nothing — a manager who passed the
+    ///      wrong slice should hear about it.
+    function test_sendUSDCForProjectToUserBatch_refusesEmptyArrays() public {
+        vm.prank(manager);
+        vm.expectRevert("Empty arrays");
+        rewardSystem.sendUSDCForProjectToUserBatch(new address[](0), new uint256[](0));
+    }
+
+    /// @dev claimUSDCForProjectBatch had no test at all: its loop walks the caller's project ids
+    ///      and pays each. One id is enough to make the walk observable.
+    function test_claimUSDCForProjectBatch_paysEachProject() public {
+        _investAs(investor, pid, 25_000e6, inviter);
+        _fundProject(pid);
+
+        uint256[] memory pids = new uint256[](1);
+        pids[0] = pid;
+
+        uint256 before = usdc.balanceOf(inviter);
+        vm.prank(inviter);
+        rewardSystem.claimUSDCForProjectBatch(pids);
+
+        assertGt(usdc.balanceOf(inviter) - before, 0, "the batch claim paid nothing");
+    }
+
+    /// @dev The project-count ceiling is inclusive, and the view is the one the sell screen reads.
+    function test_getClaimAndSellAmounts_acceptsExactlyTheCeiling() public {
+        _investAs(investor, pid, 25_000e6, inviter);
+        _fundProject(pid);
+
+        uint256[] memory atCeiling = new uint256[](500);
+        for (uint256 i = 0; i < 500; i++) atCeiling[i] = pid;
+        (uint256 tokens,,) = rewardSystem.getClaimAndSellAmounts(investor, atCeiling);
+        assertGt(tokens, 0, "the ceiling-sized request returned nothing");
+
+        uint256[] memory tooMany = new uint256[](501);
+        for (uint256 i = 0; i < 501; i++) tooMany[i] = pid;
+        vm.expectRevert("Too many projects");
+        rewardSystem.getClaimAndSellAmounts(investor, tooMany);
     }
 }

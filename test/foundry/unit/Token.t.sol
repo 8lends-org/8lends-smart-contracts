@@ -64,7 +64,7 @@ contract TokenTest is Setup {
 
     function test_mint_onlyOwner() public {
         vm.prank(attacker);
-        vm.expectRevert();
+        vm.expectRevert(abi.encodeWithSignature("OwnableUnauthorizedAccount(address)", attacker));
         token.mint(attacker, 100e18);
     }
 

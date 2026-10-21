@@ -29,3 +29,6 @@ safe-upgrade-*.json
 safe-tx-*.json
 DRY-RUN-*.json
 safe-batch-*.json
+
+# Local Claude Code settings and skills
+.claude/

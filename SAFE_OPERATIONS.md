@@ -102,8 +102,8 @@ through the repository.
   record loses its `build` settings — the explorer is where they are read from.
 - The Safe needs ETH for gas on execution.
 - Long calldata is normal for an upgrade.
-- "Not owner" on execution means the Safe is not the contract's owner — check with
-  `scripts/tools/check_owner.ts`.
+- "Not owner" on execution means the Safe is not the contract's owner — read `owner()` on the
+  proxy in BaseScan and compare it with the Safe address.
 - If Transaction Builder will not load, **New transaction** → **Contract interaction** takes the
   proxy address, the method `upgradeToAndCall` and its two arguments by hand.
 

@@ -97,22 +97,10 @@ async function main(): Promise<void> {
         () => factory.setUsdc(config.USDC as string)
     );
 
-    // signer (backend AML approver).
-    // NB: factory.signer collides with ethers v6 built-in `Contract.signer` —
-    // typechain hides it from the typed surface, so we read it via getFunction().
-    const desiredSigner = config.escrowSigner || config.trustedSigner;
-    if (desiredSigner) {
-        const readSigner = factory.getFunction("signer") as unknown as () => Promise<string>;
-        const currentSigner = await readSigner();
-        await sendIfChanged(
-            "signer",
-            currentSigner,
-            desiredSigner,
-            () => factory.setSigner(desiredSigner)
-        );
-    } else {
-        console.log("   ⚠️  No escrowSigner/trustedSigner in config — skipping signer update");
-    }
+    // The AML approver is the operator role in ManagerRegistry now, not a field here: approveInvest
+    // and rejectInvest read isOperator. Granting and revoking it is setOperatorStatus, so there is
+    // nothing for this script to reconcile — the stored `signer` only answers until the registry is
+    // wired in and is no longer settable.
 
     // min/max invest amounts must satisfy: min <= max AT ALL TIMES.
     // To avoid intermediate-state reverts, order operations correctly:

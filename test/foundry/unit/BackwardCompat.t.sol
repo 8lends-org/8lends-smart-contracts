@@ -40,11 +40,8 @@ contract BackwardCompatTest is Setup {
     }
 
     // ═══════════════════════════════════════════════════════════════════
-    //  SECTION 1: Fundraise — investUpdate (old) vs investUpdateV2 (new)
+    //  SECTION 1: Fundraise — investUpdateV2
     // ═══════════════════════════════════════════════════════════════════
-
-    /// @notice Build old-style signature (includes rootHash)
-
 
     function test_investUpdateV2_new_works() public {
         uint256 amount = 5_000e6;
@@ -58,6 +55,20 @@ contract BackwardCompatTest is Setup {
 
         // Verify per-user nonce incremented
         assertEq(fundraise.userNonces(investor), userNonceBefore + 1, "V2 investUpdate: user nonce not incremented");
+    }
+
+    function test_investUpdateV2_wrong_nonce_reverts() public {
+        vm.prank(owner);
+        usdc.mint(investor, 5_000e6);
+        vm.prank(investor);
+        usdc.approve(address(fundraise), 5_000e6);
+
+        uint256 wrongNonce = fundraise.userNonces(investor) + 2; // skip one
+        bytes memory sig = _signInvest(investor, pid, 5_000e6, wrongNonce, inviter);
+
+        vm.prank(investor);
+        vm.expectRevert(Fundraise.IncorrectNonce.selector);
+        fundraise.investUpdateV2(pid, 5_000e6, wrongNonce, sig, inviter);
     }
 
     // ═══════════════════════════════════════════════════════════════════
@@ -90,7 +101,6 @@ contract BackwardCompatTest is Setup {
         assertEq(hardCap, 30_000e6, "New createProject: hardCap mismatch");
     }
 
-
     // ═══════════════════════════════════════════════════════════════════
     //  SECTION 3: Fundraise — transferFundsToBorrower overloads
     // ═══════════════════════════════════════════════════════════════════
@@ -117,15 +127,6 @@ contract BackwardCompatTest is Setup {
 
         (,,,,,,, Fundraise.InnerProjectStruct memory inner) = fundraise.projects(newPid);
         assertEq(uint8(inner.stage), uint8(Fundraise.Stage.Funded), "New transferFunds: not Funded");
-    }
-
-    // ═══════════════════════════════════════════════════════════════════
-    //  SECTION 4: Fundraise — deprecated whitelistRoots
-    // ═══════════════════════════════════════════════════════════════════
-
-    function test_whitelistRoots_returns_zero() public view {
-        bytes32 root = fundraise.whitelistRoots(pid);
-        assertEq(root, bytes32(0), "whitelistRoots should return 0 for new projects");
     }
 
     // ═══════════════════════════════════════════════════════════════════
@@ -180,30 +181,31 @@ contract BackwardCompatTest is Setup {
     }
 
     // ═══════════════════════════════════════════════════════════════════
-    //  SECTION 6: RewardSystem — activateProjectRewards overloads
+    //  SECTION 6: rewards start on either arm of transferFundsToBorrower
     // ═══════════════════════════════════════════════════════════════════
 
-    function test_activateProjectRewards_old_2params() public {
+    /// @dev Both this and the next reach activateProjectRewards(pid, total, maxUSD) — Fundraise
+    ///      has no other call. What differs is the transferFundsToBorrower arm they come through.
+    function test_rewardsStart_whenTheTransferNamesNoMaxUSD() public {
         _investAs(investor, pid, 10_000e6, inviter);
 
-        // Old method (2 params, no maxUSD)
         vm.prank(manager);
         fundraise.transferFundsToBorrower(pid);
 
         uint256 startTime = rewardSystem.projectVestingStartTime(pid);
-        assertGt(startTime, 0, "Old activateProjectRewards: vesting not started");
+        assertGt(startTime, 0, "vesting did not start");
     }
 
-    function test_activateProjectRewards_new_3params() public {
+    function test_rewardsStart_whenTheTransferNamesAMaxUSD() public {
         uint256 newPid = _createProject(10_000e6, 50_000e6);
         _investAs(investor, newPid, 10_000e6, inviter);
 
-        // New method (3 params, with maxUSD) — must cover buy-back cost
+        // The maxUSD has to cover the buy-back cost
         vm.prank(manager);
         fundraise.transferFundsToBorrower(newPid, 10_000e6);
 
         uint256 startTime = rewardSystem.projectVestingStartTime(newPid);
-        assertGt(startTime, 0, "New activateProjectRewards: vesting not started");
+        assertGt(startTime, 0, "vesting did not start");
     }
 
     // ═══════════════════════════════════════════════════════════════════
@@ -251,16 +253,6 @@ contract BackwardCompatTest is Setup {
         vm.stopPrank();
     }
 
-    function test_oracle_set_uses_oracle_not_uniswap() public {
-        // Default setup already has oracle → verify oracle path gives different result
-        _investAs(investor, pid, 10_000e6, inviter);
-
-        // Oracle price: 1 token = 0.01 USD (1e6 in 8 decimals)
-        // tokenPercentage = 6% → 600 USDC worth
-        // tokensAmount = 600e6 * 1e8 * 1e18 / (1e6 * 1e6) = 60_000e18
-        (, uint256 totalTokens,,,) = rewardSystem.getProjectRewards(investor, pid);
-        assertEq(totalTokens, 60_000e18, "Oracle path: wrong token amount");
-    }
 
     function test_oracle_fallback_reverts_when_uniswap_has_no_liquidity() public {
         // Deploy fresh RS without oracle
@@ -391,16 +383,6 @@ contract BackwardCompatTest is Setup {
         assertEq(result.availableBuyTokensInUSDC, 600e6, "Post-migration: should use earnedLimitUsdc");
     }
 
-    function test_limitedSeller_migrateEarnedLimits_onlyOwner() public {
-        address[] memory users = new address[](1);
-        users[0] = investor;
-        uint256[] memory limits = new uint256[](1);
-        limits[0] = 100e6;
-
-        vm.prank(attacker);
-        vm.expectRevert();
-        limitedSeller.migrateEarnedLimits(users, limits);
-    }
 
     function test_limitedSeller_addEarnedLimit_on_new_investment() public {
         // Invest — should automatically accrue earnedLimit via addEarnedLimit

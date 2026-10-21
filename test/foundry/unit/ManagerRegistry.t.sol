@@ -8,29 +8,56 @@ contract ManagerRegistryTest is Setup {
     //                     ROLE MANAGEMENT
     // ═══════════════════════════════════════════════════════════════
 
-    function test_setManagerStatus_ownerOrManager() public {
-        // Random address cannot set manager status.
+    function test_setAdminStatus_emitsAndOnlyOwnerMayCall() public {
+        address admin = makeAddr("admin");
+
+        vm.expectEmit(true, false, false, true, address(managerRegistry));
+        emit ManagerRegistry.AdminUpdated(admin, true);
+        vm.prank(owner);
+        managerRegistry.setAdminStatus(admin, true);
+        assertTrue(managerRegistry.isAdmin(admin));
+    }
+
+    function test_setManagerStatus_ownerOrAdmin() public {
         vm.prank(attacker);
-        vm.expectRevert();
+        vm.expectRevert("ManagerRegistry: Not authorized");
         managerRegistry.setManagerStatus(attacker, true);
 
-        // Existing manager can set manager status.
+        // A manager no longer reaches the list he is on.
         vm.prank(manager);
+        vm.expectRevert("ManagerRegistry: Not authorized");
+        managerRegistry.setManagerStatus(attacker, true);
+
+        address admin = makeAddr("admin");
+        vm.prank(owner);
+        managerRegistry.setAdminStatus(admin, true);
+
+        vm.prank(admin);
         managerRegistry.setManagerStatus(attacker, true);
         assertTrue(managerRegistry.managers(attacker));
     }
 
-    function test_managerCanPromoteOtherManager() public {
-        address newManager = makeAddr("newManager");
+    function test_setManagerStatusBatch_ownerOrAdmin() public {
+        address[] memory who = new address[](1);
+        who[0] = makeAddr("newManager");
+        bool[] memory statuses = new bool[](1);
+        statuses[0] = true;
 
         vm.prank(manager);
-        managerRegistry.setManagerStatus(newManager, true);
-        assertTrue(managerRegistry.managers(newManager));
+        vm.expectRevert("ManagerRegistry: Not authorized");
+        managerRegistry.setManagerStatusBatch(who, statuses);
+
+        vm.prank(owner);
+        managerRegistry.setManagerStatusBatch(who, statuses);
+        assertTrue(managerRegistry.managers(who[0]));
     }
 
-    function test_isManager_includesRewardSystem() public view {
-        // RewardSystem address counts as a manager (line 119 of ManagerRegistry.sol)
-        assertTrue(managerRegistry.isManager(address(rewardSystem)));
+    /// @dev The reward system used to pass isManager by address. It never called an isManager
+    ///      gate — Rewards2 does the same work and never had the clause — and it hid a manager
+    ///      from the mapping and from ManagerUpdated, which is how the production list was read.
+    function test_isManager_doesNotIncludeTheRewardSystem() public view {
+        assertFalse(managerRegistry.isManager(address(rewardSystem)));
+        assertTrue(managerRegistry.isRewardSystem(address(rewardSystem)));
     }
 
     function test_isRewardSystem_includesRewards2() public view {
@@ -54,20 +81,30 @@ contract ManagerRegistryTest is Setup {
     /// Managers are self-expanding (see test_managerCanPromoteOtherManager). Operators are
     /// deliberately not: only the owner grants them. If this ever fails because someone
     /// "made it consistent with the rest of the file", the role is back to drifting.
-    function test_setOperatorStatus_onlyOwner_notManager() public {
+    /// @dev Granting and revoking are deliberately split: handing a key out waits for the second
+    ///      signature, taking one away must work alone while an incident is running.
+    function test_setOperatorStatus_grantedByOwner_revokedByAdminToo() public {
         address newOperator = makeAddr("newOperator");
+        address admin = makeAddr("admin");
+        vm.prank(owner);
+        managerRegistry.setAdminStatus(admin, true);
 
         vm.prank(manager);
-        vm.expectRevert();
+        vm.expectRevert("ManagerRegistry: Not authorized");
         managerRegistry.setOperatorStatus(newOperator, true);
 
-        vm.prank(attacker);
-        vm.expectRevert();
+        // Not even the admin may hand the role out.
+        vm.prank(admin);
+        vm.expectRevert("ManagerRegistry: Not authorized");
         managerRegistry.setOperatorStatus(newOperator, true);
 
         vm.prank(owner);
         managerRegistry.setOperatorStatus(newOperator, true);
         assertTrue(managerRegistry.isOperator(newOperator));
+
+        vm.prank(admin);
+        managerRegistry.setOperatorStatus(newOperator, false);
+        assertFalse(managerRegistry.isOperator(newOperator));
     }
 
     /// Grant and revoke, state and event in both directions. Rotation of a backend key is
@@ -111,7 +148,7 @@ contract ManagerRegistryTest is Setup {
 
     function test_setPoolStatus_onlyOwner() public {
         vm.prank(attacker);
-        vm.expectRevert();
+        vm.expectRevert(abi.encodeWithSignature("OwnableUnauthorizedAccount(address)", attacker));
         managerRegistry.setPoolStatus(attacker, true);
     }
 
@@ -125,24 +162,151 @@ contract ManagerRegistryTest is Setup {
     //                 INVESTOR CLAIM ADDRESS
     // ═══════════════════════════════════════════════════════════════
 
-    function test_claimAddress_defaultsToInvestor() public view {
-        address result = managerRegistry.getInvestorClaimAddress(investor);
-        assertEq(result, investor);
-    }
-
-    function test_claimAddress_returnsOverride_whenSet() public {
-        address alt = makeAddr("altClaim");
-
-        vm.prank(owner);
-        managerRegistry.setInvestorClaimAddress(investor, alt);
-
-        assertEq(managerRegistry.getInvestorClaimAddress(investor), alt);
-    }
-
     function test_setClaimAddress_onlyOwner() public {
         vm.prank(attacker);
-        vm.expectRevert();
+        vm.expectRevert(abi.encodeWithSignature("OwnableUnauthorizedAccount(address)", attacker));
         managerRegistry.setInvestorClaimAddress(investor, attacker);
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    //                 RECOVERY CHAINS
+    // ═══════════════════════════════════════════════════════════════
+
+    /// Three successive incidents on one user: A stolen -> B, B stolen -> C, C stolen -> D. Support
+    /// reports each one by whichever address it knows, so the calls come in as (A,B), (B,C), (C,D).
+    function _chain() internal returns (address b, address c, address d) {
+        b = makeAddr("walletB");
+        c = makeAddr("walletC");
+        d = makeAddr("walletD");
+
+        vm.startPrank(owner);
+        managerRegistry.setInvestorClaimAddress(investor, b);
+        managerRegistry.setInvestorClaimAddress(b, c);
+        managerRegistry.setInvestorClaimAddress(c, d);
+        vm.stopPrank();
+    }
+
+    function test_recipientOf_resolvesFromAnyAddressOfTheChain() public {
+        (address b, address c, address d) = _chain();
+
+        assertEq(managerRegistry.recipientOf(investor), d);
+        assertEq(managerRegistry.recipientOf(b), d);
+        assertEq(managerRegistry.recipientOf(c), d);
+        assertEq(managerRegistry.recipientOf(d), d);
+        // No chain at all: the caller needs no fallback of its own.
+        assertEq(managerRegistry.recipientOf(attacker), attacker);
+    }
+
+    /// The forward mapping stays keyed by the first address, so the chain never needs a walk.
+    function test_chain_staysFlat() public {
+        (address b, address c, address d) = _chain();
+
+        assertEq(managerRegistry.canonicalOf(b), investor);
+        assertEq(managerRegistry.canonicalOf(c), investor);
+        assertEq(managerRegistry.canonicalOf(d), investor);
+        assertEq(managerRegistry.canonicalOf(investor), address(0));
+    }
+
+    function test_isCompromised_trueForSupersededOnly() public {
+        (address b, address c, address d) = _chain();
+
+        assertTrue(managerRegistry.isCompromised(investor));
+        assertTrue(managerRegistry.isCompromised(b));
+        assertTrue(managerRegistry.isCompromised(c));
+        // The live address is NOT compromised — flagging it would lock the user out of the market.
+        assertFalse(managerRegistry.isCompromised(d));
+        assertFalse(managerRegistry.isCompromised(attacker));
+    }
+
+    /// getInvestorClaimAddress is an alias for recipientOf, so the chain resolves the same way
+    /// through either name. It used to answer b for b and c for c — the two links that were
+    /// superseded — and the contracts paying through it would have paid into a stolen wallet.
+    function test_getInvestorClaimAddress_resolvesTheWholeChain() public {
+        (address b, address c, address d) = _chain();
+
+        assertEq(managerRegistry.getInvestorClaimAddress(investor), d);
+        assertEq(managerRegistry.getInvestorClaimAddress(b), d, "a superseded link still paid out");
+        assertEq(managerRegistry.getInvestorClaimAddress(c), d, "a superseded link still paid out");
+        assertEq(managerRegistry.getInvestorClaimAddress(d), d);
+        assertEq(managerRegistry.getInvestorClaimAddress(attacker), attacker);
+
+        // And the two names cannot drift apart.
+        assertEq(managerRegistry.getInvestorClaimAddress(b), managerRegistry.recipientOf(b));
+        assertEq(managerRegistry.getInvestorClaimAddress(attacker), managerRegistry.recipientOf(attacker));
+    }
+
+    function test_setClaimAddress_rejectsAddressAlreadyInAChain() public {
+        (address b,, address d) = _chain();
+
+        vm.startPrank(owner);
+        // Superseded address of this chain.
+        vm.expectRevert("Claim address already in a chain");
+        managerRegistry.setInvestorClaimAddress(d, b);
+
+        // Head of another user's chain.
+        address other = makeAddr("otherUser");
+        address otherNew = makeAddr("otherUserNew");
+        managerRegistry.setInvestorClaimAddress(other, otherNew);
+        vm.expectRevert("Claim address already in a chain");
+        managerRegistry.setInvestorClaimAddress(d, other);
+        vm.stopPrank();
+    }
+
+    function test_setClaimAddress_rejectsSelf() public {
+        (address b,,) = _chain();
+
+        vm.startPrank(owner);
+        vm.expectRevert("Claim address is the investor");
+        managerRegistry.setInvestorClaimAddress(investor, investor);
+
+        // Same guard, reached through the chain: b resolves to investor.
+        vm.expectRevert("Claim address is the investor");
+        managerRegistry.setInvestorClaimAddress(b, investor);
+        vm.stopPrank();
+    }
+
+    function test_setClaimAddress_emitsCanonicalNotTheAddressPassedIn() public {
+        address b = makeAddr("walletB");
+        address c = makeAddr("walletC");
+
+        vm.startPrank(owner);
+        managerRegistry.setInvestorClaimAddress(investor, b);
+
+        // Reported as (b, c), but indexers must see the canonical key.
+        vm.expectEmit(true, true, false, false, address(managerRegistry));
+        emit ManagerRegistry.InvestorClaimAddressSet(investor, c);
+        managerRegistry.setInvestorClaimAddress(b, c);
+        vm.stopPrank();
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    //                 MANDATE FACTORY
+    // ═══════════════════════════════════════════════════════════════
+
+    function test_mandateFactory_unsetUntilWritten() public {
+        assertEq(managerRegistry.mandateFactory(), address(0));
+
+        vm.prank(owner);
+        vm.expectRevert("Invalid mandateFactory");
+        managerRegistry.setMandateFactory(address(0));
+
+        address factory = makeAddr("mandateFactory");
+        vm.prank(owner);
+        managerRegistry.setMandateFactory(factory);
+        assertEq(managerRegistry.mandateFactory(), factory);
+    }
+
+    function test_setMandateFactory_onlyOwner() public {
+        address factory = makeAddr("mandateFactory");
+
+        vm.prank(attacker);
+        vm.expectRevert(abi.encodeWithSignature("OwnableUnauthorizedAccount(address)", attacker));
+        managerRegistry.setMandateFactory(factory);
+
+        // Not even a manager.
+        vm.prank(manager);
+        vm.expectRevert(abi.encodeWithSignature("OwnableUnauthorizedAccount(address)", manager));
+        managerRegistry.setMandateFactory(factory);
     }
 
     // ═══════════════════════════════════════════════════════════════

@@ -8,6 +8,17 @@
     "inputs": [
       {
         "internalType": "address",
+        "name": "user",
+        "type": "address"
+      }
+    ],
+    "name": "AccountFrozen",
+    "type": "error"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "address",
         "name": "target",
         "type": "address"
       }
@@ -23,16 +34,6 @@
   {
     "inputs": [],
     "name": "AddressZeroTo",
-    "type": "error"
-  },
-  {
-    "inputs": [],
-    "name": "AmountMustBePositive",
-    "type": "error"
-  },
-  {
-    "inputs": [],
-    "name": "ArrayLengthMismatch",
     "type": "error"
   },
   {
@@ -105,11 +106,6 @@
   },
   {
     "inputs": [],
-    "name": "FromNotFoundInProject",
-    "type": "error"
-  },
-  {
-    "inputs": [],
     "name": "HardCapMustBePositive",
     "type": "error"
   },
@@ -141,11 +137,6 @@
   {
     "inputs": [],
     "name": "InvestmentExceedsHardCap",
-    "type": "error"
-  },
-  {
-    "inputs": [],
-    "name": "InvestorHasClaimed",
     "type": "error"
   },
   {
@@ -185,12 +176,22 @@
   },
   {
     "inputs": [],
+    "name": "NoMandateFactory",
+    "type": "error"
+  },
+  {
+    "inputs": [],
     "name": "NotAManager",
     "type": "error"
   },
   {
     "inputs": [],
     "name": "NotAMarket",
+    "type": "error"
+  },
+  {
+    "inputs": [],
+    "name": "NotAllowed",
     "type": "error"
   },
   {
@@ -206,6 +207,22 @@
   {
     "inputs": [],
     "name": "NotInitializing",
+    "type": "error"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "address",
+        "name": "investor",
+        "type": "address"
+      },
+      {
+        "internalType": "address",
+        "name": "caller",
+        "type": "address"
+      }
+    ],
+    "name": "NotMandateOf",
     "type": "error"
   },
   {
@@ -257,11 +274,6 @@
   },
   {
     "inputs": [],
-    "name": "PositionsAlreadyExist",
-    "type": "error"
-  },
-  {
-    "inputs": [],
     "name": "PreFundDurationMustBePositive",
     "type": "error"
   },
@@ -281,6 +293,17 @@
     "type": "error"
   },
   {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "projectId",
+        "type": "uint256"
+      }
+    ],
+    "name": "ProjectIsRouted",
+    "type": "error"
+  },
+  {
     "inputs": [],
     "name": "ProjectNotCanceled",
     "type": "error"
@@ -291,8 +314,14 @@
     "type": "error"
   },
   {
-    "inputs": [],
-    "name": "ProjectNotInFundedStage",
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "projectId",
+        "type": "uint256"
+      }
+    ],
+    "name": "ProjectNotRouted",
     "type": "error"
   },
   {
@@ -349,11 +378,6 @@
   },
   {
     "inputs": [],
-    "name": "SumMismatchWithAggregate",
-    "type": "error"
-  },
-  {
-    "inputs": [],
     "name": "TotalInvestedMustBeZero",
     "type": "error"
   },
@@ -387,19 +411,6 @@
     "inputs": [],
     "name": "ZeroAddress",
     "type": "error"
-  },
-  {
-    "anonymous": false,
-    "inputs": [
-      {
-        "indexed": false,
-        "internalType": "uint256",
-        "name": "count",
-        "type": "uint256"
-      }
-    ],
-    "name": "AllTimeInvestedUSDMigrated",
-    "type": "event"
   },
   {
     "anonymous": false,
@@ -514,6 +525,37 @@
       {
         "indexed": true,
         "internalType": "address",
+        "name": "investor",
+        "type": "address"
+      },
+      {
+        "indexed": true,
+        "internalType": "address",
+        "name": "recipient",
+        "type": "address"
+      },
+      {
+        "indexed": false,
+        "internalType": "uint256",
+        "name": "amount",
+        "type": "uint256"
+      }
+    ],
+    "name": "InvestmentRefunded",
+    "type": "event"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": true,
+        "internalType": "uint256",
+        "name": "projectId",
+        "type": "uint256"
+      },
+      {
+        "indexed": true,
+        "internalType": "address",
         "name": "from",
         "type": "address"
       },
@@ -582,6 +624,19 @@
       }
     ],
     "name": "ManagerRegistryUpdated",
+    "type": "event"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": false,
+        "internalType": "address",
+        "name": "mandateRouter",
+        "type": "address"
+      }
+    ],
+    "name": "MandateRouterUpdated",
     "type": "event"
   },
   {
@@ -898,29 +953,6 @@
   {
     "inputs": [
       {
-        "internalType": "address",
-        "name": "_investor",
-        "type": "address"
-      },
-      {
-        "internalType": "uint256",
-        "name": "_projectId",
-        "type": "uint256"
-      },
-      {
-        "internalType": "uint256[]",
-        "name": "_amounts",
-        "type": "uint256[]"
-      }
-    ],
-    "name": "backfillPositions",
-    "outputs": [],
-    "stateMutability": "nonpayable",
-    "type": "function"
-  },
-  {
-    "inputs": [
-      {
         "internalType": "uint256",
         "name": "_projectId",
         "type": "uint256"
@@ -945,6 +977,29 @@
       }
     ],
     "name": "claim",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "_projectId",
+        "type": "uint256"
+      },
+      {
+        "internalType": "address",
+        "name": "_investor",
+        "type": "address"
+      },
+      {
+        "internalType": "bytes32",
+        "name": "_marketId",
+        "type": "bytes32"
+      }
+    ],
+    "name": "claimForMandate",
     "outputs": [],
     "stateMutability": "nonpayable",
     "type": "function"
@@ -1166,6 +1221,34 @@
   {
     "inputs": [
       {
+        "internalType": "address",
+        "name": "_investor",
+        "type": "address"
+      },
+      {
+        "internalType": "uint256",
+        "name": "_pid",
+        "type": "uint256"
+      },
+      {
+        "internalType": "uint256",
+        "name": "_amount",
+        "type": "uint256"
+      },
+      {
+        "internalType": "address",
+        "name": "_inviter",
+        "type": "address"
+      }
+    ],
+    "name": "investFromMandate",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
         "internalType": "uint256",
         "name": "_pid",
         "type": "uint256"
@@ -1300,6 +1383,19 @@
   },
   {
     "inputs": [],
+    "name": "mandateRouter",
+    "outputs": [
+      {
+        "internalType": "address",
+        "name": "",
+        "type": "address"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
     "name": "maxPriceAge",
     "outputs": [
       {
@@ -1309,24 +1405,6 @@
       }
     ],
     "stateMutability": "view",
-    "type": "function"
-  },
-  {
-    "inputs": [
-      {
-        "internalType": "address[]",
-        "name": "_investors",
-        "type": "address[]"
-      },
-      {
-        "internalType": "uint256[]",
-        "name": "_allTimeInvestedUSD",
-        "type": "uint256[]"
-      }
-    ],
-    "name": "migrateAllTimeInvestedUSD",
-    "outputs": [],
-    "stateMutability": "nonpayable",
     "type": "function"
   },
   {
@@ -1344,25 +1422,36 @@
   },
   {
     "inputs": [],
-    "name": "nonce",
-    "outputs": [
-      {
-        "internalType": "uint256",
-        "name": "",
-        "type": "uint256"
-      }
-    ],
-    "stateMutability": "view",
-    "type": "function"
-  },
-  {
-    "inputs": [],
     "name": "oracle",
     "outputs": [
       {
         "internalType": "address",
         "name": "",
         "type": "address"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "address",
+        "name": "_investor",
+        "type": "address"
+      },
+      {
+        "internalType": "uint256",
+        "name": "_projectId",
+        "type": "uint256"
+      }
+    ],
+    "name": "outstandingPrincipal",
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
       }
     ],
     "stateMutability": "view",
@@ -1376,6 +1465,59 @@
         "internalType": "address",
         "name": "",
         "type": "address"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "address",
+        "name": "_investor",
+        "type": "address"
+      },
+      {
+        "internalType": "uint256",
+        "name": "_projectId",
+        "type": "uint256"
+      },
+      {
+        "internalType": "uint256",
+        "name": "_invested",
+        "type": "uint256"
+      }
+    ],
+    "name": "positionClaimed",
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "_projectId",
+        "type": "uint256"
+      },
+      {
+        "internalType": "uint256",
+        "name": "_invested",
+        "type": "uint256"
+      }
+    ],
+    "name": "positionOwed",
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
       }
     ],
     "stateMutability": "view",
@@ -1593,6 +1735,19 @@
   {
     "inputs": [
       {
+        "internalType": "address",
+        "name": "_mandateRouter",
+        "type": "address"
+      }
+    ],
+    "name": "setMandateRouter",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
         "internalType": "uint256",
         "name": "_maxPriceAge",
         "type": "uint256"
@@ -1781,39 +1936,6 @@
   {
     "inputs": [
       {
-        "internalType": "uint256",
-        "name": "_projectId",
-        "type": "uint256"
-      },
-      {
-        "internalType": "address",
-        "name": "_from",
-        "type": "address"
-      },
-      {
-        "internalType": "address",
-        "name": "_to",
-        "type": "address"
-      },
-      {
-        "internalType": "bool",
-        "name": "_isSell",
-        "type": "bool"
-      },
-      {
-        "internalType": "uint256",
-        "name": "_id",
-        "type": "uint256"
-      }
-    ],
-    "name": "transferInvestment",
-    "outputs": [],
-    "stateMutability": "nonpayable",
-    "type": "function"
-  },
-  {
-    "inputs": [
-      {
         "internalType": "address",
         "name": "newOwner",
         "type": "address"
@@ -1928,25 +2050,6 @@
         "internalType": "uint256",
         "name": "",
         "type": "uint256"
-      }
-    ],
-    "stateMutability": "view",
-    "type": "function"
-  },
-  {
-    "inputs": [
-      {
-        "internalType": "uint256",
-        "name": "_pid",
-        "type": "uint256"
-      }
-    ],
-    "name": "whitelistRoots",
-    "outputs": [
-      {
-        "internalType": "bytes32",
-        "name": "",
-        "type": "bytes32"
       }
     ],
     "stateMutability": "view",

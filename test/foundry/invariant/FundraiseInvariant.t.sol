@@ -11,10 +11,12 @@ import { Math } from "@openzeppelin/contracts/utils/math/Math.sol";
 ///      2. USDC conservation: all USDC is accounted for
 ///      3. Investment consistency: totalInvested == sum of individual amounts
 ///      4. No under-pay: what each holder has plus what is still theirs is their exact share
+///      5. Positions add up: a holder's position list sums to their aggregate investedAmount
 ///
 ///      The fourth is the other half of the first: the rest bound the protocol from above — never
 ///      pay out more than came in — and this one bounds it from below, so a claim that quietly
-///      short-changes every holder cannot pass.
+///      short-changes every holder cannot pass. The fifth holds up the aggregate everything else
+///      apportions by, positionOwed and positionClaimed included.
 contract FundraiseInvariantTest is Setup {
     FundraiseHandler handler;
     uint256 pid;
@@ -46,7 +48,27 @@ contract FundraiseInvariantTest is Setup {
             pid
         );
 
+        // transferPosition asks only that its caller be the registered market.
+        vm.prank(owner);
+        managerRegistry.setMarketAddress(address(handler));
+
         targetContract(address(handler));
+    }
+
+    /// @notice A holder's positions add up to their aggregate investedAmount.
+    /// @dev The same money is kept twice: the aggregate a claim reads, the list the market sells
+    ///      from. Let them drift and every apportionment divides by the wrong denominator.
+    function invariant_positionsSumToTheAggregate() public view {
+        for (uint256 i = 0; i < investorList.length; i++) {
+            address holder = investorList[i];
+            Fundraise.InvestorInfo[] memory positions = fundraise.getInvestorPositions(holder, pid);
+
+            uint256 sum;
+            for (uint256 j = 0; j < positions.length; j++) sum += positions[j].investedAmount;
+
+            (uint256 aggregate, ) = fundraise.investorInfo(holder, pid);
+            assertEq(sum, aggregate, "INVARIANT VIOLATED: positions do not add up to the aggregate");
+        }
     }
 
     /// @notice What a holder has taken, plus what is still owed to them, is their exact share.
@@ -60,17 +82,32 @@ contract FundraiseInvariantTest is Setup {
             fundraise.projects(pid);
         if (totalInvested == 0) return;
 
+        uint256 excess;
         for (uint256 i = 0; i < investorList.length; i++) {
             address inv = investorList[i];
             (uint256 invested, uint256 claimed) = fundraise.investorInfo(inv, pid);
             if (invested == 0) continue;
 
-            assertEq(
+            uint256 share = Math.mulDiv(inner.totalRepaid, invested, totalInvested);
+
+            assertGe(
                 claimed + fundraise.availableToClaim(pid, inv),
-                Math.mulDiv(inner.totalRepaid, invested, totalInvested),
+                share,
                 "INVARIANT VIOLATED: part of a holder's share is reachable by nobody"
             );
+
+            if (claimed > share) excess += claimed - share;
         }
+
+        // A watermark runs ahead of its share only through transferPosition rounding up, and only
+        // by a unit each time. Summed, not per holder: a transfer conserves the watermark exactly
+        // while splitting one share into two truncated ones, so the excess it creates lands on the
+        // receiver and is then carried along by every later transfer out of them.
+        assertLe(
+            excess,
+            handler.calls_transfer(),
+            "INVARIANT VIOLATED: watermarks are further ahead than the transfers put them"
+        );
     }
 
     /// @notice Across the project, at most one unit per holder stays behind.
@@ -86,8 +123,11 @@ contract FundraiseInvariantTest is Setup {
             reachable += claimed + fundraise.availableToClaim(pid, investorList[i]);
         }
 
+        // Guarded: a rounded-up watermark can put reachable above what was repaid — nothing stuck.
+        uint256 stuck = handler.ghost_totalRepaid() > reachable ? handler.ghost_totalRepaid() - reachable : 0;
+
         assertLe(
-            handler.ghost_totalRepaid() - reachable,
+            stuck,
             holders == 0 ? 0 : holders - 1,
             "INVARIANT VIOLATED: more than rounding is stuck in the contract"
         );

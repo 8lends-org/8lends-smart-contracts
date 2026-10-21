@@ -322,26 +322,38 @@ contract FundraiseTest is Setup {
         assertEq(uint8(inner.stage), uint8(Fundraise.Stage.Canceled));
     }
 
-    function test_claim_managerCanClaimOnBehalf() public {
-        _investAs(investor, pid, 30_000e6, inviter);
+    /// A manager's blanket right to claim for a user was revoked with the mandate work: while an
+    /// address is clean, nobody may call for it — the platform included. The cases that replace it
+    /// are in FundraiseMandate.t.sol.
+    /// @dev The one exception: an admin may press claim for a clean address. The money still goes
+    ///      to recipientOf(_investor), so the button moves the payout along, never aside.
+    function test_claim_anAdminMayPressItForAUser() public {
+        uint256 pid = _createProject(1_000e6, 10_000e6);
+        _investAs(investor, pid, 2_000e6, address(0));
         _fundProject(pid);
         _repayFull(pid);
 
-        uint256 balBefore = usdc.balanceOf(investor);
-        vm.prank(manager);
-        fundraise.claim(pid, investor);
-        uint256 balAfter = usdc.balanceOf(investor);
+        address admin = makeAddr("admin");
+        vm.prank(owner);
+        managerRegistry.setAdminStatus(admin, true);
 
-        assertGt(balAfter, balBefore, "Manager should be able to claim on behalf");
+        uint256 before = usdc.balanceOf(investor);
+        vm.prank(admin);
+        fundraise.claim(pid, investor);
+        assertGt(usdc.balanceOf(investor), before, "paid to the investor, not to the admin");
     }
 
-    function test_claim_randomUserCannotClaimOnBehalf() public {
+    function test_claim_nobodyCanClaimOnBehalfOfACleanAddress() public {
         _investAs(investor, pid, 30_000e6, inviter);
         _fundProject(pid);
         _repayFull(pid);
 
+        vm.prank(manager);
+        vm.expectRevert(Fundraise.NotAllowed.selector);
+        fundraise.claim(pid, investor);
+
         vm.prank(attacker);
-        vm.expectRevert(Fundraise.NotAManager.selector);
+        vm.expectRevert(Fundraise.NotAllowed.selector);
         fundraise.claim(pid, investor);
     }
 
@@ -533,7 +545,7 @@ contract FundraiseTest is Setup {
     }
 
     // ═══════════════════════════════════════════════════════════════
-    //              PROJECT HASH IS SPENT ONCE (EL-2016)
+    //              PROJECT HASH IS SPENT ONCE
     // ═══════════════════════════════════════════════════════════════
 
     function test_createProject_sameHashTwice_reverts() public {
@@ -656,7 +668,7 @@ contract FundraiseLimitedSellerTest is Setup {
 
     function test_setLimitedSeller_onlyOwner() public {
         vm.prank(attacker);
-        vm.expectRevert();
+        vm.expectRevert(abi.encodeWithSignature("OwnableUnauthorizedAccount(address)", attacker));
         fundraise.setLimitedSeller(address(mockLimitedSeller));
     }
 
@@ -666,5 +678,72 @@ contract FundraiseLimitedSellerTest is Setup {
         vm.expectEmit(false, false, false, true);
         emit Fundraise.LimitedSellerUpdated(newAddr);
         fundraise.setLimitedSeller(newAddr);
+    }
+
+    // ── boundaries ──────────────────────────────────────────────────────────────
+
+    /// @dev The soft cap is reached, not merely passed. A project sitting exactly on it when the
+    ///      open stage runs out goes to PreFunded; one unit short is cancelled. The equality is the
+    ///      whole difference between a funded project and a refunded one.
+    function test_afterTheWindow_softCapMetExactly_preFunds() public {
+        uint256 pid = _createProject(20_000e6, 50_000e6);
+        _investAs(investor, pid, 20_000e6, inviter);
+
+        vm.warp(block.timestamp + 8 days); // past openStageEndAt
+        vm.prank(attacker); // settled by the clock and the amount raised, so anyone may record it
+        fundraise.moveProjectStage(pid);
+
+        (, , , , , , , Fundraise.InnerProjectStruct memory inner) = fundraise.projects(pid);
+        assertEq(uint8(inner.stage), uint8(Fundraise.Stage.PreFunded), "exactly the soft cap was treated as short");
+    }
+
+    /// @dev One short of the soft cap on the same clock cancels instead, so the equality above is
+    ///      measured rather than assumed. The other half of the pair: moveProjectStage leaves it
+    ///      alone, and cancelProject is what records the outcome.
+    function test_afterTheWindow_oneUnderTheSoftCap_cancels() public {
+        uint256 pid = _createProject(20_000e6, 50_000e6);
+        _investAs(investor, pid, 20_000e6 - 1, inviter);
+
+        vm.warp(block.timestamp + 8 days);
+        vm.prank(attacker);
+        fundraise.moveProjectStage(pid);
+
+        (, , , , , , , Fundraise.InnerProjectStruct memory stillOpen) = fundraise.projects(pid);
+        assertEq(uint8(stillOpen.stage), uint8(Fundraise.Stage.Open), "one unit short was treated as met");
+
+        vm.prank(attacker);
+        fundraise.cancelProject(pid);
+
+        (, , , , , , , Fundraise.InnerProjectStruct memory inner) = fundraise.projects(pid);
+        assertEq(uint8(inner.stage), uint8(Fundraise.Stage.Canceled), "the raise did not settle as cancelled");
+    }
+
+    /// @dev Investing past the deadline is refused outright now, whichever side of the soft cap the
+    ///      raise sits on — the stage no longer moves as a side effect of someone trying.
+    function test_investAfterTheWindow_reverts() public {
+        uint256 pid = _createProject(20_000e6, 50_000e6);
+        _investAs(investor, pid, 20_000e6, inviter);
+
+        vm.warp(block.timestamp + 8 days);
+        vm.prank(owner);
+        usdc.mint(investor2, 1_000e6);
+        vm.prank(investor2);
+        usdc.approve(address(fundraise), 1_000e6);
+        uint256 nonce = fundraise.userNonces(investor2) + 1;
+        bytes memory sig = _signInvest(investor2, pid, 1_000e6, nonce, inviter);
+
+        vm.prank(investor2);
+        vm.expectRevert(Fundraise.ProjectClosedYet.selector);
+        fundraise.investUpdateV2(pid, 1_000e6, nonce, sig, inviter);
+    }
+
+    /// @dev projectCount is one past the last id, so claiming on it must be refused rather than
+    ///      read an empty slot whose stage happens to be ComingSoon.
+    function test_claim_onTheIdOnePastTheLast_reverts() public {
+        uint256 count = fundraise.projectCount();
+
+        vm.prank(investor);
+        vm.expectRevert(Fundraise.ProjectDoesNotExist.selector);
+        fundraise.claim(count, investor);
     }
 }

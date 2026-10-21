@@ -231,6 +231,7 @@ export function printDeploymentRecord(record: Deployment, notes: string[] = []):
     : "\u2014";
 
   console.log("\n\uD83D\uDCBE deployments updated:");
+  console.log(`   address         ${record.proxy}`);
   console.log(`   impl            ${record.impl ?? "\u2014 (not behind a proxy)"}`);
   console.log(`   buildHash       ${record.buildHash ?? "\u2014"}`);
   console.log(`   matchesDeployed ${record.matchesDeployed}`);
@@ -346,6 +347,12 @@ export async function describeDeployment(
      * dependency on archive depth on the one path where that dependency is avoidable.
      */
     deployedAtBlock?: number;
+    /**
+     * Values the contract bakes into its runtime code beyond its own address. Masking is by value,
+     * so they have to be named: a contract whose immutables are not listed can never reproduce its
+     * deployed code, and matchesDeployed reads false however faithful the build is.
+     */
+    immutables?: (string | null | undefined)[];
   } = {}
 ): Promise<Deployment & { notes: string[] }> {
   const notes: string[] = [];
@@ -356,7 +363,7 @@ export async function describeDeployment(
   // A null impl means there is no proxy: the address holds the code itself, as with the AmlEscrow
   // clone template. Then the code to hash is the address in `proxy`.
   const target = impl ?? proxy;
-  const buildHash = await chainRuntimeHash(provider, target, [target]);
+  const buildHash = await chainRuntimeHash(provider, target, [target, ...(opts.immutables ?? [])]);
   const matchesDeployed = buildHash !== null && artifactRuntimeHash(artifact.deployedBytecode) === buildHash;
   if (buildHash === null) {
     notes.push(`no code at ${target} — buildHash left empty`);

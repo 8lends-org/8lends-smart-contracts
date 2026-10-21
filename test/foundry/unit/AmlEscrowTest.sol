@@ -520,7 +520,7 @@ contract AmlEscrowTest is Test {
 
         // The outer invest call should revert due to nonReentrant
         vm.prank(user);
-        vm.expectRevert();
+        vm.expectRevert(abi.encodeWithSignature("ReentrancyGuardReentrantCall()"));
         malEscrow.invest(PID, AMOUNT, inviter);
     }
 }

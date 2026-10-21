@@ -37,9 +37,9 @@ async function main() {
   console.log(`Native balance: ${ethers.formatEther(nativeBalance)} "ETH"`);
 
   // Check Token balance
-  if (config.token) {
+  if (config.Token) {
     try {
-      const token = await ethers.getContractAt("Token", config.token);
+      const token = await ethers.getContractAt("Token", config.Token);
       const tokenBalance = await token.balanceOf(walletAddress);
       const tokenSymbol = await token.symbol();
       const tokenDecimals = await token.decimals();

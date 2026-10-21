@@ -4,7 +4,6 @@
   "USDC": "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913",
   "uniswapV2Router": "0x4752ba5dbc23f44d87826276bf6fd6b1c372ad24",
   "uniswapV2Factory": "0x8909Dc15e40173Ff4699343b6eB8132c65e18eC6",
-  "token": "0x55F9C8992fc4AbCE5ACa585bf8F18284a2379D4C",
   "trustedSigner": "0x6E9dBbb7C216DE0550962b78c9eC2d3E26924C28",
   "pool": "0x241De8C5B58830B8046830b05031786795d5Cba8",
   "fundraiseDeployBlock": 26601312,

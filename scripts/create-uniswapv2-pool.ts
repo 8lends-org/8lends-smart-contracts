@@ -29,7 +29,7 @@ async function main() {
   console.log("Signer native balance:", ethers.formatEther(signerBalance));
 
   // Check for required addresses in config
-  if (!config.token) {
+  if (!config.Token) {
     throw new Error("Token address not found in config");
   }
   if (!config.USDC) {
@@ -45,7 +45,7 @@ async function main() {
     throw new Error("uniswapV2Factory address not found in config");
   }
 
-  console.log("Token address:", config.token);
+  console.log("Token address:", config.Token);
   console.log("USDC address:", config.USDC);
   console.log("Router", config.uniswapV2Router);
   console.log("Factory", config.uniswapV2Factory);
@@ -61,18 +61,18 @@ async function main() {
   );
 
   // Connect to tokens
-  const token = await ethers.getContractAt("Token", config.token);
+  const token = await ethers.getContractAt("Token", config.Token);
   const usdcToken = await ethers.getContractAt("@openzeppelin/contracts/token/ERC20/IERC20.sol:IERC20", config.USDC);
 
   // Connect to ManagerRegistry
   const managerRegistry = await ethers.getContractAt("ManagerRegistry", config.ManagerRegistry);
   await requireOwner(config.ManagerRegistry, "ManagerRegistry");
-  await requireOwner(config.token, "Token"); // minted below
+  await requireOwner(config.Token, "Token"); // minted below
 
   console.log("🦄 Setting up Uniswap liquidity...");
 
   // Check if pair already exists
-  const existingPair = await factory.getPair(config.token, config.USDC);
+  const existingPair = await factory.getPair(config.Token, config.USDC);
   if (existingPair !== "0x0000000000000000000000000000000000000000") {
     console.log("⚠️  Pair already exists at:", existingPair);
     config.pool = existingPair;
@@ -81,11 +81,11 @@ async function main() {
   } else {
     // Create TOKEN/USDC pair
     console.log("📝 Creating Token/USDC pair...");
-    const createPairTx = await factory.createPair(config.token, config.USDC);
+    const createPairTx = await factory.createPair(config.Token, config.USDC);
     await createPairTx.wait(5);
   }
 
-  const pairAddress = await factory.getPair(config.token, config.USDC);
+  const pairAddress = await factory.getPair(config.Token, config.USDC);
   console.log("✅ Pair created at:", pairAddress);
   if (pairAddress === "0x0000000000000000000000000000000000000000") {
     throw new Error("Pair not created");
@@ -161,7 +161,7 @@ async function main() {
   console.log("💧 Adding liquidity...");
 
   const addLiquidityTx = await router.addLiquidity(
-    config.token,
+    config.Token,
     config.USDC,
     liquidityAmountToken,
     liquidityAmountUSDC,
@@ -182,7 +182,7 @@ async function main() {
   // Check price
   const amounts = await router.getAmountsOut(ethers.parseUnits("100", 6), [
     config.USDC,
-    config.token,
+    config.Token,
   ]);
   const price = 100 / Number(ethers.formatEther(amounts[1]));
   console.log("💲 Price: 1 Token =", price, "USDC");

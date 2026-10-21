@@ -35,13 +35,55 @@ contract MockManagerRegistry_MKT {
     function isMarket(address addr) external view returns (bool) { return marketContracts[addr]; }
     function fundraiseAddress() external view returns (address) { return fundraiseAddr; }
 
+    mapping(address => bool) public frozen;
+    mapping(address => bool) public adminAccounts;
+
+    function setFrozen(address a, bool v) external { frozen[a] = v; }
+    function setAdmin(address a, bool v) external { adminAccounts[a] = v; }
+    function isFrozen(address a) external view returns (bool) { return frozen[a]; }
+    function isAdmin(address a) external view returns (bool) { return adminAccounts[a]; }
+
+
+    mapping(address => address) public canonicalOf;
+
+    /// @dev Mirrors ManagerRegistry including the flattening: canonicalOf names the address the
+    ///      chain started from, never the previous link, so A -> B -> C stays one hop. A mock that
+    ///      stored the previous link would make the chain test pass for the wrong reason.
     function setInvestorClaimAddress(address investor, address claim) external {
-        claimAddresses[investor] = claim;
+        address canonical = _canonical(investor);
+        claimAddresses[canonical] = claim;
+        canonicalOf[claim] = canonical;
     }
 
     function getInvestorClaimAddress(address investor) external view returns (address) {
-        address addr = claimAddresses[investor];
-        return addr != address(0) ? addr : investor;
+        return recipientOf(investor);
+    }
+
+    function recipientOf(address investor) public view returns (address) {
+        address canonical = _canonical(investor);
+        address addr = claimAddresses[canonical];
+        return addr != address(0) ? addr : canonical;
+    }
+
+    function isCompromised(address investor) external view returns (bool) {
+        return recipientOf(investor) != investor;
+    }
+
+    function _canonical(address user) private view returns (address) {
+        address canonical = canonicalOf[user];
+        return canonical != address(0) ? canonical : user;
+    }
+
+    address public mandateFactory;
+    function setMandateFactory(address f) external { mandateFactory = f; }
+}
+
+/// @notice Answers isEscrowOf from a table; the real derivation has its own suite.
+contract MockFactory_MKT {
+    mapping(address => mapping(address => bool)) public owns;
+    function set(address owner, address escrow) external { owns[owner][escrow] = true; }
+    function isEscrowOf(address owner, address escrow) external view returns (bool) {
+        return owns[owner][escrow];
     }
 }
 
@@ -58,6 +100,7 @@ contract MockFundraise_MKT {
         IFundraise.Stage stage;
         uint256 investorInterestRate;
         IERC20 loanToken;
+        uint256 totalInvested;
     }
 
     mapping(uint256 => MockProject) public mockProjects;
@@ -67,7 +110,13 @@ contract MockFundraise_MKT {
     function setTrustedSigner(address _signer) external { trustedSigner = _signer; }
 
     function setProject(uint256 pid, IFundraise.Stage stage, uint256 interestRate, address _loanToken) external {
-        mockProjects[pid] = MockProject(stage, interestRate, IERC20(_loanToken));
+        mockProjects[pid] = MockProject(stage, interestRate, IERC20(_loanToken), 0);
+    }
+
+    /// @dev Only the apportionment tests set it. At zero, positionOwed treats the position as the
+    ///      whole pool, so the prices the other tests assert on do not move.
+    function setProjectTotalInvested(uint256 pid, uint256 totalInvested) external {
+        mockProjects[pid].totalInvested = totalInvested;
     }
 
     function setInvestorInfo(address investor, uint256 pid, uint256 invested, uint256 claimed) external {
@@ -83,13 +132,38 @@ contract MockFundraise_MKT {
         _positions[investor][pid].push(IFundraise.InvestorInfo(invested, claimed));
     }
 
+    /// @dev Splits a holder's aggregate into positions that sum to it; setInvestorInfo makes one.
+    function setPositions(address investor, uint256 pid, uint256[] memory amounts) external {
+        delete _positions[investor][pid];
+        for (uint256 i = 0; i < amounts.length; i++) {
+            _positions[investor][pid].push(IFundraise.InvestorInfo(amounts[i], 0));
+        }
+    }
+
     function projects(uint256 pid) external view returns (IFundraise.Project memory) {
         MockProject memory mp = mockProjects[pid];
         IFundraise.Project memory p;
         p.investorInterestRate = mp.investorInterestRate;
+        p.totalInvested = mp.totalInvested;
         p.innerStruct.stage = mp.stage;
         p.innerStruct.loanToken = mp.loanToken;
         return p;
+    }
+
+    /// @dev Mirrors Fundraise.positionClaimed, where the market now reads the watermark from.
+    function positionClaimed(address investor, uint256 pid, uint256 invested) external view returns (uint256) {
+        MockInvestorInfo memory agg = mockInvestorInfo[investor][pid];
+        if (agg.investedAmount == 0) return 0;
+        return Math.mulDiv(agg.totalClaimed, invested, agg.investedAmount, Math.Rounding.Ceil);
+    }
+
+    /// @dev Mirrors Fundraise.positionOwed, where the market now reads its ceiling from.
+    function positionOwed(uint256 pid, uint256 invested) external view returns (uint256) {
+        MockProject memory mp = mockProjects[pid];
+        uint256 total = mp.totalInvested == 0 ? invested : mp.totalInvested;
+        if (total == 0) return 0;
+        uint256 owed = total + (total * mp.investorInterestRate) / 1_000_000;
+        return Math.mulDiv(owed, invested, total);
     }
 
     function investorInfo(address investor, uint256 pid) external view returns (IFundraise.InvestorInfo memory) {
@@ -103,10 +177,6 @@ contract MockFundraise_MKT {
 
     function getPositionCount(address investor, uint256 pid) external view returns (uint256) {
         return _positions[investor][pid].length;
-    }
-
-    function transferInvestment(uint256, address, address, bool, uint256) external {
-        // Mock: does nothing (investment tracking is internal in real Fundraise)
     }
 
     function transferPosition(uint256, address, address, uint256, uint256) external {
@@ -133,6 +203,9 @@ contract MarketTest is Test, Eip712Signing {
     uint256 public constant PID = 0;
     uint256 public constant INTEREST_RATE = 200_000; // 20%
     uint256 public constant BASIS_POINTS = 1_000_000;
+
+    /// @dev ERC-1967 implementation slot, so the upgrade is checked where it actually lands.
+    bytes32 constant IMPL_SLOT = 0x360894a13ba1a3210667c828492db98dca3e2076cc3735a920a3ca505d382bbc;
 
     function setUp() public {
         owner = makeAddr("owner");
@@ -180,6 +253,378 @@ contract MarketTest is Test, Eip712Signing {
     }
 
     // ═══════════════════════════════════════════════════════════════
+    //                    PROCEEDS RECIPIENT
+    // ═══════════════════════════════════════════════════════════════
+
+    MockFactory_MKT internal factory;
+    address internal escrow = makeAddr("escrow");
+
+    function _withFactory() internal {
+        factory = new MockFactory_MKT();
+        factory.set(investor, escrow);
+        vm.prank(owner);
+        mockRegistry.setMandateFactory(address(factory));
+    }
+
+    function _fundBuyer(address buyer) internal {
+        usdc.mint(buyer, 100_000e6);
+        vm.prank(buyer);
+        usdc.approve(address(market), type(uint256).max);
+    }
+
+    /// @dev Funding is separate so a test can set up an event expectation right before the buy.
+    function _buy(uint256 saleId, address buyer) internal {
+        if (usdc.balanceOf(buyer) == 0) _fundBuyer(buyer);
+
+        bytes32 structHash = keccak256(abi.encode(BUY_TYPEHASH, buyer, saleId));
+        (uint8 v, bytes32 r, bytes32 s) = vm.sign(backendPk, _eip712(address(market), structHash));
+
+        vm.prank(buyer);
+        market.buy(saleId, abi.encodePacked(r, s, v));
+    }
+
+    function test_sell_proceedsToOwnEscrow_isPaidThere() public {
+        _withFactory();
+        uint256 saleId = _sellToAs(investor, PID, 25_000e6, 0, escrow);
+
+        mockFundraise.setInvestorInfo(market.getSale(saleId).marketCell, PID, 30_000e6, 0);
+
+        _fundBuyer(investor2);
+        vm.expectEmit(true, true, false, false, address(market));
+        emit Market.SaleProceedsPaid(saleId, escrow);
+        _buy(saleId, investor2);
+
+        assertEq(usdc.balanceOf(escrow), 25_000e6, "the mandate was paid");
+        assertEq(usdc.balanceOf(investor), 0, "and the wallet was not");
+    }
+
+    function test_sell_proceedsToSelf_isAccepted() public {
+        _withFactory();
+        uint256 saleId = _sellToAs(investor, PID, 25_000e6, 0, investor);
+        assertEq(market.getSale(saleId).proceedsTo, investor);
+    }
+
+    function test_sell_rejects_a_stranger_and_someone_elses_escrow() public {
+        _withFactory();
+
+        vm.expectRevert("Not an escrow of the seller");
+        _sellToAs(investor, PID, 25_000e6, 0, attacker);
+
+        // the escrow belongs to investor, so investor2 may not name it
+        mockFundraise.setInvestorInfo(investor2, PID, 30_000e6, 0);
+        vm.expectRevert("Not an escrow of the seller");
+        _sellToAs(investor2, PID, 25_000e6, 0, escrow);
+    }
+
+    function test_sell_rejects_a_zero_recipient() public {
+        _withFactory();
+        vm.expectRevert("Proceeds address is zero");
+        _sellToAs(investor, PID, 25_000e6, 0, address(0));
+    }
+
+    function test_sell_with_a_recipient_reverts_while_the_registry_has_no_factory() public {
+        vm.expectRevert("Mandate factory not set");
+        _sellToAs(investor, PID, 25_000e6, 0, escrow);
+    }
+
+    /// The old entry point keeps paying the wallet.
+    function test_sell_withoutRecipient_paysTheSeller() public {
+        uint256 saleId = _sellAs(investor, PID, 25_000e6, 0);
+        assertEq(market.getSale(saleId).proceedsTo, investor);
+
+        mockFundraise.setInvestorInfo(market.getSale(saleId).marketCell, PID, 30_000e6, 0);
+        _fundBuyer(investor2);
+        vm.expectEmit(true, true, false, false, address(market));
+        emit Market.SaleProceedsPaid(saleId, investor);
+        _buy(saleId, investor2);
+        assertEq(usdc.balanceOf(investor), 25_000e6);
+    }
+
+    /// Every lot listed before the upgrade holds a zero here; getting it wrong pays address(0).
+    function test_buy_aPreUpgradeRecordWithZeroProceedsToPaysTheSeller() public {
+        uint256 saleId = _sellAs(investor, PID, 25_000e6, 0);
+
+        // sales is storage slot 2; proceedsTo is the 13th member of Sale
+        bytes32 base = keccak256(abi.encode(saleId, uint256(2)));
+        vm.store(address(market), bytes32(uint256(base) + 12), bytes32(0));
+        assertEq(market.getSale(saleId).proceedsTo, address(0), "as a pre-upgrade record reads");
+
+        mockFundraise.setInvestorInfo(market.getSale(saleId).marketCell, PID, 30_000e6, 0);
+        _buy(saleId, investor2);
+        assertEq(usdc.balanceOf(investor), 25_000e6);
+    }
+
+    /// Listing is the only point where the stage is looked at.
+    function test_buy_isNotBlockedByTheProjectStage() public {
+        uint256 saleId = _sellAs(investor, PID, 25_000e6, 0);
+
+        mockFundraise.setInvestorInfo(market.getSale(saleId).marketCell, PID, 30_000e6, 0);
+        vm.prank(owner);
+        mockFundraise.setProject(PID, IFundraise.Stage.Repaid, INTEREST_RATE, address(usdc));
+
+        _buy(saleId, investor2);
+        assertEq(uint8(market.getSale(saleId).status), uint8(Market.SaleStatus.Sold));
+    }
+
+    function test_setSaleProceedsTo_movesAnAlreadyListedLot() public {
+        _withFactory();
+        uint256 saleId = _sellAs(investor, PID, 25_000e6, 0);
+
+        vm.prank(investor);
+        market.setSaleProceedsTo(saleId, escrow);
+
+        Market.Sale memory sale = market.getSale(saleId);
+        assertEq(sale.proceedsTo, escrow);
+        assertEq(sale.price, 25_000e6, "price untouched");
+        assertEq(sale.fee, 0, "fee untouched");
+        assertEq(sale.positionIndex, 0, "position untouched");
+        assertEq(sale.marketCell, market.getSale(saleId).marketCell, "cell untouched");
+        assertEq(market.activePositionSaleIds(investor, PID, 0), saleId, "still the active lot");
+
+        mockFundraise.setInvestorInfo(sale.marketCell, PID, 30_000e6, 0);
+        _buy(saleId, investor2);
+        assertEq(usdc.balanceOf(escrow), 25_000e6);
+    }
+
+    function test_setSaleProceedsTo_isSellerOnly_andActiveOnly() public {
+        _withFactory();
+        uint256 saleId = _sellAs(investor, PID, 25_000e6, 0);
+
+        vm.expectRevert("Not seller");
+        vm.prank(attacker);
+        market.setSaleProceedsTo(saleId, attacker);
+
+        vm.prank(investor);
+        market.cancel(saleId);
+
+        vm.expectRevert("Sale not active");
+        vm.prank(investor);
+        market.setSaleProceedsTo(saleId, escrow);
+    }
+
+    function test_setSaleProceedsToMany_isAllOrNothing() public {
+        _withFactory();
+        uint256 dl = block.timestamp + 15 minutes;
+        vm.startPrank(investor);
+        uint256 a = market.sell(PID, 25_000e6, 0, dl, _signMarketSell(investor, PID, 25_000e6, 0, dl));
+        mockFundraise.addPosition(investor, PID, 10_000e6, 0);
+        uint256 b = market.sell(PID, 5_000e6, 1, dl, _signMarketSell(investor, PID, 5_000e6, 1, dl));
+        vm.stopPrank();
+
+        uint256[] memory ids = new uint256[](3);
+        ids[0] = a; ids[1] = b; ids[2] = 999; // the last one does not exist
+
+        vm.expectRevert("Invalid sale ID");
+        vm.prank(investor);
+        market.setSaleProceedsToMany(ids, escrow);
+
+        assertEq(market.getSale(a).proceedsTo, investor, "nothing moved");
+        assertEq(market.getSale(b).proceedsTo, investor);
+    }
+
+    /// The lot listed before the chain was set still settles, and settles to the recovery address.
+    function test_buy_fromACompromisedSeller_paysTheRecoveryAddress() public {
+        uint256 saleId = _sellAs(investor, PID, 25_000e6, 0);
+
+        address recovery = makeAddr("recovery");
+        vm.prank(owner);
+        mockRegistry.setInvestorClaimAddress(investor, recovery);
+
+        mockFundraise.setInvestorInfo(market.getSale(saleId).marketCell, PID, 30_000e6, 0);
+        _buy(saleId, investor2);
+
+        assertEq(usdc.balanceOf(recovery), 25_000e6, "paid to the recovery address");
+        assertEq(usdc.balanceOf(investor), 0, "and not to the stolen wallet");
+    }
+
+    /// The flag outranks the recorded payee, chosen with a key that is no longer the owner's.
+    function test_buy_compromiseOutranksTheRecordedPayee() public {
+        _withFactory();
+        uint256 saleId = _sellToAs(investor, PID, 25_000e6, 0, escrow);
+
+        address recovery = makeAddr("recovery");
+        vm.prank(owner);
+        mockRegistry.setInvestorClaimAddress(investor, recovery);
+
+        mockFundraise.setInvestorInfo(market.getSale(saleId).marketCell, PID, 30_000e6, 0);
+        _buy(saleId, investor2);
+
+        assertEq(usdc.balanceOf(recovery), 25_000e6);
+        assertEq(usdc.balanceOf(escrow), 0, "the recorded escrow is ignored");
+    }
+
+    /// Listing stays shut: an attacker holding the key must not be able to put up new lots.
+    function test_sell_isStillRefusedToACompromisedSeller() public {
+        address recovery = makeAddr("recovery");
+        vm.prank(owner);
+        mockRegistry.setInvestorClaimAddress(investor, recovery);
+
+        vm.expectRevert("Seller is compromised");
+        _sellAs(investor, PID, 25_000e6, 0);
+    }
+
+    /// ...but the recovery address may list in their place. The position is still recorded under
+    /// the wallet that bought it, so the sale is booked there too: one owner in the ledger, and
+    /// nothing downstream has to learn that a chain exists.
+    function test_sell_byTheRecoveryAddress_listsTheCompromisedPosition() public {
+        address recovery = makeAddr("recovery");
+        vm.prank(owner);
+        mockRegistry.setInvestorClaimAddress(investor, recovery);
+
+        uint256 saleId = _sellForAs(recovery, investor, PID, 25_000e6, 0);
+
+        assertEq(market.getSale(saleId).seller, investor, "booked under the position holder");
+        assertEq(market.activePositionSaleIds(investor, PID, 0), saleId, "and keyed under them");
+        assertEq(market.activePositionSaleIds(recovery, PID, 0), 0, "not under the caller");
+    }
+
+    /// A lot the attacker put up before the chain was set still occupies the slot. Keying the guard
+    /// on the position holder rather than the caller is what makes the two addresses collide here.
+    function test_sell_byTheRecoveryAddress_collidesWithAnEarlierListing() public {
+        _sellAs(investor, PID, 25_000e6, 0);
+
+        address recovery = makeAddr("recovery");
+        vm.prank(owner);
+        mockRegistry.setInvestorClaimAddress(investor, recovery);
+
+        vm.expectRevert("Active sale exists for position");
+        _sellForAs(recovery, investor, PID, 20_000e6, 0);
+    }
+
+    /// A -> B -> C: only the live end may list. B is a superseded link and gets the same refusal as
+    /// the original wallet, and the sale is still booked under A.
+    function test_sell_inAChain_onlyTheLiveEndMayList() public {
+        address b = makeAddr("recoveryB");
+        address c = makeAddr("recoveryC");
+        vm.startPrank(owner);
+        mockRegistry.setInvestorClaimAddress(investor, b);
+        mockRegistry.setInvestorClaimAddress(b, c);
+        vm.stopPrank();
+
+        vm.expectRevert("Seller is compromised");
+        _sellAs(investor, PID, 25_000e6, 0);
+
+        vm.expectRevert("Not the recovery address");
+        _sellForAs(b, investor, PID, 25_000e6, 0);
+
+        uint256 saleId = _sellForAs(c, investor, PID, 25_000e6, 0);
+        assertEq(market.getSale(saleId).seller, investor, "still the position holder");
+    }
+
+    /// The attacker must not be able to unwind what the recovery address put up. They gain nothing
+    /// by it — the proceeds are not theirs either way — but for the price of gas they could cancel
+    /// every relisting and keep the position permanently unsellable.
+    function test_cancel_isRefusedToACompromisedSeller() public {
+        address recovery = makeAddr("recovery");
+        vm.prank(owner);
+        mockRegistry.setInvestorClaimAddress(investor, recovery);
+
+        uint256 saleId = _sellForAs(recovery, investor, PID, 25_000e6, 0);
+
+        vm.expectRevert("Not seller");
+        vm.prank(investor);
+        market.cancel(saleId);
+
+        vm.prank(recovery);
+        market.cancel(saleId);
+        assertEq(market.activePositionSaleIds(investor, PID, 0), 0, "the live end still can");
+    }
+
+    /// Being someone's recovery address must not cost you your own secondary exit. `sell` still
+    /// means "mine", so a recovery address that keeps using the platform is unaffected — and the
+    /// position index it passes is read against itself, never against the address it recovered.
+    function test_sell_byARecoveryAddress_ofTheirOwnPosition() public {
+        address recovery = makeAddr("recovery");
+        vm.prank(owner);
+        mockRegistry.setInvestorClaimAddress(investor, recovery);
+
+        // Acquired after the chain was set: the reverse index is permanent, so this is the case
+        // that matters — the recovery address goes on investing from its new wallet.
+        mockFundraise.setInvestorInfo(recovery, PID, 12_000e6, 0);
+
+        uint256 saleId = _sellAs(recovery, PID, 9_000e6, 0);
+
+        assertEq(market.getSale(saleId).seller, recovery, "their own lot, booked to them");
+        assertEq(market.activePositionSaleIds(recovery, PID, 0), saleId);
+        assertEq(market.activePositionSaleIds(investor, PID, 0), 0, "the recovered position untouched");
+    }
+
+    /// A -> B -> C: positions may sit on both A and B, because the user invested from each before
+    /// losing it. Naming the owner is what lets the live end reach either one.
+    function test_sellFor_inAChain_reachesPositionsOfEveryLink() public {
+        address b = makeAddr("recoveryB");
+        address c = makeAddr("recoveryC");
+        vm.startPrank(owner);
+        mockRegistry.setInvestorClaimAddress(investor, b);
+        mockRegistry.setInvestorClaimAddress(b, c);
+        vm.stopPrank();
+
+        mockFundraise.setInvestorInfo(b, PID, 18_000e6, 0);
+
+        uint256 dl = block.timestamp + 15 minutes;
+        vm.startPrank(c);
+        uint256 fromA = market.sellFor(investor, PID, 25_000e6, 0, dl, _signMarketSellFor(c, investor, PID, 25_000e6, 0, dl));
+        uint256 fromB = market.sellFor(b, PID, 14_000e6, 0, dl, _signMarketSellFor(c, b, PID, 14_000e6, 0, dl));
+        vm.stopPrank();
+
+        assertEq(market.getSale(fromA).seller, investor, "booked under the first link");
+        assertEq(market.getSale(fromB).seller, b, "and under the second, not merged into the first");
+    }
+
+    /// End to end: the recovery address lists, a buyer takes the lot, and the money lands on the
+    /// recovery address. The stolen wallet never touches the proceeds of its own position.
+    function test_sell_byTheRecoveryAddress_thenBuy_paysTheRecoveryAddress() public {
+        address recovery = makeAddr("recovery");
+        vm.prank(owner);
+        mockRegistry.setInvestorClaimAddress(investor, recovery);
+
+        uint256 saleId = _sellForAs(recovery, investor, PID, 25_000e6, 0);
+
+        mockFundraise.setInvestorInfo(market.getSale(saleId).marketCell, PID, 30_000e6, 0);
+        _buy(saleId, investor2);
+
+        assertEq(usdc.balanceOf(recovery), 25_000e6, "paid to the recovery address");
+        assertEq(usdc.balanceOf(investor), 0, "the stolen wallet is never paid");
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    //                    CANCEL GUARD
+    // ═══════════════════════════════════════════════════════════════
+
+    /// A compromised seller cannot relist, so returning the position is all that is left to them.
+    function test_cancel_byTheRecoveryAddress() public {
+        uint256 saleId = _sellAs(investor, PID, 25_000e6, 0);
+
+        address recovery = makeAddr("recovery");
+        vm.prank(owner);
+        mockRegistry.setInvestorClaimAddress(investor, recovery);
+
+        vm.prank(recovery);
+        market.cancel(saleId);
+        assertEq(uint8(market.getSale(saleId).status), uint8(Market.SaleStatus.Cancelled));
+    }
+
+    /// Cancelling must never be blockable: otherwise the position stays on an address with no owner.
+    function test_cancel_worksAtAnyProjectStage() public {
+        uint256 saleId = _sellAs(investor, PID, 25_000e6, 0);
+
+        vm.prank(owner);
+        mockFundraise.setProject(PID, IFundraise.Stage.Repaid, INTEREST_RATE, address(usdc));
+
+        vm.prank(investor);
+        market.cancel(saleId);
+        assertEq(uint8(market.getSale(saleId).status), uint8(Market.SaleStatus.Cancelled));
+    }
+
+    function test_cancel_notByAnOperatorOrAnyoneElse() public {
+        uint256 saleId = _sellAs(investor, PID, 25_000e6, 0);
+
+        vm.expectRevert("Not seller");
+        vm.prank(attacker);
+        market.cancel(saleId);
+    }
+
+    // ═══════════════════════════════════════════════════════════════
     //                    SELL
     // ═══════════════════════════════════════════════════════════════
 
@@ -201,7 +646,7 @@ contract MarketTest is Test, Eip712Signing {
     }
 
     // ═══════════════════════════════════════════════════════════════
-    //              LISTING NEEDS THE BACKEND (EL-2037)
+    //              LISTING NEEDS THE BACKEND
     // ═══════════════════════════════════════════════════════════════
 
     function test_sell_revert_expiredSignature() public {
@@ -295,6 +740,77 @@ contract MarketTest is Test, Eip712Signing {
         market.sell(PID, 36_001e6, 0, dl, sellSig);
     }
 
+    // ── the ceiling and the watermark ───────────────────────────────────────────
+    //
+    // maxReturn came from the rate at the position's scale, the watermark it is compared against
+    // from a claim at the project's. A unit apart, and the unit made sell() refuse a claimed-out
+    // position as broken accounting.
+
+    /// @dev Worst case from an exhaustive search: one unit short of repaid, so still Funded, and
+    ///      the holder has claimed all there is. The old ceiling came out a unit under posClaimed.
+    function test_sell_aClaimedOutPositionIsRefusedOnPriceRatherThanAsCorrupt() public {
+        uint256 total = 869_517_314_888;
+        uint256 rate = 224_204;
+        uint256 sellerHolding = 84_195_628_000;
+        uint256 position = 3_265_843_798;
+        uint256 repaid = total + (total * rate) / BASIS_POINTS - 1; // still Funded
+
+        vm.startPrank(owner);
+        mockFundraise.setProject(1, IFundraise.Stage.Funded, rate, address(usdc));
+        mockFundraise.setProjectTotalInvested(1, total);
+        mockFundraise.setInvestorInfo(investor2, 1, sellerHolding, (repaid * sellerHolding) / total);
+        uint256[] memory split = new uint256[](2);
+        (split[0], split[1]) = (position, sellerHolding - position);
+        mockFundraise.setPositions(investor2, 1, split);
+        vm.stopPrank();
+
+        uint256 dl = block.timestamp + 15 minutes;
+        bytes memory sg = _signMarketSell(investor2, 1, 1, 0, dl);
+        vm.prank(investor2);
+        vm.expectRevert("Price exceeds buyer return");
+        market.sell(1, 1, 0, dl, sg);
+    }
+
+    /// @dev The other half: a lot may not be priced above what its buyer can claim back. The
+    ///      rate-based ceiling sat up to two units over that, and they were sellable.
+    function testFuzz_sell_neverPricesALotAboveWhatTheBuyerCanClaim(
+        uint256 total,
+        uint256 rate,
+        uint256 sellerHolding,
+        uint256 position,
+        uint256 shortfall
+    ) public {
+        total = bound(total, 1_000e6, 1_000_000e6);
+        rate = bound(rate, 0, 300_000);
+        sellerHolding = bound(sellerHolding, 2, total);
+        position = bound(position, 1, sellerHolding - 1);
+        uint256 debt = total + (total * rate) / BASIS_POINTS;
+        // Near the end but not at it: past it the project turns Repaid and cannot be sold, and
+        // this is the only region where the two floors ever met.
+        uint256 repaid = debt - bound(shortfall, 1, 10);
+
+        vm.startPrank(owner);
+        mockFundraise.setProject(1, IFundraise.Stage.Funded, rate, address(usdc));
+        mockFundraise.setProjectTotalInvested(1, total);
+        mockFundraise.setInvestorInfo(investor2, 1, sellerHolding, (repaid * sellerHolding) / total);
+        uint256[] memory split = new uint256[](2);
+        (split[0], split[1]) = (position, sellerHolding - position);
+        mockFundraise.setPositions(investor2, 1, split);
+        vm.stopPrank();
+
+        // What the lot is worth: the position's share of the debt, less the inherited watermark.
+        uint256 carried =
+            Math.mulDiv((repaid * sellerHolding) / total, position, sellerHolding, Math.Rounding.Ceil);
+        uint256 canClaim = Math.mulDiv(debt, position, total);
+        uint256 room = canClaim > carried ? canClaim - carried : 0;
+
+        uint256 dl = block.timestamp + 15 minutes;
+        bytes memory sg = _signMarketSell(investor2, 1, room + 1, 0, dl);
+        vm.prank(investor2);
+        vm.expectRevert("Price exceeds buyer return");
+        market.sell(1, room + 1, 0, dl, sg);
+    }
+
     function test_sell_revert_notFundedProject() public {
         vm.prank(owner);
         mockFundraise.setProject(1, IFundraise.Stage.Open, INTEREST_RATE, address(usdc));
@@ -333,6 +849,82 @@ contract MarketTest is Test, Eip712Signing {
     }
 
     /// @notice List a position as `seller`, with a fresh backend approval.
+    // ── Freeze ──
+
+    function test_frozenSellerCannotList() public {
+        uint256 deadline = block.timestamp + 15 minutes;
+        bytes memory sig = _signMarketSell(investor, PID, 25_000e6, 0, deadline);
+        mockRegistry.setFrozen(investor, true);
+
+        vm.prank(investor);
+        vm.expectRevert("Account is frozen");
+        market.sell(PID, 25_000e6, 0, deadline, sig);
+    }
+
+    /// @dev Read on the seller, not on the buyer: the money lands on the seller's side, so a lot
+    ///      listed before the theft must not settle while the account is stopped.
+    function test_aFrozenSellersLotCannotBeBought() public {
+        uint256 saleId = _sellAs(investor, PID, 25_000e6, 0);
+        Market.Sale memory sale = market.getSale(saleId);
+        vm.prank(owner);
+        mockFundraise.setInvestorInfo(sale.marketCell, PID, 30_000e6, 0);
+
+        mockRegistry.setFrozen(investor, true);
+        bytes memory sig = _signMarketBuy(investor2, saleId);
+
+        vm.prank(investor2);
+        vm.expectRevert("Account is frozen");
+        market.buy(saleId, sig);
+    }
+
+    function test_aFrozenBuyerCannotBuy() public {
+        uint256 saleId = _sellAs(investor, PID, 25_000e6, 0);
+        Market.Sale memory sale = market.getSale(saleId);
+        vm.prank(owner);
+        mockFundraise.setInvestorInfo(sale.marketCell, PID, 30_000e6, 0);
+
+        mockRegistry.setFrozen(investor2, true);
+        bytes memory sig = _signMarketBuy(investor2, saleId);
+
+        vm.prank(investor2);
+        vm.expectRevert("Account is frozen");
+        market.buy(saleId, sig);
+    }
+
+    /// @dev The stop is reversible, and the lot survives it untouched.
+    function test_afterUnfreezingTheLotTradesAgain() public {
+        uint256 saleId = _sellAs(investor, PID, 25_000e6, 0);
+        Market.Sale memory sale = market.getSale(saleId);
+        vm.prank(owner);
+        mockFundraise.setInvestorInfo(sale.marketCell, PID, 30_000e6, 0);
+
+        mockRegistry.setFrozen(investor, true);
+        mockRegistry.setFrozen(investor, false);
+
+        vm.prank(owner);
+        usdc.mint(investor2, 25_000e6);
+        vm.prank(investor2);
+        usdc.approve(address(market), 25_000e6);
+
+        bytes memory sig = _signMarketBuy(investor2, saleId);
+        vm.prank(investor2);
+        market.buy(saleId, sig);
+        assertEq(uint8(market.getSale(saleId).status), uint8(Market.SaleStatus.Sold));
+    }
+
+    function test_frozenSellerCannotCancelOrRepoint() public {
+        uint256 saleId = _sellAs(investor, PID, 25_000e6, 0);
+        mockRegistry.setFrozen(investor, true);
+
+        vm.prank(investor);
+        vm.expectRevert("Account is frozen");
+        market.cancel(saleId);
+
+        vm.prank(investor);
+        vm.expectRevert("Account is frozen");
+        market.setSaleProceedsTo(saleId, investor);
+    }
+
     function _sellAs(address seller, uint256 projectId, uint256 price, uint256 positionIndex)
         internal
         returns (uint256 saleId)
@@ -348,7 +940,7 @@ contract MarketTest is Test, Eip712Signing {
 
         uint256 saleId = _sellAs(investor, PID, price, 0);
 
-        // Set investor info for marketCell (mock transferInvestment doesn't actually move data)
+        // Set investor info for marketCell (the mock transferPosition moves no data)
         Market.Sale memory sale = market.getSale(saleId);
         vm.prank(owner);
         mockFundraise.setInvestorInfo(sale.marketCell, PID, 30_000e6, 0);
@@ -524,10 +1116,19 @@ contract MarketTest is Test, Eip712Signing {
         market.setPlatformFee(1_000_001);
     }
 
-    function test_setPlatformFee_revert_notOwner() public {
+    /// @dev A platform parameter, not money: the admin sets it, the fees themselves stay with the
+    ///      owner.
+    function test_setPlatformFee_ownerOrAdmin() public {
         vm.prank(attacker);
-        vm.expectRevert();
+        vm.expectRevert("Not authorized");
         market.setPlatformFee(10_000);
+
+        address admin = makeAddr("admin");
+        mockRegistry.setAdmin(admin, true);
+
+        vm.prank(admin);
+        market.setPlatformFee(10_000);
+        assertEq(market.platformFee(), 10_000);
     }
 
     function test_withdrawFees_success() public {
@@ -575,7 +1176,7 @@ contract MarketTest is Test, Eip712Signing {
 
     function test_withdrawFees_revert_notOwner() public {
         vm.prank(attacker);
-        vm.expectRevert();
+        vm.expectRevert(abi.encodeWithSignature("OwnableUnauthorizedAccount(address)", attacker));
         market.withdrawFees(address(usdc), attacker);
     }
 
@@ -634,14 +1235,28 @@ contract MarketTest is Test, Eip712Signing {
     function test_upgrade_revert_notOwner() public {
         Market newImpl = new Market();
         vm.prank(attacker);
-        vm.expectRevert();
+        vm.expectRevert(abi.encodeWithSignature("OwnableUnauthorizedAccount(address)", attacker));
         market.upgradeToAndCall(address(newImpl), "");
     }
 
     function test_upgrade_success() public {
+        uint256 saleId = _sellAs(investor, PID, 10_000e6, 0);
+        uint256 feeBefore = market.platformFee();
+        uint256 countBefore = market.saleCount();
+
         Market newImpl = new Market();
         vm.prank(owner);
         market.upgradeToAndCall(address(newImpl), "");
+
+        assertEq(
+            address(uint160(uint256(vm.load(address(market), IMPL_SLOT)))),
+            address(newImpl),
+            "the proxy still points at the old implementation"
+        );
+        // An upgrade that answers but forgot the storage layout would pass on the slot alone.
+        assertEq(market.platformFee(), feeBefore, "fee did not survive");
+        assertEq(market.saleCount(), countBefore, "sale counter did not survive");
+        assertEq(market.getSale(saleId).seller, investor, "the open lot did not survive");
     }
 
     // ═══════════════════════════════════════════════════════════════
@@ -822,4 +1437,43 @@ contract MarketTest is Test, Eip712Signing {
         emit Market.SaleCancelled(saleId, investor, PID);
         market.cancel(saleId);
     }
+
+    function _signMarketSellFor(
+        address caller,
+        address owner_,
+        uint256 projectId,
+        uint256 price,
+        uint256 positionIndex,
+        uint256 deadline
+    ) internal view returns (bytes memory sig) {
+        bytes32 structHash = keccak256(
+            abi.encode(SELL_FOR_TYPEHASH, caller, owner_, projectId, price, positionIndex, deadline)
+        );
+        (uint8 v, bytes32 r, bytes32 s) = vm.sign(backendPk, _eip712(address(market), structHash));
+        sig = abi.encodePacked(r, s, v);
+    }
+
+    /// @notice List as `seller` and name where the proceeds go. The payee is not part of the
+    ///         approval, so this reuses the plain listing signature.
+    function _sellToAs(address seller, uint256 projectId, uint256 price, uint256 positionIndex, address payee)
+        internal
+        returns (uint256 saleId)
+    {
+        uint256 deadline = block.timestamp + 15 minutes;
+        bytes memory sig = _signMarketSell(seller, projectId, price, positionIndex, deadline);
+        vm.prank(seller);
+        return market.sell(projectId, price, positionIndex, payee, deadline, sig);
+    }
+
+    /// @notice List `owner_`'s position from its recovery address `caller`.
+    function _sellForAs(address caller, address owner_, uint256 projectId, uint256 price, uint256 positionIndex)
+        internal
+        returns (uint256 saleId)
+    {
+        uint256 deadline = block.timestamp + 15 minutes;
+        bytes memory sig = _signMarketSellFor(caller, owner_, projectId, price, positionIndex, deadline);
+        vm.prank(caller);
+        return market.sellFor(owner_, projectId, price, positionIndex, deadline, sig);
+    }
+
 }

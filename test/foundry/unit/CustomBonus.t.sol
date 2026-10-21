@@ -195,7 +195,7 @@ contract CustomBonusTest is Setup {
 
     function test_withdraw_revert_notOwner() public {
         vm.prank(notOperator);
-        vm.expectRevert();
+        vm.expectRevert(abi.encodeWithSignature("OwnableUnauthorizedAccount(address)", notOperator));
         cb.withdraw(address(usdc), 1e6, notOperator);
     }
 }

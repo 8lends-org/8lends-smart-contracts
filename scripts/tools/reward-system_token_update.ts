@@ -27,7 +27,7 @@ async function main() {
     throw new Error("NEW_TOKEN_ADDRESS environment variable not set");
   }
 
-  const currentToken = config.token;
+  const currentToken = config.Token;
   console.log("Current Token address:", currentToken);
   console.log("New Token address:", newToken);
 
@@ -46,7 +46,7 @@ async function main() {
   console.log("Transaction hash:", tx.hash);
 
   // Update config
-  config.token = newToken;
+  config.Token = newToken;
   saveConfig(net.chainId, config);
 
   console.log("✅ Config updated with new Token address");
