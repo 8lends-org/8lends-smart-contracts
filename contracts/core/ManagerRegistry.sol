@@ -65,8 +65,7 @@ contract ManagerRegistry is Initializable, OwnableUpgradeable, UUPSUpgradeable {
     }
 
     /// @notice An admin cannot appoint another one — that is the whole difference from the manager,
-    ///         who hands out his own role. A stolen admin key spends its rights without entrenching
-    ///         itself, because the list stays with the Safe.
+    ///         who hands out his own role. The list stays with the Safe.
     function setAdminStatus(address _admin, bool _status) external onlyOwner {
         admins[_admin] = _status;
         emit AdminUpdated(_admin, _status);
@@ -99,8 +98,8 @@ contract ManagerRegistry is Initializable, OwnableUpgradeable, UUPSUpgradeable {
         }
     }
 
-    /// @dev Not the operator: a stolen backend key would otherwise clear the blocks it set off.
-    ///      Not a batch either — freezing is panic, lifting is a verdict on one false positive.
+    /// @dev Support only, not the operator, and one at a time: freezing is panic, lifting is a
+    ///      verdict on one false positive.
     function unfreeze(address _user) external {
         require(supportStaff[msg.sender], "ManagerRegistry: Not support");
         require(isFrozen(_user), "ManagerRegistry: Not frozen");
@@ -213,10 +212,10 @@ contract ManagerRegistry is Initializable, OwnableUpgradeable, UUPSUpgradeable {
         /// @notice Set investor claim address for payouts
     /// @param _investor Investor address
     /// @param _claimAddress New address for receiving payouts
-    /// @dev `_investor` may be any address of the chain — support knows the stolen wallet, not
+    /// @dev `_investor` may be any address of the chain — support knows the replaced wallet, not
     ///      where the chain started. (A, D), (B, D) and (C, D) all write the same entry.
-    /// @dev The previous target keeps its canonicalOf entry: dropping it would pay out to the
-    ///      attacker and clear their isCompromised flag.
+    /// @dev The previous target keeps its canonicalOf entry: dropping it would send payouts to a
+    ///      superseded address and clear its isCompromised flag.
     function setInvestorClaimAddress(address _investor, address _claimAddress) external onlyOwner {
         require(_investor != address(0), "Invalid investor address");
         require(_claimAddress != address(0), "Invalid claim address");
@@ -261,10 +260,8 @@ contract ManagerRegistry is Initializable, OwnableUpgradeable, UUPSUpgradeable {
     }
 
     /// @notice The old name for recipientOf, kept because deployed call sites read it.
-    /// @dev An alias, not a second rule: it used to follow one link and answer B for A -> B -> C,
-    ///      which is the address that was superseded. Rewards2, RewardSystem and LimitedSeller all
-    ///      pay through this getter, and paying into a link of a compromise chain is the thing the
-    ///      chain exists to prevent.
+    /// @dev An alias, not a second rule. Rewards2, RewardSystem and LimitedSeller all pay through
+    ///      this getter, so it answers the head of the chain like recipientOf does.
     function getInvestorClaimAddress(address _investor) public view returns (address) {
         return recipientOf(_investor);
     }

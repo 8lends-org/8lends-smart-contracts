@@ -104,8 +104,8 @@ contract MandateRouter is IMandateRouter, Initializable, OwnableUpgradeable, UUP
         if (previous == address(0)) revert NoRoute(pid);
 
         // Open whatever state the mandate is in and without anyone's signature — detaching is how
-        // a user takes control back. A freeze is the one exception: it exists precisely to stop a
-        // stolen key, and detaching would point the payouts back at the wallet it holds.
+        // a user takes control back. A freeze is the one exception: detaching would point the
+        // payouts back at the frozen wallet.
         _requireNotFrozen(msg.sender);
         _clear(msg.sender, pid, previous);
     }

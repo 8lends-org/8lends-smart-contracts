@@ -350,7 +350,7 @@ contract Fundraise is Initializable, UUPSUpgradeable, OwnableUpgradeable {
     ) external {
         // Safe to stop only because the other exit is stopped too: cancelRequest refunds to the
         // user's own address, and EscrowFactory now refuses that callback for a frozen account.
-        // Block one without the other and the stolen key would be left the only way out.
+        // Both have to be closed together, or the freeze leaves one way out open.
         _requireNotFrozen(_investor);
         address gateway = amlGateway;
         if (gateway == address(0) || IEscrowFactory(gateway).escrows(_investor) != msg.sender) {

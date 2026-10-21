@@ -72,8 +72,8 @@ interface IMandateFactory {
     ///      so old escrows keep validating under the old branch and no second factory address is
     ///      ever needed. The branch is selected by a value the escrow reports about itself, which is
     ///      safe only because the final address comparison is the proof — therefore every branch
-    ///      MUST bind all three of owner, version and paramsHash. A branch that leaves the owner out
-    ///      of the salt would be a hole, since a forgery would pick exactly that one.
+    ///      MUST bind all three of owner, version and paramsHash. Leaving any of them out of the
+    ///      salt makes the address derivable without it, and the comparison stops being proof.
     /// @dev Consequence for procedure: an upgrade of this contract can make this check lie, and via
     ///      enrollSelf that redirects a user's future payouts. The factory is therefore a
     ///      money-path contract — its upgrades are audited and announced like Fundraise's.

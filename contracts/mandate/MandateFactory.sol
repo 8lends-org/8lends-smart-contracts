@@ -183,8 +183,8 @@ contract MandateFactory is IMandateFactory, Initializable, OwnableUpgradeable, U
 
     // ── internals ───────────────────────────────────────────────────────────────
 
-    /// @dev Every future salt scheme must keep binding all three of owner, version and paramsHash:
-    ///      a branch that drops the owner is the one a forgery would pick.
+    /// @dev Every future salt scheme must keep binding all three of owner, version and paramsHash.
+    ///      Dropping any of them makes the address derivable without it.
     function _salt(address owner_, uint16 version, bytes32 paramsHash) private pure returns (bytes32) {
         return keccak256(abi.encode(owner_, version, paramsHash));
     }

@@ -223,7 +223,7 @@ contract MandateEscrowV1 is IMandateEscrowV1 {
     }
 
     /// @dev No state gate and no signature: withdrawal must work while paused, and the recipient is
-    ///      always recipientOf(owner), so a stolen key cannot redirect the money. The token is an
+    ///      always recipientOf(owner), so the caller cannot redirect the money. The token is an
     ///      argument so anything landing here can leave — an immutable clone cannot gain a rescue
     ///      function later.
     function _payOut(address token, uint256 amount) private {

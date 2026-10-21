@@ -132,8 +132,8 @@ interface IMandateEscrowV1 {
     // ── owner, claim address or operator ────────────────────────────────────────
 
     /// @notice Moves the free balance to the recovery address recorded in ManagerRegistry.
-    /// @dev One gate: isCompromised(owner) must be true — a revert, not a soft condition, or anyone
-    ///      could drain a healthy mandate onto its owner's wallet and stop it re-placing.
+    /// @dev One gate: isCompromised(owner) must be true — a revert, not a soft condition, so a
+    ///      healthy mandate keeps its balance and goes on placing it.
     /// @dev Callable by anyone past that. The caller chooses nothing: the recipient is always
     ///      recipientOf(owner) and the amount is the whole free balance. On the recovery path that
     ///      is worth more than a caller list — the owner's key is untrusted, the recovery address may
