@@ -12,7 +12,33 @@ import type { Deployment } from "./config";
  * `artifactRuntimeHash` are the two halves of that comparison.
  */
 
-const IMPL_SLOT = "0x360894a13ba1a3210667c828492db98dca3e2076cc3735a920a3ca505d382bbc";
+export const IMPL_SLOT = "0x360894a13ba1a3210667c828492db98dca3e2076cc3735a920a3ca505d382bbc";
+
+/**
+ * Addresses a contract bakes into its runtime code, beyond the one every UUPS implementation keeps
+ * of itself. They have to be named because masking is by value, and a value nobody named stays in
+ * the chain's copy while the compiled one holds zeroes — the two then never compare equal.
+ *
+ * Here rather than beside the deploy descriptors because the pull-request check masks the same
+ * values and must not keep a second list of them: two lists would agree until the day one gained
+ * an entry, and the symptom would be a contract reported as drifted for no reason.
+ */
+const IMMUTABLES: Record<string, (config: any) => (string | null | undefined)[]> = {
+  AdaptiveCurveIrm: (config) => [config.Lending8],
+  MandateEscrowV1: (config) => [
+    config.USDC,
+    config.Fundraise,
+    config.ManagerRegistry,
+    config.MandateRouter,
+    config.Lending8,
+  ],
+};
+
+/** The extra values to mask for a contract, empty for one that bakes in nothing of its own. */
+export function immutablesOf(contractName: string, config: unknown): string[] {
+  const entry = IMMUTABLES[contractName];
+  return entry ? (entry(config).filter(Boolean) as string[]) : [];
+}
 
 /**
  * Drops the CBOR metadata trailer, whose last two bytes hold its own length.

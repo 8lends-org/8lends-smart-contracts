@@ -4,6 +4,7 @@
   "main": "index.js",
   "scripts": {
     "test": "hardhat test",
+    "check:deployed": "ts-node scripts/check-deployed-versions.ts",
     "test:general": "hardhat test test/general.test.ts",
     "test:oracle": "hardhat test test/oracle.test.ts",
     "test:lending": "hardhat test test/lending/lending8.test.ts",
