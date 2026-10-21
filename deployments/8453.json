@@ -374,7 +374,7 @@
     "proxy": "0x55F9C8992fc4AbCE5ACa585bf8F18284a2379D4C",
     "impl": null,
     "buildHash": "0xbc6d575d9b5e6287adb66148917a3879ebb5dbcc202efa0bc3ae477381c8cb72",
-    "matchesDeployed": false,
+    "matchesDeployed": true,
     "deployedFrom": null,
     "deployedAt": null,
     "build": {
