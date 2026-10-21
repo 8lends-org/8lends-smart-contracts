@@ -473,8 +473,8 @@ contract EasyStartTest is Test {
     // ── the entrance ────────────────────────────────────────────────────────────
 
     function test_aClosedEntranceRefusesEvenTheOperator() public {
-        es.killSwitch(true);
-        assertTrue(es.depositsClosed());
+        es.setKillSwitch(true);
+        assertTrue(es.killSwitch());
 
         bytes32 nonce = keccak256("enter");
         bytes memory sig = _auth(participantKey, participant, DEPOSIT, nonce, block.timestamp + 1 hours);
@@ -483,7 +483,7 @@ contract EasyStartTest is Test {
         es.deposit(participant, 0, block.timestamp + 1 hours, nonce, sig);
         assertFalse(es.participated(participant));
 
-        es.killSwitch(false);
+        es.setKillSwitch(false);
         _enter();
         assertTrue(es.participated(participant), "the same entry goes through once the door is open");
     }
@@ -493,7 +493,7 @@ contract EasyStartTest is Test {
         _enter();
         uint256 start = block.timestamp;
 
-        es.killSwitch(true);
+        es.setKillSwitch(true);
 
         vm.warp(start + TERM);
         vm.prank(participant);
@@ -504,30 +504,33 @@ contract EasyStartTest is Test {
     }
 
     /// @dev Not the admin either, although he moves the campaign terms: the switch is the Safe's.
-    function test_theKillSwitchIsTheOwnersAlone() public {
+    /// @dev Shutting is the owner's alone; opening back is an admin's too, so a premature stop
+    ///      does not wait for the Safe.
+    function test_theAdminStopsItButOnlyTheOwnerRestarts() public {
+        vm.prank(operator);
+        vm.expectRevert(EasyStart.NotAuthorized.selector);
+        es.setKillSwitch(true);
+
         vm.prank(outsider);
-        vm.expectRevert();
-        es.killSwitch(true);
+        vm.expectRevert(EasyStart.NotAuthorized.selector);
+        es.setKillSwitch(true);
+        assertFalse(es.killSwitch(), "neither the operator nor a stranger stops it");
+
+        vm.prank(admin);
+        es.setKillSwitch(true);
+        assertTrue(es.killSwitch(), "the admin stops it alone, within the minute");
+
+        vm.prank(admin);
+        vm.expectRevert(EasyStart.NotAuthorized.selector);
+        es.setKillSwitch(false);
+        assertTrue(es.killSwitch(), "but cannot undo his own stop");
 
         vm.prank(operator);
-        vm.expectRevert();
-        es.killSwitch(true);
+        vm.expectRevert(EasyStart.NotAuthorized.selector);
+        es.setKillSwitch(false);
 
-        vm.prank(admin);
-        vm.expectRevert();
-        es.killSwitch(true);
-        assertFalse(es.depositsClosed());
-
-        es.killSwitch(true);
-        assertTrue(es.depositsClosed());
-
-        vm.prank(admin);
-        vm.expectRevert();
-        es.killSwitch(false);
-        assertTrue(es.depositsClosed());
-
-        es.killSwitch(false);
-        assertFalse(es.depositsClosed());
+        es.setKillSwitch(false);
+        assertFalse(es.killSwitch(), "restarting takes the owner");
     }
 
     // ── money ───────────────────────────────────────────────────────────────────

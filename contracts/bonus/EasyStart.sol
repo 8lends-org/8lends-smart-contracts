@@ -30,7 +30,7 @@ contract EasyStart is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentr
     uint64 public term;
     uint32 public payoutCount;
 
-    bool public depositsClosed;
+    bool public killSwitch;
 
     struct Participation {
         uint64 start;
@@ -48,7 +48,7 @@ contract EasyStart is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentr
     event RewardPaid(address indexed participant, address indexed to, uint256 amount);
     event PrincipalReturned(address indexed participant, address indexed to, uint256 amount);
     event ParametersSet(uint128 depositAmount, uint64 term, uint32 payoutCount, uint128 rewardAmount);
-    event DepositsClosedSet(bool closed, address indexed by);
+    event KillSwitchSet(bool enabled);
     event Withdrawn(address indexed token, address indexed to, uint256 amount);
 
     error ZeroAddress();
@@ -101,7 +101,7 @@ contract EasyStart is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentr
         bytes32 _nonce,
         bytes calldata _signature
     ) external nonReentrant {
-        if (depositsClosed) revert DepositsAreClosed();
+        if (killSwitch) revert DepositsAreClosed();
         if (!managerRegistry.isOperator(msg.sender)) revert NotOperator();
         if (_participant == address(0)) revert ZeroAddress();
 
@@ -222,9 +222,17 @@ contract EasyStart is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentr
 
     /// @notice Shuts the door on new entries. Claims are untouched: the people inside were promised
     ///         a schedule, and the switch is for the entrance.
-    function killSwitch(bool _closed) external onlyOwner {
-        depositsClosed = _closed;
-        emit DepositsClosedSet(_closed, msg.sender);
+    /// @dev Stopping has to work within the minute an incident lasts, so one key is enough.
+    ///      Restarting is a decision, so it takes the multisig.
+    function setKillSwitch(bool _enabled) external {
+        if (_enabled) {
+            if (msg.sender != owner() && !managerRegistry.isAdmin(msg.sender)) revert NotAuthorized();
+        } else {
+            if (msg.sender != owner()) revert NotAuthorized();
+        }
+
+        killSwitch = _enabled;
+        emit KillSwitchSet(_enabled);
     }
 
     /// @notice Applies to everyone who enters from now on; those already in keep their terms.
