@@ -1,5 +1,6 @@
 import { execFileSync } from "child_process";
-import { readFileSync, readdirSync } from "fs";
+import { existsSync, lstatSync, readFileSync, readdirSync, rmSync, symlinkSync } from "fs";
+import { tmpdir } from "os";
 import { join } from "path";
 
 import { JsonRpcProvider, type Provider } from "ethers";
@@ -31,6 +32,7 @@ import { IMPL_SLOT, artifactRuntimeHash, chainRuntimeHash, immutablesOf } from "
  *   npx ts-node scripts/check-deployed-versions.ts --json       the same as machine-readable output
  *   npx ts-node scripts/check-deployed-versions.ts --offline    skip the chain, rebuild only
  *   npx ts-node scripts/check-deployed-versions.ts --network base
+ *   npx ts-node scripts/check-deployed-versions.ts --blame Fundraise   where it stopped matching
  *
  * Not a hardhat task: `hardhat run` rejects flags it does not know, and the chain half of the work
  * reads two networks in one pass, which a single `--network` could not express anyway.
@@ -101,7 +103,7 @@ type Row = {
  * call — the same tens of megabytes once per contract.
  */
 function loadBuildInfos(): { input: any; output: any }[] {
-  const dir = join(__dirname, "..", "artifacts", "build-info");
+  const dir = join(ROOT, "artifacts", "build-info");
   return readdirSync(dir)
     .filter((f) => f.endsWith(".json"))
     .map((f) => JSON.parse(readFileSync(join(dir, f), "utf8")));
@@ -126,7 +128,7 @@ async function solcBuildFor(version: string): Promise<any> {
 }
 
 /**
- * Compiles one contract at the settings its record carries and hashes the result the same way a
+ * Hashes one contract compiled from the given sources at the given settings, the same way a
  * deployment is hashed.
  *
  * Only that contract is code-generated, and that is load-bearing rather than an optimisation: a
@@ -135,31 +137,17 @@ async function solcBuildFor(version: string): Promise<any> {
  * built without. Narrowing the output selection keeps codegen to the contract being checked, which
  * is the only one the settings are claimed to describe.
  */
-async function rebuildAt(
-  name: string,
+async function hashAtSettings(
+  sourceName: string,
+  contractName: string,
   build: NonNullable<Deployment["build"]>,
-  buildInfos: { input: any; output: any }[]
-): Promise<Rebuild> {
-  let sourceName: string;
-  let contractName: string;
-  try {
-    const artifact = await hre.artifacts.readArtifact(name);
-    sourceName = artifact.sourceName;
-    contractName = artifact.contractName;
-  } catch {
-    return { verdict: "no-source", hash: null, why: "no contract of this name in the repository" };
-  }
-
-  const info = buildInfos.find((bi) => bi.input?.sources?.[sourceName]);
-  if (!info) {
-    return { verdict: "no-source", hash: null, why: `${sourceName} is in no build info — run hardhat compile` };
-  }
-
+  sources: unknown
+): Promise<{ hash: string } | { error: string }> {
   const solcBuild = await solcBuildFor(shortSolcVersion(build.solc));
 
   const input = {
     language: "Solidity",
-    sources: info.input.sources,
+    sources,
     settings: {
       optimizer: {
         enabled: build.optimizer.enabled,
@@ -177,23 +165,89 @@ async function rebuildAt(
   );
 
   const fatal = (output.errors ?? []).filter((e: any) => e.severity === "error");
-  if (fatal.length > 0) {
-    return { verdict: "unbuildable", hash: null, why: String(fatal[0].message).split("\n")[0].trim() };
-  }
+  if (fatal.length > 0) return { error: String(fatal[0].message).split("\n")[0].trim() };
 
   const object = output.contracts?.[sourceName]?.[contractName]?.evm?.deployedBytecode?.object;
-  if (!object) {
-    return { verdict: "unbuildable", hash: null, why: "solc produced no deployed bytecode" };
+  if (!object) return { error: "solc produced no deployed bytecode" };
+
+  return { hash: artifactRuntimeHash("0x" + object) };
+}
+
+/** Where a contract's source sits, or null when the repository has no contract of that name. */
+async function locate(name: string): Promise<{ sourceName: string; contractName: string } | null> {
+  try {
+    const artifact = await hre.artifacts.readArtifact(name);
+    return { sourceName: artifact.sourceName, contractName: artifact.contractName };
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * The sources of one compilation narrowed to what the named file actually reaches.
+ *
+ * solc parses everything it is handed whether or not the output selection asks for it, so handing
+ * it the whole project costs a third of the run for files the contract never imports.
+ */
+function subgraphOf(info: { input: any; output: any }, sourceName: string): Record<string, unknown> {
+  const reachable = new Set(transitiveSources(info, sourceName));
+  return Object.fromEntries(Object.entries(info.input.sources).filter(([path]) => reachable.has(path)));
+}
+
+/**
+ * Both networks deploy mostly the same contracts from mostly the same settings, and a rebuild
+ * depends on nothing else — so the second network's copy of a pair is answered from here.
+ *
+ * Keyed before the comparison with `buildHash`, never after: two records can share a build and
+ * still have been deployed from different commits, and it is the comparison that tells them apart.
+ */
+const rebuilds = new Map<string, Rebuild>();
+
+/** The working tree built at the settings of one record. */
+async function rebuildAt(
+  name: string,
+  build: NonNullable<Deployment["build"]>,
+  buildInfos: { input: any; output: any }[]
+): Promise<Rebuild> {
+  const key = `${name}\u0000${JSON.stringify(build)}`;
+  const seen = rebuilds.get(key);
+  if (seen) return seen;
+
+  const computed = await computeRebuild(name, build, buildInfos);
+  rebuilds.set(key, computed);
+  return computed;
+}
+
+async function computeRebuild(
+  name: string,
+  build: NonNullable<Deployment["build"]>,
+  buildInfos: { input: any; output: any }[]
+): Promise<Rebuild> {
+  const where = await locate(name);
+  if (!where) return { verdict: "no-source", hash: null, why: "no contract of this name in the repository" };
+
+  const info = buildInfos.find((bi) => bi.input?.sources?.[where.sourceName]);
+  if (!info) {
+    return { verdict: "no-source", hash: null, why: `${where.sourceName} is in no build info — run hardhat compile` };
   }
 
-  const hash = artifactRuntimeHash("0x" + object);
-  return { verdict: "match", hash } as Rebuild;
+  const result = await hashAtSettings(
+    where.sourceName,
+    where.contractName,
+    build,
+    subgraphOf(info, where.sourceName)
+  );
+  return "error" in result
+    ? { verdict: "unbuildable", hash: null, why: result.error }
+    : ({ verdict: "match", hash: result.hash } as Rebuild);
 }
 
 // ── git ──
 
+const ROOT = join(__dirname, "..");
+
 const git = (args: string[]): string =>
-  execFileSync("git", args, { encoding: "utf8", cwd: join(__dirname, "..") }).trim();
+  execFileSync("git", args, { encoding: "utf8", cwd: ROOT }).trim();
 
 /**
  * The branch `deployedFrom` has to be reachable from. `origin/main` is preferred over the local
@@ -294,6 +348,216 @@ function gateFails(row: Row): string[] {
   return problems;
 }
 
+
+// ── blame ──
+
+type Candidate = { sha: string; date: string; subject: string };
+
+/**
+ * Every source the contract's compilation actually read, walked from its own file through the
+ * import graph.
+ *
+ * Narrower than "everything under contracts/" on purpose: the walk is what keeps the candidate
+ * list to the handful of commits that could have moved this contract's bytecode, instead of every
+ * commit that touched any contract.
+ */
+function transitiveSources(info: { output: any }, sourceName: string): string[] {
+  const seen = new Set<string>();
+  const queue = [sourceName];
+  while (queue.length > 0) {
+    const current = queue.shift()!;
+    if (seen.has(current)) continue;
+    seen.add(current);
+    const nodes = info.output?.sources?.[current]?.ast?.nodes ?? [];
+    for (const node of nodes) {
+      if (node.nodeType === "ImportDirective" && node.absolutePath) queue.push(node.absolutePath);
+    }
+  }
+  return [...seen];
+}
+
+/**
+ * Commits between the deployment and HEAD that could have changed this contract's bytecode.
+ *
+ * The compiler settings and the dependency versions are in the filter beside the sources, because
+ * either of them moves the bytecode without a line of Solidity changing. Dependencies themselves
+ * are not tracked by git, so the lock file stands in for them.
+ *
+ * Only a filter. What divides matching from drifted is the hash, never the file list.
+ */
+function candidates(from: string, sources: string[]): Candidate[] {
+  const tracked = sources.filter((path) => path.startsWith("contracts/"));
+  const output = git([
+    "log",
+    "--reverse",
+    "--format=%H%x09%ad%x09%s",
+    "--date=short",
+    `${from}..HEAD`,
+    "--",
+    ...tracked,
+    "hardhat.config.ts",
+    "package-lock.json",
+  ]);
+  if (!output) return [];
+  return output.split("\n").map((line) => {
+    const [sha, date, ...rest] = line.split("\t");
+    return { sha, date, subject: rest.join("\t") };
+  });
+}
+
+/**
+ * A throwaway checkout to compile old commits in, reused across all of them — for the checkout
+ * and its dependencies, not for compiler output, which `buildInfo` throws away each time.
+ *
+ * node_modules is borrowed from the main tree by symlink rather than installed, which is right
+ * exactly while the lock file is unchanged — and `npm ci` is what happens when it is not. The
+ * symlink has to go before that runs, or the install would write through it into the tree we
+ * borrowed from.
+ */
+class Checkout {
+  private constructor(
+    readonly path: string,
+    private readonly lockOfMainTree: string
+  ) {}
+
+  static create(): Checkout {
+    const path = join(tmpdir(), `deployed-blame-${process.pid}`);
+    rmSync(path, { recursive: true, force: true });
+    execFileSync("git", ["worktree", "add", "--detach", path, "HEAD"], { cwd: ROOT, stdio: "ignore" });
+    return new Checkout(path, readFileSync(join(ROOT, "package-lock.json"), "utf8"));
+  }
+
+  moveTo(sha: string): void {
+    execFileSync("git", ["checkout", "--detach", "--force", sha], { cwd: this.path, stdio: "ignore" });
+
+    const lock = join(this.path, "package-lock.json");
+    const modules = join(this.path, "node_modules");
+    const borrowed = existsSync(modules) && lstatSync(modules).isSymbolicLink();
+
+    if (readFileSync(lock, "utf8") === this.lockOfMainTree) {
+      if (!borrowed) {
+        rmSync(modules, { recursive: true, force: true });
+        symlinkSync(join(ROOT, "node_modules"), modules);
+      }
+      return;
+    }
+
+    console.log(`    (package-lock.json differs here — installing, this one is slow)`);
+    if (borrowed) rmSync(modules);
+    execFileSync("npm", ["ci"], { cwd: this.path, stdio: "ignore" });
+  }
+
+  /**
+   * Build info for the commit in hand, produced by that commit's own hardhat config.
+   *
+   * Compiled from scratch every time. Left alone, the previous commit's build info stays in the
+   * directory and hardhat skips the work whenever its cache calls the tree unchanged — and then
+   * this reads a file describing some other commit. The verdict that comes out of that looks
+   * entirely reasonable, which is what makes it worth the extra twenty seconds.
+   */
+  buildInfo(sourceName: string): { input: any; output: any } | null {
+    rmSync(join(this.path, "artifacts"), { recursive: true, force: true });
+    rmSync(join(this.path, "cache"), { recursive: true, force: true });
+    execFileSync("npx", ["hardhat", "compile"], { cwd: this.path, stdio: "ignore" });
+
+    const dir = join(this.path, "artifacts", "build-info");
+    if (!existsSync(dir)) return null;
+    for (const file of readdirSync(dir).filter((f) => f.endsWith(".json"))) {
+      const info = JSON.parse(readFileSync(join(dir, file), "utf8"));
+      if (info.input?.sources?.[sourceName]) return info;
+    }
+    return null;
+  }
+
+  remove(): void {
+    git(["worktree", "remove", "--force", this.path]);
+  }
+}
+
+/**
+ * Where a contract stopped reproducing its deployment, as a list rather than a single commit.
+ *
+ * A list because the property is not monotonic: a change and its revert both appear, and a bisect
+ * would report whichever side it happened to land on. Walking the candidates in order shows the
+ * contract leaving the deployed code and, if it did, coming back.
+ */
+async function blame(network: Network, name: string): Promise<number> {
+  const record = loadDeployments(network.chainId)[name];
+  if (!record) throw new Error(`${name} has no record on ${network.name}`);
+  if (!record.deployedFrom) {
+    console.log(`${name} on ${network.name}: deployedFrom is empty, so there is no range to walk.`);
+    return 1;
+  }
+  if (!record.build || !record.buildHash) {
+    console.log(`${name} on ${network.name}: the record carries no build settings to rebuild with.`);
+    return 1;
+  }
+
+  const where = await locate(name);
+  if (!where) throw new Error(`no contract called ${name} in the repository`);
+
+  await hre.run("compile", { quiet: true });
+  const info = loadBuildInfos().find((bi) => bi.input?.sources?.[where.sourceName]);
+  if (!info) throw new Error(`${where.sourceName} is in no build info`);
+
+  const commits = candidates(record.deployedFrom, transitiveSources(info, where.sourceName));
+
+  console.log(
+    `\n${name} on ${network.name} — deployed from ${record.deployedFrom}` +
+      `${record.deployedAt ? ` (${record.deployedAt})` : ""}`
+  );
+  if (commits.length === 0) {
+    console.log("  Nothing since has touched its sources, its compiler settings or the lock file.");
+    return 0;
+  }
+  console.log(`  ${commits.length} commit${commits.length === 1 ? "" : "s"} could have moved its bytecode\n`);
+
+  const checkout = Checkout.create();
+  const verdicts: boolean[] = [];
+  try {
+    for (const commit of commits) {
+      checkout.moveTo(commit.sha);
+      // Narrowed for the same reason the table narrows: an unrelated file whose pragma rejects
+      // this record's compiler would otherwise fail the whole commit and read as "does not build".
+      const info = checkout.buildInfo(where.sourceName);
+      const result = info
+        ? await hashAtSettings(
+            where.sourceName,
+            where.contractName,
+            record.build,
+            subgraphOf(info, where.sourceName)
+          )
+        : { error: "the contract is in no build info at this commit" };
+
+      const matches = "hash" in result && result.hash === record.buildHash;
+      verdicts.push(matches);
+
+      const previous = verdicts.length > 1 ? verdicts[verdicts.length - 2] : true;
+      const marker =
+        "error" in result
+          ? `← does not build: ${result.error}`
+          : matches === previous
+            ? ""
+            : matches
+              ? "← back to the deployed code"
+              : "← first divergence";
+
+      console.log(
+        (
+          `  ${commit.sha.slice(0, 7)}  ${commit.date}  ${commit.subject.slice(0, 52).padEnd(54)}` +
+          `${matches ? "matches" : "drifted"}  ${marker}`
+        ).trimEnd()
+      );
+    }
+  } finally {
+    checkout.remove();
+  }
+
+  const now = verdicts[verdicts.length - 1];
+  console.log(`\n  HEAD ${now ? "reproduces the deployed code" : "does not reproduce the deployed code"}.`);
+  return 0;
+}
+
 // ── output ──
 
 /** Marks a row the run was told not to read, as opposed to one it failed to read. */
@@ -353,24 +617,53 @@ function printTable(network: Network, rows: Row[]): void {
 
 // ── main ──
 
-type Options = { fix: boolean; json: boolean; offline: boolean; only: string | null };
+type Options = { fix: boolean; json: boolean; offline: boolean; only: string | null; blame: string | null };
+
+/**
+ * The argument a flag takes. A flag left without one is a mistake worth stopping on rather than
+ * absorbing: `--blame` with nothing after it would otherwise run the whole table instead, which
+ * looks like a working command.
+ */
+function value(argv: string[], at: number, flag: string): string {
+  const given = argv[at];
+  if (given === undefined || given.startsWith("--")) throw new Error(`${flag} needs a value`);
+  return given;
+}
 
 function parseArgs(argv: string[]): Options {
-  const options: Options = { fix: false, json: false, offline: false, only: null };
+  const options: Options = { fix: false, json: false, offline: false, only: null, blame: null };
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i];
     if (arg === "--fix") options.fix = true;
     else if (arg === "--json") options.json = true;
     else if (arg === "--offline") options.offline = true;
-    else if (arg === "--network") options.only = argv[++i] ?? null;
+    else if (arg === "--network") options.only = value(argv, ++i, "--network");
     else if (arg.startsWith("--network=")) options.only = arg.slice("--network=".length);
+    else if (arg === "--blame") options.blame = value(argv, ++i, "--blame");
+    else if (arg.startsWith("--blame=")) options.blame = arg.slice("--blame=".length);
     else throw new Error(`unknown argument ${arg}`);
   }
   return options;
 }
 
+function networksFrom(only: string | null): Network[] {
+  const chosen = only
+    ? NETWORKS.filter((n) => n.name === only || String(n.chainId) === only)
+    : NETWORKS;
+  if (chosen.length === 0) throw new Error(`no network called ${only}`);
+  return chosen;
+}
+
 async function main(): Promise<void> {
   const options = parseArgs(process.argv.slice(2));
+
+  // One contract on one network: walking history is the whole job, and the table would say
+  // nothing the walk does not. Production by default, since that is the record worth explaining.
+  if (options.blame !== null) {
+    const network = networksFrom(options.only ?? "base")[0];
+    process.exitCode = await blame(network, options.blame);
+    return;
+  }
 
   // The rebuild reads build-info, which only exists once hardhat has compiled. Quiet because the
   // interesting output is the table, and on a warm cache this prints nothing anyway.
@@ -378,10 +671,7 @@ async function main(): Promise<void> {
   const buildInfos = loadBuildInfos();
   const base = mainRef();
 
-  const networks = options.only
-    ? NETWORKS.filter((n) => n.name === options.only || String(n.chainId) === options.only)
-    : NETWORKS;
-  if (networks.length === 0) throw new Error(`no network called ${options.only}`);
+  const networks = networksFrom(options.only);
 
   const all: Row[] = [];
 

@@ -58,37 +58,63 @@ async function main() {
 
     // Check pending implementation from config
     const pendingImplKey = `${contractName}_impl_pending`;
-    const oldImplKey = `${contractName}_impl`;
-    
+    const recorded: string | undefined = config[`${contractName}_impl`];
+
+    /**
+     * Writes the record from what the proxy actually points at.
+     *
+     * Everything in it described the implementation that has just been replaced, so it is
+     * recomputed rather than carried over: a buildHash left from the old code together with
+     * matchesDeployed=true would assert a verification that nothing has performed.
+     *
+     * The explorer goes first. It is the one public copy of the settings this was built with, and
+     * it is cheapest to publish now, while the tree that produced the implementation is still the
+     * tree in hand.
+     */
+    const adoptLiveImplementation = async (attributable: boolean): Promise<void> => {
+      await verifyOnExplorer(hre, currentImpl);
+
+      const { notes, ...described } = await describeDeployment(hre, contractName, proxyAddress, currentImpl);
+
+      // HEAD is the right attribution only when this run is the one that performed the upgrade.
+      // Adopting something found on chain is the other case: HEAD reproducing the bytecode says
+      // the code is unchanged since, not that it was released from here, and a whole range of
+      // commits reproduces it equally well. An attribution nothing established is worse than none.
+      const record = attributable ? described : { ...described, deployedFrom: null };
+      if (!attributable) {
+        notes.push("deployedFrom left empty: which commit this went out as is not known from here");
+      }
+      saveDeployment(net.chainId, contractName, record);
+
+      console.log("\n💾 deployments updated:");
+      console.log(`   impl            ${currentImpl}`);
+      console.log(`   buildHash       ${record.buildHash ?? "—"}`);
+      console.log(`   matchesDeployed ${record.matchesDeployed}`);
+      console.log(`   deployedFrom    ${record.deployedFrom ?? "—"}`);
+      console.log(`   deployedAt      ${record.deployedAt ?? "—"}`);
+      console.log(`   build           ${describeBuild(record.build)}`);
+      for (const note of notes) console.log(`   · ${note}`);
+    };
+
     if (config[pendingImplKey]) {
       console.log(`🔄 Expected implementation: ${config[pendingImplKey]}`);
-      
+
       if (currentImpl.toLowerCase() === config[pendingImplKey].toLowerCase()) {
         console.log("\n✅ UPGRADE SUCCESSFUL! Implementation updated.");
-        
-        // Verify on the explorer before recording anything. It is the one public copy of the
-        // settings this was built with, and it is cheapest to publish now, while the tree that
-        // produced the implementation is still the tree in hand.
-        await verifyOnExplorer(hre, currentImpl);
-
-        // Everything else in the record described the implementation that has just been replaced,
-        // so it is recomputed rather than carried over: a buildHash left from the old code together
-        // with matchesDeployed=true would assert a verification that nothing has performed.
-        const { notes, ...record } = await describeDeployment(hre, contractName, proxyAddress, currentImpl);
-        saveDeployment(net.chainId, contractName, record);
-
-        console.log("\n💾 deployments updated:");
-        console.log(`   buildHash       ${record.buildHash ?? "—"}`);
-        console.log(`   matchesDeployed ${record.matchesDeployed}`);
-        console.log(`   deployedFrom    ${record.deployedFrom ?? "—"}`);
-        console.log(`   deployedAt      ${record.deployedAt ?? "—"}`);
-        console.log(`   build           ${describeBuild(record.build)}`);
-        for (const note of notes) console.log(`   · ${note}`);
+        await adoptLiveImplementation(true);
       } else {
         console.log("\n⚠️  Implementation NOT updated. Upgrade not yet executed or an error occurred.");
       }
+    } else if (recorded?.toLowerCase() !== currentImpl.toLowerCase()) {
+      // No pending implementation, yet the proxy has moved: the upgrade did not go through the
+      // route that writes one down. Recording it here is what lets the repository catch up — the
+      // deployed-versions check reports the disagreement but may not author these fields, since
+      // it has no way to tell a genuine upgrade from a working tree that happens to differ.
+      console.log(`\n⚠️  The record says ${recorded ?? "nothing"}, the proxy points at ${currentImpl}.`);
+      console.log("   An upgrade reached this proxy without being recorded. Adopting what is live.");
+      await adoptLiveImplementation(false);
     } else {
-      console.log(`📌 Implementation from config: ${config[oldImplKey] || 'not found'}`);
+      console.log(`📌 Implementation matches the record: ${recorded}`);
     }
 
     // Informational only: AccessControl contracts (BTC8L) have no owner().
