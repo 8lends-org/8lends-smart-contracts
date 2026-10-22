@@ -3,7 +3,7 @@ import { existsSync, lstatSync, readFileSync, readdirSync, rmSync, symlinkSync }
 import { tmpdir } from "os";
 import { join } from "path";
 
-import { JsonRpcProvider, type Provider } from "ethers";
+import { FetchRequest, JsonRpcProvider, type Provider } from "ethers";
 import hre from "hardhat";
 import {
   TASK_COMPILE_SOLIDITY_GET_SOLC_BUILD,
@@ -276,6 +276,29 @@ function ancestryOf(sha: string | null): Ancestry {
 }
 
 // ── chain ──
+
+/**
+ * A provider for one network, or the reason there is none.
+ *
+ * Two bounds, because without them an endpoint that stops answering costs more than the job it
+ * runs in. ethers waits five minutes per request by default, and a record set is read two calls at
+ * a time — so a dead endpoint outlives any sane CI timeout instead of reporting itself. The probe
+ * then spends that bound once rather than once per record: if the chain cannot be reached at all,
+ * every row is going to say the same thing, and saying it fifty times is just the wait again.
+ */
+async function connect(network: Network): Promise<{ provider: Provider | null; why?: string }> {
+  const request = new FetchRequest(process.env[network.rpcEnv] || network.fallbackRpc);
+  request.timeout = 8_000;
+  const provider = new JsonRpcProvider(request, network.chainId, { staticNetwork: true });
+
+  try {
+    await provider.getBlockNumber();
+    return { provider };
+  } catch (error: any) {
+    const detail = String(error?.shortMessage ?? error?.message ?? error).split("\n")[0];
+    return { provider: null, why: `${network.rpcEnv} unreachable: ${detail}` };
+  }
+}
 
 async function implementationAt(provider: Provider, proxy: string): Promise<string | null> {
   const raw = await provider.getStorage(proxy, IMPL_SLOT);
@@ -559,9 +582,11 @@ const SYMBOL: Record<Rebuild["verdict"], string> = {
   "no-source": "?",
 };
 
-function printTable(network: Network, rows: Row[]): void {
+/** `unread` explains itself once under the header: the reason is the network's, not each row's. */
+function printTable(network: Network, rows: Row[], unreadable?: string): void {
   const label = network.gating ? "blocks a merge" : "informational";
   console.log(`\n${network.name} (${network.chainId}) — ${label}`);
+  if (unreadable && unreadable !== OFFLINE) console.log(`  chain not read — ${unreadable}`);
   console.log("-".repeat(96));
   console.log(
     `  ${"contract".padEnd(20)}${"rebuild".padEnd(14)}${"claim".padEnd(8)}${"chain".padEnd(12)}${"deployedFrom".padEnd(16)}note`
@@ -585,12 +610,8 @@ function printTable(network: Network, rows: Row[]): void {
         ? "—"
         : `${row.record.deployedFrom}${row.ancestry === "ok" ? "" : ` (${row.ancestry})`}`;
 
-    const note =
-      row.rebuild.hash === null
-        ? row.rebuild.why
-        : !row.chain.read && row.chain.why !== OFFLINE
-          ? row.chain.why
-          : "";
+    // Only the rebuild speaks per row; whatever the chain has to say was said under the header.
+    const note = row.rebuild.hash === null ? row.rebuild.why : "";
 
     console.log(
       `  ${row.name.padEnd(20)}` +
@@ -665,11 +686,9 @@ async function main(): Promise<void> {
   for (const network of networks) {
     const records = loadDeployments(network.chainId);
     const config = loadConfig(network.chainId);
-    const provider = options.offline
-      ? null
-      : new JsonRpcProvider(process.env[network.rpcEnv] || network.fallbackRpc, network.chainId, {
-          staticNetwork: true,
-        });
+    const { provider, why } = options.offline
+      ? { provider: null, why: OFFLINE }
+      : await connect(network);
 
     const rows: Row[] = [];
     for (const [name, record] of Object.entries(records)) {
@@ -693,11 +712,11 @@ async function main(): Promise<void> {
         ancestry: ancestryOf(record.deployedFrom),
         chain: provider
           ? await readChain(provider, record, immutablesOf(name, config))
-          : { read: false, why: OFFLINE },
+          : { read: false, why: why! },
       });
     }
 
-    if (!options.json) printTable(network, rows);
+    if (!options.json) printTable(network, rows, why);
     all.push(...rows);
   }
 
