@@ -126,7 +126,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 25
     steps:
-      # Full history: the check asks whether each deployedFrom is reachable from main, and a
+      # Full history: the check asks whether each deployedFrom is reachable from HEAD, and a
       # shallow clone cannot answer that. No ref override either — on a pull_request the default
       # merge ref is what we want, because a PR may be the thing that brings a record back in step
       # and it has to be judged on the config that will land in main.
@@ -142,11 +142,6 @@ jobs:
 
       - name: Install dependencies
         run: npm ci
-
-      # checkout leaves no origin/main on a merge ref, and the ancestry check needs one to compare
-      # against.
-      - name: Fetch main
-        run: git fetch --no-tags origin main:refs/remotes/origin/main
 
       # Reads two networks and writes nothing. BASE_RPC_URL decides the verdict and is worth a
       # secret; without either variable the script falls back to the public endpoints, which are

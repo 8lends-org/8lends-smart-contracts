@@ -250,37 +250,25 @@ const git = (args: string[]): string =>
   execFileSync("git", args, { encoding: "utf8", cwd: ROOT }).trim();
 
 /**
- * The branch `deployedFrom` has to be reachable from. `origin/main` is preferred over the local
- * `main`, which on a working clone can sit anywhere, including behind.
- */
-function mainRef(): string | null {
-  for (const ref of ["origin/main", "main"]) {
-    try {
-      git(["rev-parse", "--verify", "--quiet", `${ref}^{commit}`]);
-      return ref;
-    } catch {
-      // try the next one
-    }
-  }
-  return null;
-}
-
-/**
- * Whether the commit a deployment is attributed to is part of the history it claims to come from.
+ * Whether the commit a deployment is attributed to is part of the history this run describes.
+ *
+ * Measured against HEAD, not against main. On a pull request HEAD is the merge result, which is
+ * the state being judged everywhere else in this file — and a branch that deployed before merging
+ * attributes its record to a commit of its own, reachable from the merge and not yet from main.
+ * Comparing with main would fail that record for being exactly what the workflow produces.
  *
  * `unknown` rather than a failure when the object is missing: a shallow checkout genuinely cannot
  * answer, and a check that reports "no" when it means "cannot tell" is worse than one that says so.
  */
-function ancestryOf(sha: string | null, base: string | null): Ancestry {
+function ancestryOf(sha: string | null): Ancestry {
   if (!sha) return "absent";
-  if (!base) return "unknown";
   try {
     git(["cat-file", "-e", `${sha}^{commit}`]);
   } catch {
     return "unknown";
   }
   try {
-    git(["merge-base", "--is-ancestor", sha, base]);
+    git(["merge-base", "--is-ancestor", sha, "HEAD"]);
     return "ok";
   } catch {
     return "not-ancestor";
@@ -335,7 +323,7 @@ function gateFails(row: Row): string[] {
     );
   }
   if (row.ancestry === "not-ancestor") {
-    problems.push(`deployedFrom ${row.record.deployedFrom} is not in the history of main`);
+    problems.push(`deployedFrom ${row.record.deployedFrom} is in no history this checkout has`);
   }
   if (row.chain.read) {
     if (row.chain.slotOk === false) {
@@ -669,7 +657,6 @@ async function main(): Promise<void> {
   // interesting output is the table, and on a warm cache this prints nothing anyway.
   await hre.run("compile", { quiet: true });
   const buildInfos = loadBuildInfos();
-  const base = mainRef();
 
   const networks = networksFrom(options.only);
 
@@ -703,7 +690,7 @@ async function main(): Promise<void> {
         record,
         rebuild: resolved,
         claimOk: record.matchesDeployed === (resolved.verdict === "match"),
-        ancestry: ancestryOf(record.deployedFrom, base),
+        ancestry: ancestryOf(record.deployedFrom),
         chain: provider
           ? await readChain(provider, record, immutablesOf(name, config))
           : { read: false, why: OFFLINE },
