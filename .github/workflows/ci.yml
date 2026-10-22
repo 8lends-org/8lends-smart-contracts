@@ -121,6 +121,52 @@ jobs:
         env:
           BASE_RPC_URL: ${{ secrets.BASE_RPC_URL }}
 
+  deployed-versions:
+    name: Deployed Versions
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      # Full history: the check asks whether each deployedFrom is reachable from HEAD, and a
+      # shallow clone cannot answer that. No ref override either — on a pull_request the default
+      # merge ref is what we want, because a PR may be the thing that brings a record back in step
+      # and it has to be judged on the config that will land in main.
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      # Reads two networks and writes nothing. BASE_RPC_URL decides the verdict and is worth a
+      # secret; without either variable the script falls back to the public endpoints, which are
+      # slower but answer eth_getStorageAt and eth_getCode perfectly well.
+      - name: Check deployed versions
+        id: check
+        run: |
+          set -o pipefail
+          npx ts-node scripts/check-deployed-versions.ts 2>&1 | tee check.log
+        env:
+          BASE_RPC_URL: ${{ secrets.BASE_RPC_URL }}
+          ETHEREUM_SEPOLIA_RPC_URL: ${{ secrets.ETHEREUM_SEPOLIA_RPC_URL }}
+
+      # always(): the table is most worth reading on the run that failed.
+      - name: Publish the table
+        if: always()
+        run: |
+          {
+            echo '### Deployed versions'
+            echo
+            echo '```'
+            cat check.log
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
   slither:
     name: Slither Analysis
     runs-on: ubuntu-latest

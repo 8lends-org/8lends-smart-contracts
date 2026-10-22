@@ -16,9 +16,11 @@ describe("🔱 Mandate — Base fork", function () {
   const USDC = "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913";
   const LENDING8 = "0x435782af7B8B12d71CB8FeCa159d65D96459f042";
   const FUNDRAISE = "0xf435A133D6cDCb81061F18a4763560f9931DB57D";
-  /// @dev Deployed fresh rather than taken from Base: the live registry predates the recovery
-  ///      chain and answers neither recipientOf nor isCompromised, which every payout here reads.
-  ///      USDC, Fundraise and Lending8 stay the real ones — they are what this suite is about.
+  /// @dev Deployed fresh rather than borrowed from Base, which would answer every call a payout
+  ///      makes here. The registry is not what this suite proves, and taking the live one would
+  ///      tie these cases to whichever recovery chains and freezes exist on chain that day.
+  ///      A fresh one answers neutrally: nobody superseded, nobody frozen.
+  ///      USDC, Fundraise and Lending8 stay real — those are the ones that cannot be stubbed.
   async function deployRegistry() {
     const Registry = await ethers.getContractFactory("ManagerRegistry");
     const proxy = await upgrades.deployProxy(Registry, [], { kind: "uups" });

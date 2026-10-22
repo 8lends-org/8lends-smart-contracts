@@ -3,7 +3,7 @@ import hre, { ethers } from "hardhat";
 import { upgrades } from "hardhat";
 import * as readline from "readline";
 import { loadConfig, saveConfig, saveDeployment } from "./utils/config";
-import { describeDeployment, printDeploymentRecord, verifyOnExplorer } from "./utils/provenance";
+import { describeDeployment, immutablesOf, printDeploymentRecord, verifyOnExplorer } from "./utils/provenance";
 
 import { requireRealNetwork } from "./utils/network-guard";
 
@@ -27,12 +27,6 @@ type DeployDescriptor = {
   initializer?: string;
   getProxyArgs?: (config: Config, owner: string) => unknown[];
   getConstructorArgs?: (config: Config) => unknown[];
-  /**
-   * Addresses the contract keeps in `immutable` fields. Needed only for provenance: the deployed
-   * code carries them, a compiled artifact carries zeroes, and the two are compared by masking the
-   * values out. Leave it off and matchesDeployed is false for every build, faithful or not.
-   */
-  getImmutables?: (config: Config) => string[];
   configKey: string;
   configKeyImpl?: string;
 };
@@ -241,6 +235,28 @@ const DEPLOY_DESCRIPTORS: Record<string, DeployDescriptor> = {
     configKey: "WelcomeBonus",
     configKeyImpl: "WelcomeBonus_impl",
   },
+  // The four terms are the campaign, and marketing moves them: they are arguments here and setters
+  // on the contract, not constants. A participant keeps whatever they were when he entered.
+  EasyStart: {
+    useProxy: true,
+    initializer: "initialize",
+    getProxyArgs: (config) => {
+      if (!config.ManagerRegistry || !config.USDC) {
+        throw new Error("ManagerRegistry and USDC required in config");
+      }
+      return [
+        config.ManagerRegistry,
+        config.USDC,
+        process.env.EASY_START_DEPOSIT ?? "97000000", // 97 USDC
+        process.env.EASY_START_TERM ?? String(6 * 24 * 60 * 60), // 6 days
+        process.env.EASY_START_PAYOUT_COUNT ?? "2",
+        process.env.EASY_START_REWARD ?? "4000000", // 4 USDC, the whole gift
+      ];
+    },
+    configKey: "EasyStart",
+    configKeyImpl: "EasyStart_impl",
+  },
+
   MaclearBonus: {
     useProxy: true,
     initializer: "initialize",
@@ -318,15 +334,6 @@ const DEPLOY_DESCRIPTORS: Record<string, DeployDescriptor> = {
       }
       return [config.USDC, config.Fundraise, config.ManagerRegistry, config.MandateRouter, config.Lending8];
     },
-    // The same five, and that is not a coincidence: every constructor argument of this contract is
-    // stored `immutable`, which is what makes step 5 of the mandate rollout irreversible.
-    getImmutables: (config) => [
-      config.USDC,
-      config.Fundraise,
-      config.ManagerRegistry,
-      config.MandateRouter,
-      config.Lending8,
-    ],
     configKey: "MandateEscrowV1",
   },
 
@@ -459,7 +466,7 @@ async function main(): Promise<void> {
     contractName,
     proxyOrContractAddress,
     implAddress,
-    { deployedAtBlock, immutables: descriptor.getImmutables?.(config) }
+    { deployedAtBlock, immutables: immutablesOf(contractName, config) }
   );
 
   // Recorded before the config is written, and the order is load-bearing. saveConfig routes each

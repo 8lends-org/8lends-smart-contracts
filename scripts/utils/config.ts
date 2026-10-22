@@ -158,6 +158,27 @@ export function saveDeployment(
   writeRecords(chainId, meta, records);
 }
 
+/**
+ * Rewrites one record's `matchesDeployed` and nothing else — the single field a check is allowed
+ * to author.
+ *
+ * Narrow on purpose. `buildHash` and `build` describe what is on chain, and only a script holding
+ * a provider and an executed transaction can know them; a recomputation that could also write them
+ * would be free to declare "the chain holds whatever the working tree builds" without ever having
+ * looked at the chain.
+ */
+export function setMatchesDeployed(
+  chainId: bigint | number | string,
+  name: string,
+  value: boolean
+): void {
+  const { meta, records } = readRecords(chainId);
+  const record = records[name];
+  if (!record) throw new Error(`${name} has no record in deployments/${chainId}.json`);
+  records[name] = { ...record, matchesDeployed: value };
+  writeRecords(chainId, meta, records);
+}
+
 function blank(): Deployment {
   return {
     proxy: "",
