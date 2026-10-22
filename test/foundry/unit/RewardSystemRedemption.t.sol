@@ -157,7 +157,7 @@ contract RewardSystemRedemptionTest is Setup {
     /// @dev What unlocked before the cutover is owed in tokens, what unlocked after it in USDC, and
     ///      one curve runs across the seam.
     function test_cutoverSplitsOneCurve() public {
-        uint256 t0 = block.timestamp;
+        uint256 t0 = _now();
         rewardSystem.setCutover(t0 + 10 weeks);
         _setRate();
 
@@ -178,7 +178,7 @@ contract RewardSystemRedemptionTest is Setup {
 
     /// @dev The halves are independent: either may be taken first, or on its own.
     function test_cutoverHalvesAreIndependent() public {
-        uint256 t0 = block.timestamp;
+        uint256 t0 = _now();
         rewardSystem.setCutover(t0 + 10 weeks);
         _setRate();
         vm.warp(t0 + 20 weeks);
@@ -202,7 +202,7 @@ contract RewardSystemRedemptionTest is Setup {
 
     /// @dev The token half needs no rate: only the USDC half does.
     function test_cutoverTokenHalfPaysWithoutARate() public {
-        uint256 t0 = block.timestamp;
+        uint256 t0 = _now();
         rewardSystem.setCutover(t0 + 10 weeks);
 
         vm.warp(t0 + 20 weeks);
@@ -231,7 +231,7 @@ contract RewardSystemRedemptionTest is Setup {
 
     /// @dev Claiming weekly must cost nothing against claiming once at the end.
     function test_frequentClaimsLoseNothingToRounding() public {
-        uint256 t0 = block.timestamp;
+        uint256 t0 = _now();
         _setRate();
 
         for (uint256 w = 0; w <= 45; w++) {
@@ -292,7 +292,7 @@ contract RewardSystemRedemptionTest is Setup {
     /// @dev The ratchet lifts the curve at every point, the cutover included, so a position that
     ///      carries one is owed more in tokens — not just more in total.
     function test_aRatchetLiftsTheTokenEraToo() public {
-        uint256 t0 = block.timestamp;
+        uint256 t0 = _now();
         bytes32 slot = keccak256(abi.encode(pid, keccak256(abi.encode(investor, uint256(19)))));
         vm.store(address(rewardSystem), slot, bytes32(uint256(260_000))); // 26% on top
 
@@ -329,7 +329,7 @@ contract RewardSystemRedemptionTest is Setup {
     // ── the manager pays on a user's behalf ──
 
     function test_adminPaysBothHalves() public {
-        uint256 t0 = block.timestamp;
+        uint256 t0 = _now();
         rewardSystem.setCutover(t0 + 10 weeks);
         _setRate();
         vm.warp(t0 + 20 weeks);
@@ -371,7 +371,7 @@ contract RewardSystemRedemptionTest is Setup {
         _seedVesting(investor, second, VESTING);
         _fundProject(second);
 
-        uint256 t0 = block.timestamp;
+        uint256 t0 = _now();
         rewardSystem.setCutover(t0 + 10 weeks);
         vm.warp(t0 + 20 weeks);
 

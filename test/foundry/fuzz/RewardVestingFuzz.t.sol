@@ -115,7 +115,7 @@ contract RewardVestingFuzzTest is Setup {
         week1 = bound(week1, 0, 60);
         week2 = bound(week2, week1, 60);
 
-        uint256 t0 = block.timestamp;
+        uint256 t0 = _now();
         address[] memory users = new address[](1);
         users[0] = investor;
         uint256[] memory amounts = new uint256[](1);

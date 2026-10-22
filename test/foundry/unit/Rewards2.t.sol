@@ -134,7 +134,7 @@ contract Rewards2Test is Setup {
 
     /// @dev Up to the cutover every claim is paid in tokens.
     function test_cutover_claimBeforeItPaysTokens() public {
-        uint256 t0 = block.timestamp;
+        uint256 t0 = _now();
         _seedVesting(investor, 10_000e18);
         rewards2.setCutover(t0 + 10 weeks);
         _fundClaims();
@@ -151,7 +151,7 @@ contract Rewards2Test is Setup {
 
     /// @dev Unlocked before the cutover but never claimed is still owed in tokens.
     function test_cutover_unclaimedBeforeItStaysTokens() public {
-        uint256 t0 = block.timestamp;
+        uint256 t0 = _now();
         _seedVesting(investor, 10_000e18);
         _fundClaims();
         _fundTokens();
@@ -173,7 +173,7 @@ contract Rewards2Test is Setup {
 
     /// @dev One curve runs across the cutover: tokens up to it, USDC after, the whole grant in total.
     function test_cutover_wholeGrantAcrossIt() public {
-        uint256 t0 = block.timestamp;
+        uint256 t0 = _now();
         _seedVesting(investor, 10_000e18);
         rewards2.setCutover(t0 + 10 weeks);
         _fundClaims();
@@ -193,7 +193,7 @@ contract Rewards2Test is Setup {
 
     /// @dev The token part needs no rate: only the USDC part does.
     function test_cutover_tokenPartPaysWithoutARate() public {
-        uint256 t0 = block.timestamp;
+        uint256 t0 = _now();
         _seedVesting(investor, 10_000e18);
         rewards2.setCutover(t0 + 10 weeks);
         _fundTokens();
@@ -289,7 +289,7 @@ contract Rewards2Test is Setup {
     /// @dev The halves are independent: taking the USDC one first must not touch what the token
     ///      era still owes, and either may be left unclaimed indefinitely.
     function test_cutover_halvesAreIndependent() public {
-        uint256 t0 = block.timestamp;
+        uint256 t0 = _now();
         _seedVesting(investor, 10_000e18);
         rewards2.setCutover(t0 + 10 weeks);
         _fundClaims();
@@ -319,7 +319,7 @@ contract Rewards2Test is Setup {
     /// @dev Claiming weekly must cost nothing against claiming once at the end: what a payout
     ///      cannot round up to a whole micro-dollar stays owed and joins the next slice.
     function test_cutover_frequentClaimsLoseNothingToRounding() public {
-        uint256 t0 = block.timestamp;
+        uint256 t0 = _now();
         _seedVesting(investor, 777_777e18 + 13); // deliberately not a round number
         _fundClaims();
 
@@ -338,7 +338,7 @@ contract Rewards2Test is Setup {
     /// @dev A slice worth less than a micro-dollar must not be marked paid for nothing. It keeps
     ///      unlocking, so a later claim rounds to something and pays it.
     function test_cutover_aSliceTooSmallToPayIsNotConsumed() public {
-        uint256 t0 = block.timestamp;
+        uint256 t0 = _now();
         _seedVesting(investor, 1e14); // 0.0001 of a token: a weekly slice is under one micro-dollar
         _fundClaims();
 
@@ -359,7 +359,7 @@ contract Rewards2Test is Setup {
     /// @dev The ratchet lifts the curve at every point, the cutover included, so a vesting that
     ///      carries one is owed more in tokens — not just more in total.
     function test_cutover_ratchetLiftsTheTokenEraToo() public {
-        uint256 t0 = block.timestamp;
+        uint256 t0 = _now();
         _seedVesting(investor, 10_000e18);
         bytes32 slot = keccak256(abi.encode(uint256(0), keccak256(abi.encode(investor, uint256(10)))));
         vm.store(address(rewards2), slot, bytes32(uint256(260_000))); // the 26% the bonus bought
@@ -380,7 +380,7 @@ contract Rewards2Test is Setup {
     /// @dev _unlockedAt reads the live parameters even when asked about the past, so moving them
     ///      moves where the cutover fell. Documented rather than fixed: the setter is owner-only.
     function test_cutover_changingTheCurveMovesTheSplitRetroactively() public {
-        uint256 t0 = block.timestamp;
+        uint256 t0 = _now();
         _seedVesting(investor, 10_000e18);
         rewards2.setCutover(t0 + 10 weeks);
         _fundClaims();
@@ -422,7 +422,7 @@ contract Rewards2Test is Setup {
 
     /// @dev The batch halves are independent too, and the token one needs no rate.
     function test_claimTokensBatch_paysTheTokenEraOnly() public {
-        uint256 t0 = block.timestamp;
+        uint256 t0 = _now();
         _seedVesting(investor, 10_000e18);
         _seedVesting(investor2, 4_000e18);
         rewards2.setCutover(t0 + 10 weeks);

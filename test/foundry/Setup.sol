@@ -326,4 +326,19 @@ abstract contract Setup is Test, Eip712Signing {
         vm.prank(owner);
         rewardSystem.seedVestings(users, amounts, pids);
     }
+
+    /**
+     * The current block time, snapshotted so that a later `vm.warp` cannot move it.
+     *
+     * `uint256 t0 = block.timestamp` does not survive one. Reading the clock twice in a call can
+     * only give one answer on a real chain, so solc is entitled to drop the local and re-emit
+     * TIMESTAMP where it is used — and under the IR pipeline it does. A cheatcode warp breaks that
+     * premise: the value read back is the warped one, every arithmetic built on it silently moves,
+     * and the test goes on measuring a window it never set up.
+     *
+     * A cheatcode call cannot be folded away, so what it returns stays put.
+     */
+    function _now() internal view returns (uint256) {
+        return vm.getBlockTimestamp();
+    }
 }
