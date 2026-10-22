@@ -19,6 +19,11 @@ contract EasyStart is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentr
 
     uint256 public constant version = 1;
 
+    /// @notice The largest deposit the product takes. In USDC units, which carry six decimals.
+    uint128 public constant MAX_DEPOSIT = 500e6;
+    /// @notice The gift, as a share of the deposit, in basis points.
+    uint16 public constant MAX_REWARD_BPS = 1500;
+
     IERC20 public usdc;
     IManagerRegistry public managerRegistry;
 
@@ -60,6 +65,7 @@ contract EasyStart is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentr
     error AccountFrozen(address participant);
     error NothingToClaim();
     error InvalidParameters();
+    error AboveLimit();
     error DepositsAreClosed();
 
     /// @custom:oz-upgrades-unsafe-allow constructor
@@ -246,6 +252,10 @@ contract EasyStart is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentr
         _setParameters(_depositAmount, _term, _payoutCount, _rewardAmount);
     }
 
+    /// @dev The bounds hold for everyone who can set parameters, the owner and the initializer
+    ///      included: one key should not be able to make a single entry worth more than the
+    ///      product is for, and moving the ceiling is an upgrade. The term is left unbounded — it
+    ///      decides when money leaves, not how much.
     function _setParameters(
         uint128 _depositAmount,
         uint64 _term,
@@ -254,6 +264,10 @@ contract EasyStart is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentr
     ) private {
         if (_depositAmount == 0 || _term == 0 || _payoutCount == 0 || _rewardAmount == 0) {
             revert InvalidParameters();
+        }
+        if (_depositAmount > MAX_DEPOSIT) revert AboveLimit();
+        if (uint256(_rewardAmount) * 10_000 > uint256(_depositAmount) * MAX_REWARD_BPS) {
+            revert AboveLimit();
         }
 
         depositAmount = _depositAmount;

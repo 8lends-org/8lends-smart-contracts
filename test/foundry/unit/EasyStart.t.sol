@@ -430,7 +430,7 @@ contract EasyStartTest is Test {
         uint256 start = block.timestamp;
 
         vm.prank(admin);
-        es.setParameters(1e6, 60 days, 10, 50e6);
+        es.setParameters(400e6, 60 days, 10, 60e6);
 
         vm.warp(start + TERM);
         vm.prank(participant);
@@ -468,6 +468,34 @@ contract EasyStartTest is Test {
         vm.expectRevert(EasyStart.InvalidParameters.selector);
         es.setParameters(DEPOSIT, TERM, COUNT, 0);
         vm.stopPrank();
+    }
+
+    function test_theBoundsHold() public {
+        uint128 cap = es.MAX_DEPOSIT();
+
+        vm.startPrank(admin);
+        vm.expectRevert(EasyStart.AboveLimit.selector);
+        es.setParameters(cap + 1, TERM, COUNT, 1e6);
+
+        // One unit over the share allowed.
+        vm.expectRevert(EasyStart.AboveLimit.selector);
+        es.setParameters(100e6, TERM, COUNT, 15e6 + 1);
+
+        es.setParameters(cap, TERM, COUNT, 75e6);
+        vm.stopPrank();
+        assertEq(es.depositAmount(), cap, "the cap itself is allowed");
+        assertEq(es.rewardAmount(), 75e6, "and so is the share exactly");
+    }
+
+    function test_theBoundsHoldAtDeployment() public {
+        EasyStart impl = new EasyStart();
+        bytes memory beyond = abi.encodeCall(
+            EasyStart.initialize,
+            (address(registry), address(usdc), es.MAX_DEPOSIT() + 1, TERM, COUNT, 1e6)
+        );
+
+        vm.expectRevert(EasyStart.AboveLimit.selector);
+        new ERC1967Proxy(address(impl), beyond);
     }
 
     // ── the entrance ────────────────────────────────────────────────────────────
