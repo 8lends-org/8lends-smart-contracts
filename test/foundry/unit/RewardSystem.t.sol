@@ -216,11 +216,11 @@ contract RewardSystemTest is Setup {
         rewardSystem.setParameters(1_000, 25_000, 40);
         assertEq(rewardSystem.referralPercentage(), 1_000, "the lower end was refused");
 
-        rewardSystem.setParameters(60_000, 1_000_000, 60_000, 0, 1000e6, 25_000, 40);
-        assertEq(rewardSystem.burnPercentage(), 1_000_000, "the upper end was refused");
+        rewardSystem.setParameters(1_000_000, 25_000, 40);
+        assertEq(rewardSystem.referralPercentage(), 1_000_000, "the upper end was refused");
 
-        vm.expectRevert("Burn percentage must be between 1000 and 1000000");
-        rewardSystem.setParameters(60_000, 999, 60_000, 0, 1000e6, 25_000, 40);
+        vm.expectRevert("Referral percentage must be between 1000 and 1000000");
+        rewardSystem.setParameters(999, 25_000, 40);
         vm.stopPrank();
     }
 
@@ -248,19 +248,21 @@ contract RewardSystemTest is Setup {
         assertGt(usdc.balanceOf(inviter) - before, 0, "the batch claim paid nothing");
     }
 
-    /// @dev The project-count ceiling is inclusive, and the view is the one the sell screen reads.
-    function test_getClaimAndSellAmounts_acceptsExactlyTheCeiling() public {
+    /// @dev The project-count ceiling is inclusive, on the view the rewards screen reads. Asked
+    ///      about the inviter: token cashback is off, so the investor's own side is always zero
+    ///      and would pass the assertion without the ceiling working at all.
+    function test_getProjectsRewardsTotal_acceptsExactlyTheCeiling() public {
         _investAs(investor, pid, 25_000e6, inviter);
         _fundProject(pid);
 
         uint256[] memory atCeiling = new uint256[](500);
         for (uint256 i = 0; i < 500; i++) atCeiling[i] = pid;
-        (uint256 tokens,,) = rewardSystem.getClaimAndSellAmounts(investor, atCeiling);
-        assertGt(tokens, 0, "the ceiling-sized request returned nothing");
+        (uint256 totalUSDC,,,) = rewardSystem.getProjectsRewardsTotal(inviter, atCeiling);
+        assertGt(totalUSDC, 0, "the ceiling-sized request returned nothing");
 
         uint256[] memory tooMany = new uint256[](501);
         for (uint256 i = 0; i < 501; i++) tooMany[i] = pid;
         vm.expectRevert("Too many projects");
-        rewardSystem.getClaimAndSellAmounts(investor, tooMany);
+        rewardSystem.getProjectsRewardsTotal(inviter, tooMany);
     }
 }

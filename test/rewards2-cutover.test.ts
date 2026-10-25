@@ -72,7 +72,7 @@ describe("Rewards2 cutover on the Base fork", function () {
 
     const old = await ethers.getContractAt(OLD_ABI, proxyAddress);
     const safe = await impersonate(await old.owner());
-    const token = await ethers.getContractAt("@openzeppelin/contracts/token/ERC20/IERC20.sol:IERC20", config.token);
+    const token = await ethers.getContractAt("@openzeppelin/contracts/token/ERC20/IERC20.sol:IERC20", config.Token);
     const usdc = await ethers.getContractAt("@openzeppelin/contracts/token/ERC20/IERC20.sol:IERC20", usdcAddress);
     const registry = await ethers.getContractAt("ManagerRegistry", config.ManagerRegistry);
 
