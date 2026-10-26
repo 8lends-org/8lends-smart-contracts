@@ -608,24 +608,6 @@
     "type": "function"
   },
   {
-    "inputs": [
-      {
-        "internalType": "uint256",
-        "name": "_weeklyUnlock",
-        "type": "uint256"
-      },
-      {
-        "internalType": "uint256",
-        "name": "_vestingWeeks",
-        "type": "uint256"
-      }
-    ],
-    "name": "setVestingParameters",
-    "outputs": [],
-    "stateMutability": "nonpayable",
-    "type": "function"
-  },
-  {
     "inputs": [],
     "name": "token",
     "outputs": [

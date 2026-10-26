@@ -187,15 +187,15 @@ contract RewardSystemTest is Setup {
     function test_setParameters_onlyAdmin() public {
         vm.prank(attacker);
         vm.expectRevert("Not an admin");
-        rewardSystem.setParameters(60_000, 25_000, 40);
+        rewardSystem.setParameters(60_000);
 
         vm.prank(manager);
         vm.expectRevert("Not an admin");
-        rewardSystem.setParameters(60_000, 25_000, 40);
+        rewardSystem.setParameters(60_000);
 
         vm.prank(owner);
         vm.expectRevert("Not an admin");
-        rewardSystem.setParameters(60_000, 25_000, 40);
+        rewardSystem.setParameters(60_000);
     }
 
     function test_claimBeforeActivation_reverts() public {
@@ -213,15 +213,32 @@ contract RewardSystemTest is Setup {
     ///      referral percentage, the one band the narrowed setter still carries.
     function test_setParameters_acceptsBothEndsOfTheReferralBand() public {
         vm.startPrank(admin);
-        rewardSystem.setParameters(1_000, 25_000, 40);
+        rewardSystem.setParameters(1_000);
         assertEq(rewardSystem.referralPercentage(), 1_000, "the lower end was refused");
 
-        rewardSystem.setParameters(1_000_000, 25_000, 40);
-        assertEq(rewardSystem.referralPercentage(), 1_000_000, "the upper end was refused");
+        rewardSystem.setParameters(70_000);
+        assertEq(rewardSystem.referralPercentage(), 70_000, "the upper end was refused");
 
-        vm.expectRevert("Referral percentage must be between 1000 and 1000000");
-        rewardSystem.setParameters(999, 25_000, 40);
+        vm.expectRevert("Referral percentage out of range");
+        rewardSystem.setParameters(999);
+        vm.expectRevert("Referral percentage out of range");
+        rewardSystem.setParameters(70_001);
         vm.stopPrank();
+    }
+
+    /// @dev The curve has no setter at all now: `_unlockedAt` reads it for past moments too, so a
+    ///      change would re-split an already-earned book between tokens and USDC. What is left in
+    ///      `setParameters` is the referral, a price on new investments.
+    function test_setParameters_cannotReachTheCurve() public {
+        uint256 weeksBefore = rewardSystem.vestingWeeks();
+        uint256 unlockBefore = rewardSystem.weeklyUnlock();
+
+        vm.prank(admin);
+        rewardSystem.setParameters(50_000);
+
+        assertEq(rewardSystem.referralPercentage(), 50_000, "the referral is still a dial");
+        assertEq(rewardSystem.vestingWeeks(), weeksBefore, "the curve did not move");
+        assertEq(rewardSystem.weeklyUnlock(), unlockBefore, "the curve did not move");
     }
 
     /// @dev An empty batch is refused rather than quietly doing nothing — whoever passed the

@@ -379,7 +379,9 @@ contract Rewards2Test is Setup {
 
     /// @dev _unlockedAt reads the live parameters even when asked about the past, so moving them
     ///      moves where the cutover fell. Documented rather than fixed: the setter is owner-only.
-    function test_cutover_changingTheCurveMovesTheSplitRetroactively() public {
+    /// @dev `_unlockedAt` reads the curve for past moments too, so a change would re-split a
+    ///      closed book between tokens and USDC. There is no setter to make one.
+    function test_cutover_curveHasNoSetter() public {
         uint256 t0 = _now();
         _seedVesting(investor, 10_000e18);
         rewards2.setCutover(t0 + 10 weeks);
@@ -390,12 +392,10 @@ contract Rewards2Test is Setup {
         (uint256 before,) = rewards2.getClaimable(investor);
         assertEq(before, 2_750e18);
 
-        vm.prank(owner);
-        rewards2.setVestingParameters(50_000, 40); // 5% a week instead of 2.5%
-
-        (uint256 afterChange,) = rewards2.getClaimable(investor);
-        assertEq(afterChange, 5_500e18, "the token era doubled with the weekly rate");
+        assertEq(rewards2.weeklyUnlock(), 25_000, "the curve is what initialize set");
+        assertEq(rewards2.vestingWeeks(), 40);
     }
+
 
     // ═══════════════════════════════════════════════════════════════
     //                    BATCH CLAIMS
@@ -586,29 +586,8 @@ contract Rewards2Test is Setup {
     //                  SET VESTING PARAMETERS
     // ═══════════════════════════════════════════════════════════════
 
-    function test_setVestingParameters_onlyOwner() public {
-        vm.prank(attacker);
-        vm.expectRevert(abi.encodeWithSignature("OwnableUnauthorizedAccount(address)", attacker));
-        rewards2.setVestingParameters(50_000, 20);
-    }
 
-    function test_setVestingParameters_updatesValues() public {
-        vm.prank(owner);
-        rewards2.setVestingParameters(50_000, 20);
 
-        assertEq(rewards2.weeklyUnlock(), 50_000);
-        assertEq(rewards2.vestingWeeks(), 20);
-    }
-
-    function test_setVestingParameters_invalidUnlock_reverts() public {
-        vm.prank(owner);
-        vm.expectRevert("Weekly unlock must be between 1000 and 1000000");
-        rewards2.setVestingParameters(500, 20); // below minimum
-
-        vm.prank(owner);
-        vm.expectRevert("Weekly unlock must be between 1000 and 1000000");
-        rewards2.setVestingParameters(1_000_001, 20); // above maximum
-    }
 
     // ═══════════════════════════════════════════════════════════════
     //                     GET BALANCES
@@ -677,22 +656,6 @@ contract Rewards2Test is Setup {
 
     // ── boundaries ──────────────────────────────────────────────────────────────
 
-    /// @dev Both ends of the weekly-unlock band are legal values, and only outside them does the
-    ///      setter refuse. The band is inclusive on purpose: 0.1% a week is a real schedule.
-    function test_setVestingParameters_acceptsBothEndsOfTheBand() public {
-        vm.startPrank(owner);
-        rewards2.setVestingParameters(1_000, 40);
-        assertEq(rewards2.weeklyUnlock(), 1_000, "the lower end was refused");
-
-        rewards2.setVestingParameters(1_000_000, 40);
-        assertEq(rewards2.weeklyUnlock(), 1_000_000, "the upper end was refused");
-
-        vm.expectRevert("Weekly unlock must be between 1000 and 1000000");
-        rewards2.setVestingParameters(999, 40);
-        vm.expectRevert("Weekly unlock must be between 1000 and 1000000");
-        rewards2.setVestingParameters(1_000_001, 40);
-        vm.stopPrank();
-    }
 
     /// @dev getVestingsInfo is the view the front end lists a holder's grants with, and nothing
     ///      called it. Its arrays are sized from the count, so an index walked one too far is a

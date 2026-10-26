@@ -31,9 +31,11 @@ contract Rewards2 is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentra
     // 1% = 10000
     uint256 public constant BASIS_POINTS = 1e6;
 
-    // Vesting parameters
-    uint256 public vestingWeeks; // 40 weeks vesting
-    uint256 public weeklyUnlock; // 2.5% per week
+    // Vesting parameters. No setter on purpose: `_unlockedAt` reads these for past moments too, so
+    // moving them re-splits an already-earned book between the token era and the USDC one. Set at
+    // `initialize`, changed only by an upgrade.
+    uint256 public vestingWeeks;
+    uint256 public weeklyUnlock;
 
     // Structure
     struct Vesting {
@@ -121,19 +123,6 @@ contract Rewards2 is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentra
         if (_managerRegistry != address(0)) managerRegistry = IManagerRegistry(_managerRegistry);
         if (_token != address(0)) token = IToken(_token);
         if (_usdc != address(0)) usdc = IERC20(_usdc);
-    }
-
-    /// @notice Set vesting parameters (owner only)
-    /// @param _weeklyUnlock weekly unlock 2_500_000 is 2.5%
-    /// @param _vestingWeeks vesting weeks 40 is 40 weeks
-    function setVestingParameters(
-        uint256 _weeklyUnlock,
-        uint256 _vestingWeeks
-    ) external onlyOwner {
-        require(_weeklyUnlock >= 1_000 && _weeklyUnlock <= 1_000_000, "Weekly unlock must be between 1000 and 1000000");
-        require(_vestingWeeks > 0, "Vesting weeks must be greater than 0");
-        weeklyUnlock = _weeklyUnlock;
-        vestingWeeks = _vestingWeeks;
     }
 
     /// @notice What a vesting amount is worth at the current redemption rate.

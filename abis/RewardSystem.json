@@ -449,6 +449,19 @@
   },
   {
     "inputs": [],
+    "name": "MAX_REFERRAL_PERCENTAGE",
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
     "name": "UPGRADE_INTERFACE_VERSION",
     "outputs": [
       {
@@ -1256,16 +1269,6 @@
       {
         "internalType": "uint256",
         "name": "_referralPercentage",
-        "type": "uint256"
-      },
-      {
-        "internalType": "uint256",
-        "name": "_weeklyUnlock",
-        "type": "uint256"
-      },
-      {
-        "internalType": "uint256",
-        "name": "_vestingWeeks",
         "type": "uint256"
       }
     ],

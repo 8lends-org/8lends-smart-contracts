@@ -33,6 +33,8 @@ contract RewardSystem is Initializable, UUPSUpgradeable, OwnableUpgradeable, Ree
 
     // 1% = 10000
     uint256 public constant BASIS_POINTS = 1e6;
+    /// @notice The most of an investment that can be promised to an inviter, in BASIS_POINTS.
+    uint256 public constant MAX_REFERRAL_PERCENTAGE = 70_000;
 
     // Reward system parameters (changeable)
     uint256 public referralPercentage; // USDC for the inviter, 4% since 21.09.2026
@@ -46,9 +48,11 @@ contract RewardSystem is Initializable, UUPSUpgradeable, OwnableUpgradeable, Ree
     uint256 private __deprecated_tokenPercentage;
     uint256 private __deprecated_burnPercentage;
 
-    // Vesting parameters
-    uint256 public vestingWeeks; // 40 weeks vesting
-    uint256 public weeklyUnlock; // 2.5% per week
+    // Vesting parameters. No setter on purpose: `_unlockedAt` reads these for past moments too, so
+    // moving them re-splits an already-earned book between the token era and the USDC one. Set at
+    // `initialize`, changed only by an upgrade.
+    uint256 public vestingWeeks;
+    uint256 public weeklyUnlock;
 
     // Structures
     struct UserInfo {
@@ -298,24 +302,15 @@ contract RewardSystem is Initializable, UUPSUpgradeable, OwnableUpgradeable, Ree
         emit RedemptionRateSet(_rate);
     }
 
-    /// @notice set parameters
-    /// @param _referralPercentage referral percentage 60000 is 6%
-    /// @param _weeklyUnlock weekly unlock 25000 is 2.5%
-    /// @param _vestingWeeks vesting weeks 40 is 40 weeks
-    /// @dev all percentage parameters must be less or equal to 1_000_000 (100e4 = 100%)
-    function setParameters(
-        uint256 _referralPercentage,
-        uint256 _weeklyUnlock,
-        uint256 _vestingWeeks
-    ) external onlyAdmin {
+    /// @notice What an invite is worth, as a share of the investment it brings.
+    /// @param _referralPercentage In BASIS_POINTS: 60000 is 6%. Capped by MAX_REFERRAL_PERCENTAGE,
+    ///        because the inviter is paid out of this contract's own USDC.
+    function setParameters(uint256 _referralPercentage) external onlyAdmin {
         require(
-            _referralPercentage >= 1_000 && _referralPercentage <= 1_000_000,
-            "Referral percentage must be between 1000 and 1000000"
+            _referralPercentage >= 1_000 && _referralPercentage <= MAX_REFERRAL_PERCENTAGE,
+            "Referral percentage out of range"
         );
-        require(_weeklyUnlock >= 1_000 && _weeklyUnlock <= 1_000_000, "Weekly unlock must be between 1000 and 1000000");
         referralPercentage = _referralPercentage;
-        vestingWeeks = _vestingWeeks;
-        weeklyUnlock = _weeklyUnlock;
     }
 
     /// @notice Claimable vesting for a project, in vesting tokens, whatever currency pays it.
