@@ -15,7 +15,7 @@ Contracts are UUPS-upgradeable and owned by a Gnosis Safe on production.
 ## Quick start
 
 ```bash
-npm ci                # installs cleanly, no --legacy-peer-deps needed
+npm ci
 npm test              # Hardhat
 npm run forge:test    # Foundry
 ```
@@ -31,10 +31,10 @@ contracts/
   core/         Fundraise, RewardSystem, Rewards2, ManagerRegistry,
                 Treasury, TreasuryLending, LimitedSeller, market/Market
   mandate/      auto-reinvest: the per-user escrow, its factory and the payout router
-  bonus/        five independent bonus campaigns
+  bonus/        six independent programmes: five campaign payouts and Easy Start
   token/        Token (8LNDS), BTC8L
   escrow/       AML escrow and its factory
-  oracle/       price oracle: Pyth → Chainlink → Uniswap V3 TWAP
+  oracle/       price oracle: Pyth → Chainlink → Uniswap (V3 TWAP, V2 reserves on fallback)
   lending/      Lending8 and friends — a vendored Morpho fork, kept syncable
   interfaces/   protocol/ (ours) · external/ (third-party) · token/ (ERC-20)
   mocks/        test doubles, not deployed
@@ -42,7 +42,7 @@ contracts/
 scripts/        deployment, migrations, Safe batch preparation
   utils/        shared helpers: owner guard, batch progress, Safe encoding
 test/           Hardhat suites (need the Base fork)
-  foundry/      unit · fuzz · invariant · upgrade · mandate · escrow · mocks
+  foundry/      unit · fuzz · invariant · upgrade · mandate · escrow · helpers · mocks
 ```
 
 `contracts/interfaces/protocol/` must stay in step with the deployed ABI; `external/` mirrors
@@ -55,7 +55,7 @@ third-party ABIs and is not ours to change.
 | `Fundraise` | Projects, investments, repayments, KYC limits |
 | `RewardSystem` | Token and referral rewards, 40-week vesting at 2.5%/week |
 | `Rewards2` | Standalone vesting: the owner creates schedules, users claim from them |
-| `ManagerRegistry` | Central access control: managers, operators, pools |
+| `ManagerRegistry` | Central access control: owner, admins, support, managers, operators, pools. Also account freeze and the chains that point a compromised address at its replacement |
 | `Treasury` / `TreasuryLending` | Fee custody, owner-only withdrawal; the second is an empty subclass, deployed separately for lending fees |
 | `Market` | Secondary trading of whole investments — see `contracts/core/market/Market.md` |
 | `LimitedSeller` | Buying 8LNDS off Uniswap V2, capped per user by what they invested |
@@ -70,6 +70,7 @@ third-party ABIs and is not ours to change.
 | `MandateFactory` | Creates those clones and answers whether an address really is one |
 | `MandateRouter` | Where each project's payouts go, and which projects a mandate holds |
 | `WelcomeBonus`, `MaclearBonus`, `LeagueBonus`, `CustomBonus`, `CryptoCourseBonus` | Campaign payouts |
+| `EasyStart` | Fixed deposit taken by EIP-3009, returned at term with a gift paid in instalments |
 
 ## Testing
 
@@ -91,6 +92,7 @@ and Pyth, and it runs the OpenZeppelin plugin's storage-layout validation on upg
 | `npm run forge:test:unit` / `:fuzz` / `:invariant` / `:upgrade` | one Foundry group |
 | `npm run forge:coverage` | coverage summary |
 | `npm run slither` / `:high` / `:triage` | static analysis (needs slither installed) |
+| `npm run check:deployed` | rebuild every deployment record and compare it with the chain |
 
 Contracts are compiled twice with different settings: Hardhat uses `runs: 50` with the Yul
 optimizer on (RewardSystem does not fit under EIP-170 otherwise), Foundry uses `runs: 200`. Gas
@@ -138,7 +140,7 @@ transactions directly, on Base they can only prepare a batch for the Safe.
 CONTRACT=Fundraise npx hardhat run scripts/contract-deploy.ts --network sepolia
 ```
 
-`scripts/contract-deploy.ts` knows 24 contracts, asks for confirmation, and writes the resulting
+`scripts/contract-deploy.ts` knows 28 contracts, asks for confirmation, and writes the resulting
 address into the chain config.
 
 On Base the owner is a Safe, so nothing is sent directly. Two scripts prepare a JSON to drag into
@@ -158,16 +160,29 @@ Both scripts, what to check before signing, and the dry-run mode are covered in
 
 ## CI
 
-Four jobs on every pull request and on pushes to `main`, `master` and `develop`: Foundry tests,
-coverage, Hardhat tests, Slither. The two test jobs gate — a red one is a real failure.
+Five jobs on every pull request and on pushes to `main`, `master` and `develop`: Foundry tests,
+coverage, Hardhat tests, deployed versions, Slither. The two test jobs gate — a red one is a real
+failure — and so does the version check, but only on Base.
+
+Deployed versions rebuilds every record in `deployments/<chainId>.json` and compares it with the
+bytecode on chain. `matchesDeployed: false` is a legal state and does not fail anything — it only
+says the working tree has moved past what is deployed. What blocks a merge is a record that
+disagrees with the chain, and only on Base; Sepolia goes into the summary and never fails the build.
+
+The same check runs locally as `npm run check:deployed`: no arguments reads both networks, `--fix`
+recomputes `matchesDeployed`, `--blame <Contract>` prints the commits after which that contract
+stopped matching, and `--json`, `--offline` and `--network <name>` do what they say.
+
+Each deployment is also tagged `<network>-<Contract>-<YYYY-MM-DD>`, with an `-unverified` suffix
+when the explorer never accepted the implementation. The convention is worth writing down because
+it cannot be guessed.
 
 Coverage does not gate: it compiles differently from what ships (the optimizer is off, so it needs
 `--ir-minimum` to fit the stack at all), and a figure taken from another build must not block a
 merge. A run that produces no summary leaves the badge at its previous value rather than publishing
 a zero, which would be indistinguishable from genuinely bad coverage.
 
-Slither runs with `fail-on: none`, so findings are reported to the Security tab without blocking.
-Three high-severity findings are outstanding; raising the gate to `high` before triaging them would
-turn the build red immediately.
+Slither runs with `fail-on: none`, so findings are reported to the Security tab without blocking
+the build.
 
 The coverage badge is written to a gist and only updates on pushes to `main`.

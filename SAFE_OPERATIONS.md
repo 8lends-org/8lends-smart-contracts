@@ -25,8 +25,10 @@ recompiles from a clean state first, so the deployed bytecode matches the workin
 prints the old and new implementation addresses and writes
 `safe-upgrade-<Contract>-<chainId>.json`.
 
-It also records the new address in the config as `<Contract>_impl_pending` — pending because the
-proxy still points at the old one until the Safe executes.
+It also records the new address as pending, because the proxy still points at the old one until the
+Safe executes. In `deployments/<chainId>.json` that is the record's `pendingImpl` field; scripts see
+it as `<Contract>_impl_pending`, since `loadConfig` flattens the two files into one view. Looking for
+the suffixed name in the file itself will not find it.
 
 The prepared call passes empty `data`, i.e. a plain upgrade with no reinitializer. If the new
 version needs one, encode that call and put it in the batch by hand before submitting.
