@@ -278,11 +278,11 @@
   },
   "RewardSystem": {
     "proxy": "0xabB7dbA52083981C46d7c5999236E8fe4D111b16",
-    "impl": "0x83aD55cf482ae015D0867A4ecD407Fc47f183D27",
-    "buildHash": "0x5b0f148d1d96a2d5b2b80c32f49948c82fdf27c5770559f33047718ca97bd70b",
+    "impl": "0xDE1209267Bb6cA05cc63982D2BF65B576c82e79F",
+    "buildHash": "0x061ccbba9c1773b642b9f42c254f98e34b182a27f53969eb86bcf89809818f86",
     "matchesDeployed": true,
-    "deployedFrom": "7e9e4ae",
-    "deployedAt": "Oct-20-2026",
+    "deployedFrom": "afb4e3f",
+    "deployedAt": "Oct-26-2026",
     "build": {
       "solc": "v0.8.23+commit.f704f362",
       "optimizer": {
@@ -297,11 +297,11 @@
   },
   "Rewards2": {
     "proxy": "0x65ebCa6023385340a3732F25d2C6b60874D55b61",
-    "impl": "0x34F1BD97f7dE94eb161e8eAC7b51b12b6D5d331E",
-    "buildHash": "0xcfe5daa9fe8905756293fcecebe3b80969e9a4d54b1f158c1247ba7aa9beb04f",
+    "impl": "0x4cffb437224e49D120931c41f5f2B2261057E25A",
+    "buildHash": "0x479ce90581cd496356dba0d30d12daa4efa0c24246b0ad7ef0a7335e8ae3a8ad",
     "matchesDeployed": true,
-    "deployedFrom": "7e9e4ae",
-    "deployedAt": "Oct-20-2026",
+    "deployedFrom": "afb4e3f",
+    "deployedAt": "Oct-26-2026",
     "build": {
       "solc": "v0.8.23+commit.f704f362",
       "optimizer": {
@@ -514,11 +514,11 @@
   },
   "EasyStart": {
     "proxy": "0xCe08b185F2e74E3A8bCC913507F37CBA9d791Fe9",
-    "impl": "0x1EEfc6E2DB987c114cf198E93Fb1F986D0771D04",
-    "buildHash": "0x5aeceeec855e1ef0cf78e8661507c93bcd2dd0cfee6a476c4df9f2c4509a909f",
+    "impl": "0x577C5968a3379b4Cfd00BB842C17a7E03e64D64b",
+    "buildHash": "0xd62dae7ce452086ec7355838785744e0efc5778267a3b42e0e15a83ee58bd223",
     "matchesDeployed": true,
-    "deployedFrom": "bc81e72",
-    "deployedAt": "Oct-21-2026",
+    "deployedFrom": "afb4e3f",
+    "deployedAt": "Oct-26-2026",
     "build": {
       "solc": "v0.8.23+commit.f704f362",
       "optimizer": {
