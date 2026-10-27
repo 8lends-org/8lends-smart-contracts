@@ -495,11 +495,11 @@
   },
   "Buyback": {
     "proxy": "0x4685CAC8d040554d7CEDc9329cDcA3c01CD04194",
-    "impl": "0x169f59D2e8694823C12432BE4186969d0f0E7cac",
-    "buildHash": "0x16a10cb7087144179cffdabf2ed74a37a8e7bb1c737a5a004c6f5ce0f1da5a22",
+    "impl": "0x5f8a32A7f15eD0677bD907FaC59885A26628D17C",
+    "buildHash": "0x8c7ef858c15aac93ee10452eccba42ff9aa1e7757aca7b3c8361826d9635dff1",
     "matchesDeployed": true,
-    "deployedFrom": "7e9e4ae",
-    "deployedAt": "Oct-20-2026",
+    "deployedFrom": "8d1063e",
+    "deployedAt": "Oct-27-2026",
     "build": {
       "solc": "v0.8.23+commit.f704f362",
       "optimizer": {

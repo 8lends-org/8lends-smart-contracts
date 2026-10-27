@@ -464,5 +464,24 @@
       },
       "evmVersion": "paris"
     }
+  },
+  "Buyback": {
+    "proxy": "0x390F9c72a95801AEA9eAE7C9f4d1ae979cE1C715",
+    "impl": "0x4dE757CDb889868CA8DD6b03C4261547E14F7C1D",
+    "buildHash": "0x8c7ef858c15aac93ee10452eccba42ff9aa1e7757aca7b3c8361826d9635dff1",
+    "matchesDeployed": true,
+    "deployedFrom": "8d1063e",
+    "deployedAt": "Oct-27-2026",
+    "build": {
+      "solc": "v0.8.23+commit.f704f362",
+      "optimizer": {
+        "enabled": true,
+        "runs": 50,
+        "details": {
+          "yul": true
+        }
+      },
+      "evmVersion": "paris"
+    }
   }
 }
