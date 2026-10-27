@@ -15,6 +15,9 @@ contract BuybackTest is Setup {
     /// @dev Tokens one USDC unit buys at that price: the smallest amount worth selling.
     uint256 public constant UNIT = 1e18 / PRICE;
 
+    /// @dev $0.03, against the $0.02 everyone else is paid.
+    uint256 public constant PRIVILEGED_PRICE = 3e4;
+
     function setUp() public override {
         super.setUp();
 
@@ -42,6 +45,15 @@ contract BuybackTest is Setup {
         vm.startPrank(holder);
         token.approve(address(buyback), amount);
         buyback.sell(amount);
+        vm.stopPrank();
+    }
+
+    function _list(address _account) internal {
+        address[] memory accounts = new address[](1);
+        accounts[0] = _account;
+        vm.startPrank(owner);
+        buyback.setPrivilegedPrice(PRIVILEGED_PRICE);
+        buyback.setPrivileged(accounts, true);
         vm.stopPrank();
     }
 
@@ -248,6 +260,96 @@ contract BuybackTest is Setup {
         _sell(1_000e18);
         assertEq(usdc.balanceOf(holder), 21e6);
         assertEq(token.balanceOf(holder), 0);
+    }
+
+    // ── The listed addresses ──
+
+    function test_listedSellerIsPaidTheHigherPrice() public {
+        _list(holder);
+
+        _sell(1_000e18);
+        assertEq(usdc.balanceOf(holder), 30e6, "1000 tokens at $0.03");
+        assertEq(buyback.totalPaidUsdc(), 30e6, "the totals follow what was actually paid");
+    }
+
+    function test_everyoneElseStaysOnTheCommonPrice() public {
+        _list(makeAddr("listed"));
+
+        _sell(1_000e18);
+        assertEq(usdc.balanceOf(holder), 20e6);
+    }
+
+    /// @dev Until the second price is set the list does nothing, so the order of the two owner
+    ///      calls cannot leave anyone paid zero.
+    function test_listWithoutASecondPriceChangesNothing() public {
+        address[] memory accounts = new address[](1);
+        accounts[0] = holder;
+        vm.prank(owner);
+        buyback.setPrivileged(accounts, true);
+
+        assertEq(buyback.priceFor(holder), PRICE);
+        _sell(1_000e18);
+        assertEq(usdc.balanceOf(holder), 20e6);
+    }
+
+    function test_zeroPriceClosesTheWindowForTheListToo() public {
+        _list(holder);
+        vm.prank(owner);
+        buyback.setPrice(0);
+
+        vm.startPrank(holder);
+        token.approve(address(buyback), 1_000e18);
+        vm.expectRevert(Buyback.BuybackClosed.selector);
+        buyback.sell(1_000e18);
+        vm.stopPrank();
+    }
+
+    function test_removalPutsTheSellerBack() public {
+        _list(holder);
+
+        address[] memory accounts = new address[](1);
+        accounts[0] = holder;
+        vm.prank(owner);
+        buyback.setPrivileged(accounts, false);
+
+        _sell(1_000e18);
+        assertEq(usdc.balanceOf(holder), 20e6);
+    }
+
+    function test_quoteForMatchesWhatSellPays() public {
+        _list(holder);
+
+        uint256 expected = buyback.quoteFor(holder, 137e18);
+        assertEq(buyback.quote(137e18), 2_740_000, "the common quote is unchanged");
+
+        _sell(137e18);
+        assertEq(usdc.balanceOf(holder), expected);
+        assertEq(expected, 4_110_000, "137 tokens are $4.11");
+    }
+
+    function test_onlyOwnerManagesTheList() public {
+        address[] memory accounts = new address[](1);
+        accounts[0] = attacker;
+
+        vm.prank(attacker);
+        vm.expectRevert();
+        buyback.setPrivileged(accounts, true);
+
+        vm.prank(attacker);
+        vm.expectRevert();
+        buyback.setPrivilegedPrice(PRIVILEGED_PRICE);
+    }
+
+    function test_theListRejectsTheZeroAddress() public {
+        address[] memory accounts = new address[](2);
+        accounts[0] = holder;
+        accounts[1] = address(0);
+
+        vm.prank(owner);
+        vm.expectRevert(Buyback.ZeroAddress.selector);
+        buyback.setPrivileged(accounts, true);
+
+        assertFalse(buyback.isPrivileged(holder), "the whole batch was rejected");
     }
 
     function test_onlyOwnerUpgrades() public {

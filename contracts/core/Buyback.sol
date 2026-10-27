@@ -12,8 +12,8 @@ import "../interfaces/protocol/IManagerRegistry.sol";
 
 /**
  * @title Buyback
- * @notice Buys 8LNDS off holders at an owner-set price and keeps the inventory until the vault
- *         exists.
+ * @notice Buys 8LNDS off holders at an owner-set price — a second one for a listed set of
+ *         addresses — and keeps the inventory until the vault exists.
  * @dev While `Token.buyingEnabled == false`, `canTransfer` only lets 8LNDS through to an address
  *      marked `isPool` (`Token.sol:24-38`). The owner marks this contract before the first sale;
  *      recipients of the inventory are marked by `withdraw` itself.
@@ -38,8 +38,21 @@ contract Buyback is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentran
     uint256 public totalBoughtTokens;
     uint256 public totalPaidUsdc;
 
+    /// @notice USDC paid for 1e18 tokens to an address on the list. Zero puts the list back on
+    ///         `price`.
+    uint256 public privilegedPrice;
+
+    /// @notice Who is paid `privilegedPrice` instead of `price`.
+    /// @dev A flag, not a per-address quota. The difference between the two prices is safe to
+    ///      leave open only while a listed balance cannot grow, which is what `Token.canTransfer`
+    ///      guarantees by refusing ordinary addresses as recipients. A quota is what replaces
+    ///      that guarantee, not what sits beside it.
+    mapping(address => bool) public isPrivileged;
+
     event Sold(address indexed seller, uint256 tokenAmount, uint256 usdcAmount);
     event PriceSet(uint256 price);
+    event PrivilegedPriceSet(uint256 price);
+    event PrivilegedSet(address indexed account, bool status);
     event Withdrawn(address indexed asset, address indexed to, uint256 amount);
 
     error ZeroAddress();
@@ -72,10 +85,24 @@ contract Buyback is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentran
         emit PriceSet(_price);
     }
 
-    /// @notice Zero closes the buyback: `sell` reverts while the inventory still withdraws.
+    /// @notice Zero closes the buyback for everyone, the listed addresses included: `sell` reverts
+    ///         while the inventory still withdraws.
     function setPrice(uint256 _price) external onlyOwner {
         price = _price;
         emit PriceSet(_price);
+    }
+
+    function setPrivilegedPrice(uint256 _price) external onlyOwner {
+        privilegedPrice = _price;
+        emit PrivilegedPriceSet(_price);
+    }
+
+    function setPrivileged(address[] calldata _accounts, bool _status) external onlyOwner {
+        for (uint256 i = 0; i < _accounts.length; i++) {
+            if (_accounts[i] == address(0)) revert ZeroAddress();
+            isPrivileged[_accounts[i]] = _status;
+            emit PrivilegedSet(_accounts[i], _status);
+        }
     }
 
     /// @notice Needs an `approve` first — the token has no `permit`.
@@ -84,7 +111,7 @@ contract Buyback is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentran
     function sell(uint256 _tokenAmount) external nonReentrant {
         if (price == 0) revert BuybackClosed();
 
-        uint256 usdcAmount = quote(_tokenAmount);
+        uint256 usdcAmount = quoteFor(msg.sender, _tokenAmount);
         if (usdcAmount == 0) revert AmountTooSmall();
 
         uint256 available = usdc.balanceOf(address(this));
@@ -99,9 +126,20 @@ contract Buyback is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentran
         emit Sold(msg.sender, _tokenAmount, usdcAmount);
     }
 
-    /// @notice What a sale of this size pays out, rounded down.
+    /// @notice What a sale of this size pays out at the common price, rounded down.
     function quote(uint256 _tokenAmount) public view returns (uint256) {
         return Math.mulDiv(_tokenAmount, price, 1e18);
+    }
+
+    /// @notice What this seller is paid for 1e18 tokens.
+    function priceFor(address _seller) public view returns (uint256) {
+        if (isPrivileged[_seller] && privilegedPrice != 0) return privilegedPrice;
+        return price;
+    }
+
+    /// @notice What a sale of this size pays this seller, rounded down.
+    function quoteFor(address _seller, uint256 _tokenAmount) public view returns (uint256) {
+        return Math.mulDiv(_tokenAmount, priceFor(_seller), 1e18);
     }
 
     /// @dev The pool mark is put back as it was found, so a recipient that already had one keeps
