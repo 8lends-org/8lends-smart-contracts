@@ -56,8 +56,8 @@ contract Rewards2 is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentra
     ///         Read-only: nothing writes it, and the curves that carry it keep it.
     mapping(address => mapping(uint256 => uint256)) public userMaxAdditionalUnlockUsed;
 
-    /// @notice USDC per 1e18 tokens of vesting. Zero blocks every claim — there is no token
-    ///         payout left to fall back on.
+    /// @notice USDC per 1e18 tokens of vesting. Zero blocks the USDC half of a claim; the token
+    ///         half does not need it.
     uint256 public redemptionRate;
 
     /// @notice When vesting stopped unlocking into tokens. What unlocked before it is still paid in
@@ -127,7 +127,7 @@ contract Rewards2 is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentra
 
     /// @notice What a vesting amount is worth at the current redemption rate.
     /// @param _tokenAmount Vesting tokens, 18 decimals
-    /// @return USDC, 6 decimals. Zero while the rate is unset, which is also when claims revert.
+    /// @return USDC, 6 decimals. Zero while the rate is unset, which is when the USDC half refuses.
     function getUSDCForTokens(uint256 _tokenAmount) public view returns (uint256) {
         return Math.mulDiv(_tokenAmount, redemptionRate, 1e18);
     }

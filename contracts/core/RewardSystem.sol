@@ -288,7 +288,7 @@ contract RewardSystem is Initializable, UUPSUpgradeable, OwnableUpgradeable, Ree
 
     /// @notice What a vesting amount is worth at the current redemption rate.
     /// @param _tokenAmount Vesting tokens, 18 decimals
-    /// @return USDC, 6 decimals. Zero while the rate is unset, which is also when claims revert.
+    /// @return USDC, 6 decimals. Zero while the rate is unset, which is when the USDC half refuses.
     function getUSDCForTokens(uint256 _tokenAmount) public view returns (uint256) {
         return Math.mulDiv(_tokenAmount, redemptionRate, 1e18);
     }
