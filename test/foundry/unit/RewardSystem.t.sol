@@ -183,19 +183,23 @@ contract RewardSystemTest is Setup {
     //                  PARAMETER VALIDATION
     // ═══════════════════════════════════════════════════════════════
 
-    /// @dev Neither the manager nor the owner can set them.
-    function test_setParameters_onlyAdmin() public {
+    /// @dev The admin and the owner set it; the manager does not.
+    function test_setParameters_adminOrOwnerOnly() public {
         vm.prank(attacker);
-        vm.expectRevert("Not an admin");
+        vm.expectRevert("Not an admin or owner");
         rewardSystem.setParameters(60_000);
 
         vm.prank(manager);
-        vm.expectRevert("Not an admin");
+        vm.expectRevert("Not an admin or owner");
         rewardSystem.setParameters(60_000);
 
         vm.prank(owner);
-        vm.expectRevert("Not an admin");
+        rewardSystem.setParameters(50_000);
+        assertEq(rewardSystem.referralPercentage(), 50_000, "the owner could not set it");
+
+        vm.prank(admin);
         rewardSystem.setParameters(60_000);
+        assertEq(rewardSystem.referralPercentage(), 60_000);
     }
 
     function test_claimBeforeActivation_reverts() public {

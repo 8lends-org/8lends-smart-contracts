@@ -67,16 +67,23 @@ contract RewardSystemRedemptionTest is Setup {
         assertEq(rewardSystem.getUSDCForTokens(VESTING), VESTING * RATE / 1e18);
     }
 
-    /// @dev The rate is a platform parameter, so the admin sets it — and neither the manager nor
-    ///      the owner can any more.
-    function test_rateIsAdminOnly() public {
+    /// @dev The rate answers to the admin and to the owner, and to nobody else.
+    function test_rateAnswersToAdminAndOwner() public {
         vm.prank(manager);
-        vm.expectRevert("Not an admin");
+        vm.expectRevert("Not an admin or owner");
+        rewardSystem.setRedemptionRate(RATE);
+
+        vm.prank(attacker);
+        vm.expectRevert("Not an admin or owner");
         rewardSystem.setRedemptionRate(RATE);
 
         vm.prank(owner);
-        vm.expectRevert("Not an admin");
+        rewardSystem.setRedemptionRate(RATE * 3);
+        assertEq(rewardSystem.redemptionRate(), RATE * 3, "the owner could not set it");
+
+        vm.prank(admin);
         rewardSystem.setRedemptionRate(RATE);
+        assertEq(rewardSystem.redemptionRate(), RATE);
     }
 
     function test_rateCannotBeZero() public {

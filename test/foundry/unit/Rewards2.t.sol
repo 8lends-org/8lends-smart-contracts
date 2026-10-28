@@ -255,10 +255,18 @@ contract Rewards2Test is Setup {
     //                  REDEMPTION RATE
     // ═══════════════════════════════════════════════════════════════
 
-    function test_setRedemptionRate_onlyAdmin() public {
+    function test_setRedemptionRate_adminOrOwnerOnly() public {
         vm.prank(attacker);
-        vm.expectRevert();
+        vm.expectRevert("Not an admin or owner");
         rewards2.setRedemptionRate(RATE);
+
+        vm.prank(manager);
+        vm.expectRevert("Not an admin or owner");
+        rewards2.setRedemptionRate(RATE);
+
+        vm.prank(owner);
+        rewards2.setRedemptionRate(RATE * 3);
+        assertEq(rewards2.redemptionRate(), RATE * 3, "the owner could not set it");
     }
 
     function test_setRedemptionRate_zero_reverts() public {

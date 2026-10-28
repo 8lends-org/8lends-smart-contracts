@@ -130,6 +130,15 @@ contract RewardSystem is Initializable, UUPSUpgradeable, OwnableUpgradeable, Ree
         _;
     }
 
+    /// @dev Parameters answer to either role; paying money out answers to the admin alone.
+    modifier onlyAdminOrOwner() {
+        require(
+            IManagerRegistry(managerRegistry).isAdmin(msg.sender) || msg.sender == owner(),
+            "Not an admin or owner"
+        );
+        _;
+    }
+
     // Modifiers
     modifier onlyFundraise() {
         require(IManagerRegistry(managerRegistry).isFundraise(msg.sender), "Not a fundraise");
@@ -296,7 +305,7 @@ contract RewardSystem is Initializable, UUPSUpgradeable, OwnableUpgradeable, Ree
     /// @notice Set the rate vesting is redeemed at.
     /// @param _rate USDC per 1e18 tokens — 20000 is $0.02 against six-decimal USDC. Zero is
     ///        rejected so it keeps meaning "never set" and cannot be used to stop claims.
-    function setRedemptionRate(uint256 _rate) external onlyAdmin {
+    function setRedemptionRate(uint256 _rate) external onlyAdminOrOwner {
         require(_rate > 0, "Invalid rate");
         redemptionRate = _rate;
         emit RedemptionRateSet(_rate);
@@ -305,7 +314,7 @@ contract RewardSystem is Initializable, UUPSUpgradeable, OwnableUpgradeable, Ree
     /// @notice What an invite is worth, as a share of the investment it brings.
     /// @param _referralPercentage In BASIS_POINTS: 60000 is 6%. Capped by MAX_REFERRAL_PERCENTAGE,
     ///        because the inviter is paid out of this contract's own USDC.
-    function setParameters(uint256 _referralPercentage) external onlyAdmin {
+    function setParameters(uint256 _referralPercentage) external onlyAdminOrOwner {
         require(
             _referralPercentage >= 1_000 && _referralPercentage <= MAX_REFERRAL_PERCENTAGE,
             "Referral percentage out of range"

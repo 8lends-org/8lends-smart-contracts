@@ -82,6 +82,15 @@ contract Rewards2 is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentra
         _;
     }
 
+    /// @dev Parameters answer to either role; paying money out answers to the admin alone.
+    modifier onlyAdminOrOwner() {
+        require(
+            IManagerRegistry(managerRegistry).isAdmin(msg.sender) || msg.sender == owner(),
+            "Not an admin or owner"
+        );
+        _;
+    }
+
     modifier validAddress(address _addr) {
         require(_addr != address(0), "Invalid address");
         _;
@@ -135,7 +144,7 @@ contract Rewards2 is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentra
     /// @notice Set the rate vesting is redeemed at.
     /// @param _rate USDC per 1e18 tokens — 20000 is $0.02 against six-decimal USDC. Zero is
     ///        rejected so it keeps meaning "never set" and cannot be used to stop claims.
-    function setRedemptionRate(uint256 _rate) external onlyAdmin {
+    function setRedemptionRate(uint256 _rate) external onlyAdminOrOwner {
         require(_rate > 0, "Invalid rate");
         redemptionRate = _rate;
         emit RedemptionRateSet(_rate);
