@@ -24,6 +24,11 @@ jobs:
         run: npm ci
 
       - uses: foundry-rs/foundry-toolchain@v1
+        with:
+          # Nothing here forks: no rpc_endpoints, no createSelectFork. The action's cache holds
+          # RPC and explorer responses, so for this repository it stores nothing and is carried
+          # between runs for nothing — the action keys it per commit and re-saves it every time.
+          cache: false
 
       - name: Run Forge tests
         run: forge test -vvv
@@ -52,6 +57,8 @@ jobs:
         run: npm ci
 
       - uses: foundry-rs/foundry-toolchain@v1
+        with:
+          cache: false   # nothing to cache, see the Forge Tests job
 
       # Compiling the tree through Yul with the optimizer off peaks at 6.7 GiB in a single solc
       # process — measured, and it cannot be split across cores. A private-repo runner has 7 GB,
@@ -206,6 +213,8 @@ jobs:
         run: npm ci
 
       - uses: foundry-rs/foundry-toolchain@v1
+        with:
+          cache: false   # nothing to cache, see the Forge Tests job
 
       # fail-on: none reports without gating. Raise it to `high` once the three existing
       # high-severity findings are triaged, otherwise this job goes red on day one.
