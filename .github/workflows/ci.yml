@@ -39,7 +39,7 @@ jobs:
     # than the one that ships. Running it only on pushes keeps it off the critical path of a
     # review — the cost is that a PR which drops coverage shows it after the merge, not before.
     if: github.event_name == 'push'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-4core
     timeout-minutes: 40
     permissions:
       contents: write
@@ -59,17 +59,6 @@ jobs:
       - uses: foundry-rs/foundry-toolchain@v1
         with:
           cache: false   # nothing to cache, see the Forge Tests job
-
-      # Compiling the tree through Yul with the optimizer off peaks at 6.7 GiB in a single solc
-      # process — measured, and it cannot be split across cores. A private-repo runner has 7 GB,
-      # so without swap the OOM killer takes the step out with SIGTERM before it prints anything.
-      - name: Add swap for solc
-        run: |
-          sudo fallocate -l 12G /mnt/coverage-swap
-          sudo chmod 600 /mnt/coverage-swap
-          sudo mkswap /mnt/coverage-swap
-          sudo swapon /mnt/coverage-swap
-          free -h
 
       - name: Run coverage
         id: coverage
