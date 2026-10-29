@@ -39,7 +39,11 @@ jobs:
     # than the one that ships. Running it only on pushes keeps it off the critical path of a
     # review — the cost is that a PR which drops coverage shows it after the merge, not before.
     if: github.event_name == 'push'
-    runs-on: ubuntu-4core
+    # The private repository's standard runner is 2 cores and 7.7 GiB, which this job
+    # outgrew; the organisation's larger one is 4 cores and 15 GiB. A public repository
+    # gets those four cores from GitHub for nothing, and the larger label is not even
+    # provisioned there — asking for it would leave the job queued against no runner.
+    runs-on: ${{ github.repository == '8lends-org/8lends-smart-contracts-internal' && 'ubuntu-4core' || 'ubuntu-latest' }}
     timeout-minutes: 40
     permissions:
       contents: write
