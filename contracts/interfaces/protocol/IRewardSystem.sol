@@ -7,11 +7,13 @@ interface IRewardSystem {
     function activateProjectRewards(uint256 _projectId, uint256 _totalInvested) external;
     function activateProjectRewards(uint256 _projectId, uint256 _totalInvested, uint256 _maxUSDForReward) external;
     function claimUSDCForProject(uint256 _projectId) external;
-    function claimTokensForProject(uint256 _projectId) external;
+    function claimVestingTokensForProject(uint256 _projectId) external;
+    function claimVestingUsdcForProject(uint256 _projectId) external;
     function sendUSDCForProjectToUser(address _user, uint256 _projectId) external;
-    function sendTokensForProjectToUser(address _user, uint256 _projectId) external;
+    function sendVestingTokensForProjectToUser(address _user, uint256 _projectId) external;
+    function sendVestingUsdcForProjectToUser(address _user, uint256 _projectId) external;
 
-    function getUserInfo(address _user) external view returns (address inviter, bool isNewUser);
+    function getUserInfo(address _user) external view returns (address inviter);
 
     function getVestingInfoForProject(address _user, uint256 _projectId)
         external
@@ -30,6 +32,4 @@ interface IRewardSystem {
         );
 
     function getInviterStats(address _inviter) external view returns (uint256);
-
-    function burnPercentage() external view returns (uint256);
 }

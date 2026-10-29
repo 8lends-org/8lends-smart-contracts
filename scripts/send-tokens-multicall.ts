@@ -236,8 +236,8 @@ async function main() {
         const projectIds = batchData.map(item => item.projectId);
 
         try {
-            // Call the batch sendTokensForProjectToUserBatch method on RewardSystem
-            const tx = await rewardSystem.sendTokensForProjectToUserBatch(users, projectIds, { nonce });
+            // Call the batch sendVestingUsdcForProjectToUserBatch method on RewardSystem
+            const tx = await rewardSystem.sendVestingUsdcForProjectToUserBatch(users, projectIds, { nonce });
 
             console.log(`   ⏳ Transaction sent: ${tx.hash}`);
             const receipt = await tx.wait();

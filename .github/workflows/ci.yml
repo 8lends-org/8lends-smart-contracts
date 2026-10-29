@@ -30,6 +30,10 @@ jobs:
 
   forge-coverage:
     name: Coverage
+    # Coverage is a number to watch, not a gate: it measures a differently-compiled artifact
+    # than the one that ships. Running it only on pushes keeps it off the critical path of a
+    # review — the cost is that a PR which drops coverage shows it after the merge, not before.
+    if: github.event_name == 'push'
     runs-on: ubuntu-latest
     timeout-minutes: 40
     permissions:
@@ -49,14 +53,28 @@ jobs:
 
       - uses: foundry-rs/foundry-toolchain@v1
 
+      # Compiling the tree through Yul with the optimizer off peaks at 6.7 GiB in a single solc
+      # process — measured, and it cannot be split across cores. A private-repo runner has 7 GB,
+      # so without swap the OOM killer takes the step out with SIGTERM before it prints anything.
+      - name: Add swap for solc
+        run: |
+          sudo fallocate -l 12G /mnt/coverage-swap
+          sudo chmod 600 /mnt/coverage-swap
+          sudo mkswap /mnt/coverage-swap
+          sudo swapon /mnt/coverage-swap
+          free -h
+
       - name: Run coverage
         id: coverage
+        # This measures a differently-compiled artifact than the one that ships — deployment goes
+        # through hardhat with the optimizer on — so a coverage run that dies must not block a
+        # merge. It belongs here rather than in `|| true` below: when the step is killed from
+        # outside, there is no shell left to run a fallback.
+        continue-on-error: true
+        timeout-minutes: 30
         run: |
           # --ir-minimum is required, not an optimisation: coverage turns the optimizer off, and
           # Fundraise does not fit the stack without it, so plain `forge coverage` fails to compile.
-          # `|| true` is deliberate: this measures a differently-compiled artifact than the one
-          # that ships — deployment goes through hardhat with the optimizer on — so a coverage run
-          # that cannot compile must not block a merge.
           OUTPUT=$(forge coverage --ir-minimum --report summary 2>&1) || true
           echo "$OUTPUT"
           # Columns of the summary table are Lines | Statements | Branches | Functions, so the

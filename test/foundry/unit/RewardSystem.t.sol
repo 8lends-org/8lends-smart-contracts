@@ -12,21 +12,21 @@ contract RewardSystemTest is Setup {
         pid = _createProject(20_000e6, 40_000e6);
     }
 
+    /// @dev Vesting is redeemed for USDC at $0.02, so a claim needs the rate written first.
+    function _setRate() internal {
+        vm.prank(admin);
+        rewardSystem.setRedemptionRate(20_000);
+    }
+
     // ═══════════════════════════════════════════════════════════════
     //                  recordInvestment
     // ═══════════════════════════════════════════════════════════════
 
-    function test_recordInvestment_calculatesTokenRewards() public {
+    function test_recordInvestment_accruesNoTokenRewards() public {
         _investAs(investor, pid, 25_000e6, inviter);
 
-        // tokenPercentage = 6% → 1500 USDC worth of tokens
-        // At 1 USDC = 100 tokens: 1500 * 100 = 150,000 tokens
         (,uint256 totalTokens,,,) = rewardSystem.getProjectRewards(investor, pid);
-        assertGt(totalTokens, 0, "Should have token rewards");
-
-        // Expected: 25000e6 * 60000 / 1000000 = 1500e6 USDC worth
-        // 1500e6 USDC → 1500e6 * 100 * 1e12 = 150_000e18 tokens
-        assertEq(totalTokens, 150_000e18, "Token reward amount incorrect");
+        assertEq(totalTokens, 0, "Token cashback is off: investing must not accrue tokens");
     }
 
     function test_recordInvestment_calculatesReferralRewards() public {
@@ -37,18 +37,6 @@ contract RewardSystemTest is Setup {
         assertEq(inviterUSDC, 1_500e6, "Inviter USDC reward incorrect");
     }
 
-    /// @dev The welcome bonus is gone from this contract — WelcomeBonus pays it. The setter still
-    ///      takes the argument, so the test sets it and proves it buys nothing.
-    function test_noWelcomeBonusIsCreditedWhateverTheParameterSays() public {
-        vm.prank(manager);
-        rewardSystem.setParameters(40_000, 100_000, 40_000, 1_000_000e6, 0, 25_000, 40);
-
-        uint256 pid = _createProject(500e6, 5_000e6);
-        _investAs(investor, pid, 1_000e6, inviter);
-
-        (uint256 investorUSDC,,,,) = rewardSystem.getProjectRewards(investor, pid);
-        assertEq(investorUSDC, 0, "nothing is credited from here");
-    }
 
     // ═══════════════════════════════════════════════════════════════
     //        ORACLE FAILURE BLOCKS INVEST
@@ -85,20 +73,6 @@ contract RewardSystemTest is Setup {
         assertEq(claimable, totalTokens, "After full vesting, should get all tokens");
     }
 
-    function test_vesting_claimTokens_transfersCorrectAmount() public {
-        _investAs(investor, pid, 25_000e6, inviter);
-        _fundProject(pid);
-
-        // Warp 10 weeks
-        vm.warp(block.timestamp + 10 weeks);
-
-        uint256 balBefore = token.balanceOf(investor);
-        vm.prank(investor);
-        rewardSystem.claimTokensForProject(pid);
-        uint256 received = token.balanceOf(investor) - balBefore;
-
-        assertGt(received, 0, "Should receive tokens");
-    }
 
     // ═══════════════════════════════════════════════════════════════
     //              USDC REWARD CLAIMS
@@ -135,20 +109,22 @@ contract RewardSystemTest is Setup {
     //          VULNERABILITY #7: POOL STATUS TOGGLE
     // ═══════════════════════════════════════════════════════════════
 
-    function test_poolStatusToggle_normalFlow() public {
+    /// @dev 8LNDS reaches a wallet only through the flag, and the flag must not outlive the
+    ///      transfer. The token era of a vesting claim is where that still happens.
+    function test_poolStatusToggle_onATokenClaim() public {
+        rewardSystem.setCutover(block.timestamp + 10 weeks);
         _investAs(investor, pid, 25_000e6, inviter);
+        _seedVesting(investor, pid, 150_000e18);
         _fundProject(pid);
-        vm.warp(block.timestamp + 5 weeks);
 
-        // Before claim: investor is NOT a pool
+        vm.warp(block.timestamp + 5 weeks);
         assertFalse(managerRegistry.pools(investor));
 
-        // Claim tokens (this toggles pool status)
         vm.prank(investor);
-        rewardSystem.claimTokensForProject(pid);
+        rewardSystem.claimVestingTokensForProject(pid);
 
-        // After claim: investor should NOT be a pool anymore (toggled back)
-        assertFalse(managerRegistry.pools(investor), "Pool status should be reset after claim");
+        assertGt(token.balanceOf(investor), 0, "nothing moved, the case is degenerate");
+        assertFalse(managerRegistry.pools(investor), "the flag must not outlive the transfer");
     }
 
     // ═══════════════════════════════════════════════════════════════
@@ -160,6 +136,8 @@ contract RewardSystemTest is Setup {
 
         _investAs(investor, pid, 25_000e6, inviter);
         _investAs(investor, pid2, 15_000e6, inviter);
+        _seedVesting(investor, pid, 150_000e18);
+        _seedVesting(investor, pid2, 90_000e18);
 
         _fundProject(pid);
         _fundProject(pid2);
@@ -170,22 +148,58 @@ contract RewardSystemTest is Setup {
         pids[0] = pid;
         pids[1] = pid2;
 
-        uint256 balBefore = token.balanceOf(investor);
+        _setRate();
+        uint256 balBefore = usdc.balanceOf(investor);
         vm.prank(investor);
-        rewardSystem.claimTokensForProjectBatch(pids);
-        uint256 received = token.balanceOf(investor) - balBefore;
+        rewardSystem.claimVestingUsdcForProjectBatch(pids);
 
-        assertGt(received, 0, "Should receive tokens from both projects");
+        assertGt(usdc.balanceOf(investor) - balBefore, 0, "Should receive USDC from both projects");
+        assertEq(token.balanceOf(investor), 0, "no tokens must move");
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    //                  seeding vesting is gone
+    // ═══════════════════════════════════════════════════════════════
+
+    /// @dev Checked on the contract itself: the proxy in Setup runs a harness that can still seed
+    ///      vesting for the other tests. Nothing in RewardSystem creates a position any more —
+    ///      token cashback is off and the manual distribution went with it, so the contract only
+    ///      pays out what was granted before the upgrade.
+    function test_distributeVestingTokens_isGone() public {
+        address[] memory u = new address[](1);
+        u[0] = investor;
+        uint256[] memory a = new uint256[](1);
+        a[0] = 1_000e18;
+        uint256[] memory p = new uint256[](1);
+        p[0] = pid;
+
+        (bool ok,) = address(new RewardSystem()).call(
+            abi.encodeWithSignature("distributeVestingTokens(address[],uint256[],uint256[])", u, a, p)
+        );
+        assertFalse(ok, "RewardSystem must not create vesting");
     }
 
     // ═══════════════════════════════════════════════════════════════
     //                  PARAMETER VALIDATION
     // ═══════════════════════════════════════════════════════════════
 
-    function test_setParameters_onlyManager() public {
+    /// @dev The admin and the owner set it; the manager does not.
+    function test_setParameters_adminOrOwnerOnly() public {
         vm.prank(attacker);
-        vm.expectRevert("Not a manager");
-        rewardSystem.setParameters(60_000, 60_000, 60_000, 30e6, 1000e6, 25_000, 40);
+        vm.expectRevert("Not an admin or owner");
+        rewardSystem.setParameters(60_000);
+
+        vm.prank(manager);
+        vm.expectRevert("Not an admin or owner");
+        rewardSystem.setParameters(60_000);
+
+        vm.prank(owner);
+        rewardSystem.setParameters(50_000);
+        assertEq(rewardSystem.referralPercentage(), 50_000, "the owner could not set it");
+
+        vm.prank(admin);
+        rewardSystem.setParameters(60_000);
+        assertEq(rewardSystem.referralPercentage(), 60_000);
     }
 
     function test_claimBeforeActivation_reverts() public {
@@ -194,164 +208,47 @@ contract RewardSystemTest is Setup {
 
         vm.prank(investor);
         vm.expectRevert("Project rewards not activated");
-        rewardSystem.claimTokensForProject(pid);
-    }
-
-    // ═══════════════════════════════════════════════════════════════
-    //                  distributeVestingTokens
-    // ═══════════════════════════════════════════════════════════════
-
-    function _oneUser(address user, uint256 amount, uint256 projectId)
-        internal
-        pure
-        returns (address[] memory users, uint256[] memory amounts, uint256[] memory projectIds)
-    {
-        users = new address[](1);
-        amounts = new uint256[](1);
-        projectIds = new uint256[](1);
-        users[0] = user;
-        amounts[0] = amount;
-        projectIds[0] = projectId;
-    }
-
-    function test_distributeVestingTokens_addsToExistingRewards() public {
-        _investAs(investor, pid, 25_000e6, inviter);
-        (, uint256 before,,,) = rewardSystem.getProjectRewards(investor, pid);
-        uint256 poolBefore = rewardSystem.rewardTokensAmount(pid);
-
-        (address[] memory u, uint256[] memory a, uint256[] memory p) = _oneUser(investor, 1_000e18, pid);
-        vm.prank(owner);
-        rewardSystem.distributeVestingTokens(u, a, p);
-
-        // Credited on top of what the investment already earned, not replacing it
-        (, uint256 afterTotal,,,) = rewardSystem.getProjectRewards(investor, pid);
-        assertEq(afterTotal, before + 1_000e18, "reward not added to the user");
-        // The project's claimable pool grows by the same amount, so activation mints for it
-        assertEq(rewardSystem.rewardTokensAmount(pid), poolBefore + 1_000e18, "project pool not updated");
-    }
-
-    function test_distributeVestingTokens_worksWithoutPriorInvestment() public {
-        // No investment: the grant stands on its own, which is the point of a manual distribution
-        (address[] memory u, uint256[] memory a, uint256[] memory p) = _oneUser(investor2, 500e18, pid);
-        vm.prank(owner);
-        rewardSystem.distributeVestingTokens(u, a, p);
-
-        (, uint256 total,,,) = rewardSystem.getProjectRewards(investor2, pid);
-        assertEq(total, 500e18, "grant not recorded");
-    }
-
-    function test_distributeVestingTokens_creditsEachEntrySeparately() public {
-        uint256 otherPid = _createProject(1_000e6, 10_000e6);
-
-        address[] memory u = new address[](3);
-        uint256[] memory a = new uint256[](3);
-        uint256[] memory p = new uint256[](3);
-        // Same user twice on one project, to prove the amounts accumulate rather than overwrite
-        u[0] = investor;  a[0] = 100e18; p[0] = pid;
-        u[1] = investor;  a[1] = 200e18; p[1] = pid;
-        u[2] = investor2; a[2] = 300e18; p[2] = otherPid;
-
-        vm.prank(owner);
-        rewardSystem.distributeVestingTokens(u, a, p);
-
-        (, uint256 firstUser,,,) = rewardSystem.getProjectRewards(investor, pid);
-        (, uint256 secondUser,,,) = rewardSystem.getProjectRewards(investor2, otherPid);
-        assertEq(firstUser, 300e18, "repeated entries must accumulate");
-        assertEq(secondUser, 300e18, "second user credited on the wrong project");
-        assertEq(rewardSystem.rewardTokensAmount(pid), 300e18, "first project pool wrong");
-        assertEq(rewardSystem.rewardTokensAmount(otherPid), 300e18, "second project pool wrong");
-    }
-
-    function test_distributeVestingTokens_revert_notOwner() public {
-        (address[] memory u, uint256[] memory a, uint256[] memory p) = _oneUser(investor, 1e18, pid);
-        vm.prank(attacker);
-        vm.expectRevert(abi.encodeWithSignature("OwnableUnauthorizedAccount(address)", attacker));
-        rewardSystem.distributeVestingTokens(u, a, p);
-    }
-
-    function test_distributeVestingTokens_revert_amountsLengthMismatch() public {
-        address[] memory u = new address[](2);
-        uint256[] memory a = new uint256[](1);
-        uint256[] memory p = new uint256[](2);
-        u[0] = investor; u[1] = investor2;
-        a[0] = 1e18;
-        p[0] = pid; p[1] = pid;
-
-        vm.prank(owner);
-        vm.expectRevert("Users and amounts length mismatch");
-        rewardSystem.distributeVestingTokens(u, a, p);
-    }
-
-    function test_distributeVestingTokens_revert_projectIdsLengthMismatch() public {
-        address[] memory u = new address[](2);
-        uint256[] memory a = new uint256[](2);
-        uint256[] memory p = new uint256[](1);
-        u[0] = investor; u[1] = investor2;
-        a[0] = 1e18; a[1] = 2e18;
-        p[0] = pid;
-
-        vm.prank(owner);
-        vm.expectRevert("Users and projectIds length mismatch");
-        rewardSystem.distributeVestingTokens(u, a, p);
-    }
-
-    function test_distributeVestingTokens_revert_emptyArrays() public {
-        vm.prank(owner);
-        vm.expectRevert("Empty arrays");
-        rewardSystem.distributeVestingTokens(new address[](0), new uint256[](0), new uint256[](0));
-    }
-
-    function test_distributeVestingTokens_revert_zeroUser() public {
-        (address[] memory u, uint256[] memory a, uint256[] memory p) = _oneUser(address(0), 1e18, pid);
-        vm.prank(owner);
-        vm.expectRevert("Invalid user address");
-        rewardSystem.distributeVestingTokens(u, a, p);
-    }
-
-    function test_distributeVestingTokens_revert_zeroAmount() public {
-        (address[] memory u, uint256[] memory a, uint256[] memory p) = _oneUser(investor, 0, pid);
-        vm.prank(owner);
-        vm.expectRevert("Invalid amount");
-        rewardSystem.distributeVestingTokens(u, a, p);
-    }
-
-    function test_distributeVestingTokens_revert_partialBatchRollsBack() public {
-        // Second entry is invalid, so the first must not stick either
-        address[] memory u = new address[](2);
-        uint256[] memory a = new uint256[](2);
-        uint256[] memory p = new uint256[](2);
-        u[0] = investor;  a[0] = 100e18; p[0] = pid;
-        u[1] = address(0); a[1] = 200e18; p[1] = pid;
-
-        vm.prank(owner);
-        vm.expectRevert("Invalid user address");
-        rewardSystem.distributeVestingTokens(u, a, p);
-
-        (, uint256 total,,,) = rewardSystem.getProjectRewards(investor, pid);
-        assertEq(total, 0, "a rejected batch must not credit anyone");
+        rewardSystem.claimVestingUsdcForProject(pid);
     }
 
     // ── boundaries ──────────────────────────────────────────────────────────────
 
-    /// @dev Every percentage band in setParameters is inclusive at both ends. Checked on the burn
-    ///      percentage, the one that decides whether a buy-back runs at all.
-    function test_setParameters_acceptsBothEndsOfTheBurnBand() public {
-        vm.startPrank(manager);
-        rewardSystem.setParameters(60_000, 1_000, 60_000, 0, 1000e6, 25_000, 40);
-        assertEq(rewardSystem.burnPercentage(), 1_000, "the lower end was refused");
+    /// @dev Every percentage band in setParameters is inclusive at both ends. Checked on the
+    ///      referral percentage, the one band the narrowed setter still carries.
+    function test_setParameters_acceptsBothEndsOfTheReferralBand() public {
+        vm.startPrank(admin);
+        rewardSystem.setParameters(1_000);
+        assertEq(rewardSystem.referralPercentage(), 1_000, "the lower end was refused");
 
-        rewardSystem.setParameters(60_000, 1_000_000, 60_000, 0, 1000e6, 25_000, 40);
-        assertEq(rewardSystem.burnPercentage(), 1_000_000, "the upper end was refused");
+        rewardSystem.setParameters(70_000);
+        assertEq(rewardSystem.referralPercentage(), 70_000, "the upper end was refused");
 
-        vm.expectRevert("Burn percentage must be between 1000 and 1000000");
-        rewardSystem.setParameters(60_000, 999, 60_000, 0, 1000e6, 25_000, 40);
+        vm.expectRevert("Referral percentage out of range");
+        rewardSystem.setParameters(999);
+        vm.expectRevert("Referral percentage out of range");
+        rewardSystem.setParameters(70_001);
         vm.stopPrank();
     }
 
-    /// @dev An empty batch is refused rather than quietly doing nothing — a manager who passed the
+    /// @dev The curve has no setter at all now: `_unlockedAt` reads it for past moments too, so a
+    ///      change would re-split an already-earned book between tokens and USDC. What is left in
+    ///      `setParameters` is the referral, a price on new investments.
+    function test_setParameters_cannotReachTheCurve() public {
+        uint256 weeksBefore = rewardSystem.vestingWeeks();
+        uint256 unlockBefore = rewardSystem.weeklyUnlock();
+
+        vm.prank(admin);
+        rewardSystem.setParameters(50_000);
+
+        assertEq(rewardSystem.referralPercentage(), 50_000, "the referral is still a dial");
+        assertEq(rewardSystem.vestingWeeks(), weeksBefore, "the curve did not move");
+        assertEq(rewardSystem.weeklyUnlock(), unlockBefore, "the curve did not move");
+    }
+
+    /// @dev An empty batch is refused rather than quietly doing nothing — whoever passed the
     ///      wrong slice should hear about it.
     function test_sendUSDCForProjectToUserBatch_refusesEmptyArrays() public {
-        vm.prank(manager);
+        vm.prank(admin);
         vm.expectRevert("Empty arrays");
         rewardSystem.sendUSDCForProjectToUserBatch(new address[](0), new uint256[](0));
     }
@@ -372,19 +269,21 @@ contract RewardSystemTest is Setup {
         assertGt(usdc.balanceOf(inviter) - before, 0, "the batch claim paid nothing");
     }
 
-    /// @dev The project-count ceiling is inclusive, and the view is the one the sell screen reads.
-    function test_getClaimAndSellAmounts_acceptsExactlyTheCeiling() public {
+    /// @dev The project-count ceiling is inclusive, on the view the rewards screen reads. Asked
+    ///      about the inviter: token cashback is off, so the investor's own side is always zero
+    ///      and would pass the assertion without the ceiling working at all.
+    function test_getProjectsRewardsTotal_acceptsExactlyTheCeiling() public {
         _investAs(investor, pid, 25_000e6, inviter);
         _fundProject(pid);
 
         uint256[] memory atCeiling = new uint256[](500);
         for (uint256 i = 0; i < 500; i++) atCeiling[i] = pid;
-        (uint256 tokens,,) = rewardSystem.getClaimAndSellAmounts(investor, atCeiling);
-        assertGt(tokens, 0, "the ceiling-sized request returned nothing");
+        (uint256 totalUSDC,,,) = rewardSystem.getProjectsRewardsTotal(inviter, atCeiling);
+        assertGt(totalUSDC, 0, "the ceiling-sized request returned nothing");
 
         uint256[] memory tooMany = new uint256[](501);
         for (uint256 i = 0; i < 501; i++) tooMany[i] = pid;
         vm.expectRevert("Too many projects");
-        rewardSystem.getClaimAndSellAmounts(investor, tooMany);
+        rewardSystem.getProjectsRewardsTotal(inviter, tooMany);
     }
 }

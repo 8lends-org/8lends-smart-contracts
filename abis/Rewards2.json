@@ -104,13 +104,31 @@
     "anonymous": false,
     "inputs": [
       {
+        "indexed": true,
+        "internalType": "address",
+        "name": "user",
+        "type": "address"
+      },
+      {
+        "indexed": true,
+        "internalType": "address",
+        "name": "to",
+        "type": "address"
+      },
+      {
         "indexed": false,
         "internalType": "uint256",
-        "name": "percentage",
+        "name": "tokens",
+        "type": "uint256"
+      },
+      {
+        "indexed": false,
+        "internalType": "uint256",
+        "name": "usdc",
         "type": "uint256"
       }
     ],
-    "name": "AdditionalUnlockSet",
+    "name": "ClaimPaid",
     "type": "event"
   },
   {
@@ -149,31 +167,13 @@
     "anonymous": false,
     "inputs": [
       {
-        "indexed": true,
-        "internalType": "address",
-        "name": "sender",
-        "type": "address"
-      },
-      {
         "indexed": false,
         "internalType": "uint256",
-        "name": "tokensSold",
+        "name": "rate",
         "type": "uint256"
-      },
-      {
-        "indexed": false,
-        "internalType": "uint256",
-        "name": "usdcReceived",
-        "type": "uint256"
-      },
-      {
-        "indexed": true,
-        "internalType": "address",
-        "name": "recipient",
-        "type": "address"
       }
     ],
-    "name": "TokensSold",
+    "name": "RedemptionRateSet",
     "type": "event"
   },
   {
@@ -228,37 +228,6 @@
         "internalType": "uint256",
         "name": "vestingId",
         "type": "uint256"
-      },
-      {
-        "indexed": false,
-        "internalType": "uint256",
-        "name": "amount",
-        "type": "uint256"
-      },
-      {
-        "indexed": false,
-        "internalType": "uint256",
-        "name": "startTime",
-        "type": "uint256"
-      }
-    ],
-    "name": "VestingCreated",
-    "type": "event"
-  },
-  {
-    "anonymous": false,
-    "inputs": [
-      {
-        "indexed": true,
-        "internalType": "address",
-        "name": "user",
-        "type": "address"
-      },
-      {
-        "indexed": true,
-        "internalType": "uint256",
-        "name": "vestingId",
-        "type": "uint256"
       }
     ],
     "name": "VestingDeactivated",
@@ -292,7 +261,47 @@
   },
   {
     "inputs": [],
-    "name": "additionalUnlockPercentage",
+    "name": "claimTokens",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "address[]",
+        "name": "_users",
+        "type": "address[]"
+      }
+    ],
+    "name": "claimTokensBatch",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "claimUsdc",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "address[]",
+        "name": "_users",
+        "type": "address[]"
+      }
+    ],
+    "name": "claimUsdcBatch",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "cutover",
     "outputs": [
       {
         "internalType": "uint256",
@@ -301,57 +310,6 @@
       }
     ],
     "stateMutability": "view",
-    "type": "function"
-  },
-  {
-    "inputs": [],
-    "name": "claim",
-    "outputs": [],
-    "stateMutability": "nonpayable",
-    "type": "function"
-  },
-  {
-    "inputs": [
-      {
-        "internalType": "uint256",
-        "name": "_minUsdcAmount",
-        "type": "uint256"
-      }
-    ],
-    "name": "claimAndSellTokens",
-    "outputs": [],
-    "stateMutability": "nonpayable",
-    "type": "function"
-  },
-  {
-    "inputs": [
-      {
-        "internalType": "address[]",
-        "name": "_users",
-        "type": "address[]"
-      }
-    ],
-    "name": "claimBatch",
-    "outputs": [],
-    "stateMutability": "nonpayable",
-    "type": "function"
-  },
-  {
-    "inputs": [
-      {
-        "internalType": "address[]",
-        "name": "_users",
-        "type": "address[]"
-      },
-      {
-        "internalType": "uint256[]",
-        "name": "_amounts",
-        "type": "uint256[]"
-      }
-    ],
-    "name": "createVesting",
-    "outputs": [],
-    "stateMutability": "nonpayable",
     "type": "function"
   },
   {
@@ -419,21 +377,16 @@
         "type": "address"
       }
     ],
-    "name": "getClaimAndSellAmounts",
+    "name": "getClaimable",
     "outputs": [
       {
         "internalType": "uint256",
-        "name": "totalTokensAmount",
+        "name": "inTokens",
         "type": "uint256"
       },
       {
         "internalType": "uint256",
-        "name": "expectedUsdcAmount",
-        "type": "uint256"
-      },
-      {
-        "internalType": "uint256",
-        "name": "minUsdcAmount",
+        "name": "usdcAmount",
         "type": "uint256"
       }
     ],
@@ -452,12 +405,7 @@
     "outputs": [
       {
         "internalType": "uint256",
-        "name": "expectedUsdcAmount",
-        "type": "uint256"
-      },
-      {
-        "internalType": "uint256",
-        "name": "minUsdcAmount",
+        "name": "",
         "type": "uint256"
       }
     ],
@@ -571,11 +519,18 @@
       },
       {
         "internalType": "address",
-        "name": "_uniswapRouter",
+        "name": "",
         "type": "address"
       }
     ],
     "name": "initialize",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "initializeCutover",
     "outputs": [],
     "stateMutability": "nonpayable",
     "type": "function"
@@ -591,19 +546,6 @@
       }
     ],
     "stateMutability": "view",
-    "type": "function"
-  },
-  {
-    "inputs": [
-      {
-        "internalType": "uint256",
-        "name": "tokensForMint",
-        "type": "uint256"
-      }
-    ],
-    "name": "mintRewardsTWAP",
-    "outputs": [],
-    "stateMutability": "nonpayable",
     "type": "function"
   },
   {
@@ -634,6 +576,19 @@
   },
   {
     "inputs": [],
+    "name": "redemptionRate",
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
     "name": "renounceOwnership",
     "outputs": [],
     "stateMutability": "nonpayable",
@@ -643,52 +598,11 @@
     "inputs": [
       {
         "internalType": "uint256",
-        "name": "tokensForSell",
-        "type": "uint256"
-      },
-      {
-        "internalType": "address",
-        "name": "_recipient",
-        "type": "address"
-      },
-      {
-        "internalType": "uint256",
-        "name": "_minUsdcAmount",
+        "name": "_rate",
         "type": "uint256"
       }
     ],
-    "name": "sellTokens",
-    "outputs": [],
-    "stateMutability": "nonpayable",
-    "type": "function"
-  },
-  {
-    "inputs": [
-      {
-        "internalType": "uint256",
-        "name": "_percentage",
-        "type": "uint256"
-      }
-    ],
-    "name": "setAdditionalUnlock",
-    "outputs": [],
-    "stateMutability": "nonpayable",
-    "type": "function"
-  },
-  {
-    "inputs": [
-      {
-        "internalType": "uint256",
-        "name": "_weeklyUnlock",
-        "type": "uint256"
-      },
-      {
-        "internalType": "uint256",
-        "name": "_vestingWeeks",
-        "type": "uint256"
-      }
-    ],
-    "name": "setVestingParameters",
+    "name": "setRedemptionRate",
     "outputs": [],
     "stateMutability": "nonpayable",
     "type": "function"
@@ -733,19 +647,6 @@
     "type": "function"
   },
   {
-    "inputs": [],
-    "name": "uniswapRouter",
-    "outputs": [
-      {
-        "internalType": "contract IUniswapV2Router02",
-        "name": "",
-        "type": "address"
-      }
-    ],
-    "stateMutability": "view",
-    "type": "function"
-  },
-  {
     "inputs": [
       {
         "internalType": "address",
@@ -760,11 +661,6 @@
       {
         "internalType": "address",
         "name": "_usdc",
-        "type": "address"
-      },
-      {
-        "internalType": "address",
-        "name": "_uniswapRouter",
         "type": "address"
       }
     ],
@@ -817,6 +713,30 @@
         "type": "uint256"
       }
     ],
+    "name": "usdcEraClaimed",
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "address",
+        "name": "",
+        "type": "address"
+      },
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
+      }
+    ],
     "name": "userMaxAdditionalUnlockUsed",
     "outputs": [
       {
@@ -837,6 +757,19 @@
       }
     ],
     "name": "userVestingCount",
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "version",
     "outputs": [
       {
         "internalType": "uint256",

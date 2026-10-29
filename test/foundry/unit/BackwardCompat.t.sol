@@ -142,9 +142,9 @@ contract BackwardCompatTest is Setup {
         // Call old 4-param overload (assumes USDC)
         rewardSystem.recordInvestment(investor, 10_000e6, inviter, pid);
 
-        // Verify rewards recorded
+        // Token cashback is off; the referral half is what both overloads still do
         (, uint256 totalTokens,,,) = rewardSystem.getProjectRewards(investor, pid);
-        assertGt(totalTokens, 0, "Old recordInvestment: no token rewards");
+        assertEq(totalTokens, 0, "Old recordInvestment: token rewards must not accrue");
         // Inviter should have USDC reward
         (uint256 inviterUSDC,,,,) = rewardSystem.getProjectRewards(inviter, pid);
         assertGt(inviterUSDC, 0, "Old recordInvestment: no inviter USDC reward");
@@ -159,7 +159,7 @@ contract BackwardCompatTest is Setup {
         _investAs(investor, pid, 10_000e6, inviter);
 
         (, uint256 totalTokens,,,) = rewardSystem.getProjectRewards(investor, pid);
-        assertGt(totalTokens, 0, "New recordInvestment: no token rewards");
+        assertEq(totalTokens, 0, "New recordInvestment: token rewards must not accrue");
         (uint256 inviterUSDC,,,,) = rewardSystem.getProjectRewards(inviter, pid);
         assertGt(inviterUSDC, 0, "New recordInvestment: no inviter USDC reward");
     }
@@ -167,17 +167,17 @@ contract BackwardCompatTest is Setup {
     function test_rewardSystem_old_and_new_recordInvestment_accumulate() public {
         // First investment via new V2 flow (5-param recordInvestment)
         _investAs(investor, pid, 5_000e6, inviter);
-        (, uint256 tokensAfterFirst,,,) = rewardSystem.getProjectRewards(investor, pid);
+        (uint256 inviterAfterFirst,,,,) = rewardSystem.getProjectRewards(inviter, pid);
 
         // Second investment via old flow — simulate by calling 4-param directly
         vm.prank(owner);
         managerRegistry.setContractAddresses(address(rewardSystem), address(this), address(treasury));
-        rewardSystem.recordInvestment(investor, 5_000e6, address(0), pid);
+        rewardSystem.recordInvestment(investor, 5_000e6, inviter, pid);
         vm.prank(owner);
         managerRegistry.setContractAddresses(address(rewardSystem), address(fundraise), address(treasury));
 
-        (, uint256 tokensAfterSecond,,,) = rewardSystem.getProjectRewards(investor, pid);
-        assertGt(tokensAfterSecond, tokensAfterFirst, "Rewards should accumulate across old and new calls");
+        (uint256 inviterAfterSecond,,,,) = rewardSystem.getProjectRewards(inviter, pid);
+        assertGt(inviterAfterSecond, inviterAfterFirst, "Referral USDC should accumulate across old and new calls");
     }
 
     // ═══════════════════════════════════════════════════════════════════
@@ -206,96 +206,6 @@ contract BackwardCompatTest is Setup {
 
         uint256 startTime = rewardSystem.projectVestingStartTime(newPid);
         assertGt(startTime, 0, "vesting did not start");
-    }
-
-    // ═══════════════════════════════════════════════════════════════════
-    //  SECTION 7: RewardSystem — Oracle fallback to Uniswap V2
-    // ═══════════════════════════════════════════════════════════════════
-
-    function test_oracle_fallback_to_uniswap() public {
-        // Deploy a fresh RewardSystem WITHOUT oracle
-        vm.startPrank(owner);
-        RewardSystem rsNoOracle;
-        {
-            RewardSystem impl = new RewardSystem();
-            bytes memory initData = abi.encodeCall(
-                RewardSystem.initialize,
-                (address(managerRegistry), address(token), address(usdc), address(mockRouter))
-            );
-            ERC1967Proxy proxy = new ERC1967Proxy(address(impl), initData);
-            rsNoOracle = RewardSystem(address(proxy));
-        }
-
-        // Seed it with USDC for rewards
-        usdc.mint(address(rsNoOracle), 100_000e6);
-
-        // Point system to new RS
-        managerRegistry.setContractAddresses(address(rsNoOracle), address(fundraise), address(treasury));
-        fundraise.setRewardSystem(address(rsNoOracle));
-        vm.stopPrank();
-
-        // oracle is address(0) → should use Uniswap V2 fallback
-        assertEq(rsNoOracle.oracle(), address(0), "Oracle should not be set");
-
-        // Invest — should use Uniswap spot price
-        uint256 fallbackPid = _createProject(5_000e6, 50_000e6);
-        _investAs(investor, fallbackPid, 5_000e6, inviter);
-
-        // tokenPercentage = 6% → 300 USDC worth
-        // MockRouter: 1 USDC = 100 tokens → 300 * 100 = 30,000 tokens
-        (, uint256 totalTokens,,,) = rsNoOracle.getProjectRewards(investor, fallbackPid);
-        assertEq(totalTokens, 30_000e18, "Uniswap fallback: wrong token amount");
-
-        // Restore original RS
-        vm.startPrank(owner);
-        managerRegistry.setContractAddresses(address(rewardSystem), address(fundraise), address(treasury));
-        fundraise.setRewardSystem(address(rewardSystem));
-        vm.stopPrank();
-    }
-
-
-    function test_oracle_fallback_reverts_when_uniswap_has_no_liquidity() public {
-        // Deploy fresh RS without oracle
-        vm.startPrank(owner);
-        RewardSystem rsNoOracle;
-        {
-            RewardSystem impl = new RewardSystem();
-            bytes memory initData = abi.encodeCall(
-                RewardSystem.initialize,
-                (address(managerRegistry), address(token), address(usdc), address(mockRouter))
-            );
-            ERC1967Proxy proxy = new ERC1967Proxy(address(impl), initData);
-            rsNoOracle = RewardSystem(address(proxy));
-        }
-        usdc.mint(address(rsNoOracle), 100_000e6);
-        managerRegistry.setContractAddresses(address(rsNoOracle), address(fundraise), address(treasury));
-        fundraise.setRewardSystem(address(rsNoOracle));
-
-        // Make Uniswap router revert
-        mockRouter.setShouldRevert(true);
-        vm.stopPrank();
-
-        uint256 fallbackPid = _createProject(5_000e6, 50_000e6);
-
-        // Prepare invest manually for expectRevert
-        vm.prank(owner);
-        usdc.mint(investor, 5_000e6);
-        vm.prank(investor);
-        usdc.approve(address(fundraise), 5_000e6);
-
-        uint256 currentNonce = fundraise.userNonces(investor);
-        bytes memory sig = _signInvest(investor, fallbackPid, 5_000e6, currentNonce + 1, inviter);
-
-        vm.prank(investor);
-        vm.expectRevert("Uniswap pool does not exist or has no liquidity");
-        fundraise.investUpdateV2(fallbackPid, 5_000e6, currentNonce + 1, sig, inviter);
-
-        // Restore
-        vm.startPrank(owner);
-        mockRouter.setShouldRevert(false);
-        managerRegistry.setContractAddresses(address(rewardSystem), address(fundraise), address(treasury));
-        fundraise.setRewardSystem(address(rewardSystem));
-        vm.stopPrank();
     }
 
     // ═══════════════════════════════════════════════════════════════════
@@ -341,7 +251,7 @@ contract BackwardCompatTest is Setup {
         // Legacy: fundedProjectsInvestedTotal * percent / BASIS_POINTS
         // = 10_000e6 * 60_000 / 1_000_000 = 600e6
         assertEq(result.fundedProjectsInvestedTotal, 10_000e6, "Legacy: wrong total invested");
-        assertEq(result.availableBuyTokensInUSDC, 600e6, "Legacy fallback: wrong available limit");
+        assertEq(result.availableBuyTokensInUSDC, 0, "purchases are closed");
     }
 
     function test_limitedSeller_migrateEarnedLimits() public {
@@ -380,7 +290,7 @@ contract BackwardCompatTest is Setup {
         uint256[] memory pids = new uint256[](1);
         pids[0] = pid2;
         LimitedSeller.EstimateResult memory result = limitedSeller.estimateAvailableBuy(investor, pids);
-        assertEq(result.availableBuyTokensInUSDC, 600e6, "Post-migration: should use earnedLimitUsdc");
+        assertEq(result.availableBuyTokensInUSDC, 0, "purchases are closed");
     }
 
 
@@ -471,11 +381,12 @@ contract BackwardCompatTest is Setup {
         assertEq(uint8(inner.stage), uint8(Fundraise.Stage.Funded));
         assertGt(rewardSystem.projectVestingStartTime(e2ePid), 0, "Vesting should start");
 
-        // 7. Verify rewards for both investors (both got rewards via RewardSystem)
-        (, uint256 tokens1,,,) = rewardSystem.getProjectRewards(investor, e2ePid);
+        // 7. Both paths record the inviter the same way; neither accrues token cashback
+        (uint256 inviterUSDC, uint256 tokens1,,,) = rewardSystem.getProjectRewards(inviter, e2ePid);
         (, uint256 tokens2,,,) = rewardSystem.getProjectRewards(investor2, e2ePid);
-        assertGt(tokens1, 0, "Investor1 should have token rewards");
-        assertGt(tokens2, 0, "Investor2 should have token rewards");
+        assertGt(inviterUSDC, 0, "Inviter should have USDC from both investments");
+        assertEq(tokens1, 0, "Token cashback is off");
+        assertEq(tokens2, 0, "Token cashback is off");
 
         // 8. Repay and claim
         _repayFull(e2ePid);

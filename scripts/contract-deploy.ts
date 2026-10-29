@@ -170,6 +170,29 @@ const DEPLOY_DESCRIPTORS: Record<string, DeployDescriptor> = {
     configKey: "LimitedSeller",
     configKeyImpl: "LimitedSeller_impl",
   },
+  Buyback: {
+    useProxy: true,
+    initializer: "initialize",
+    // Deployed closed. A zero price makes sell() revert, so the contract can be funded and marked
+    // as a pool days ahead of the exchange window; BUYBACK_PRICE opens it at deploy, setPrice any
+    // time after. A default price here would turn into a live offer the moment the mark lands.
+    getProxyArgs: (config) => {
+      if (!config.ManagerRegistry || !config.Token || !config.USDC) {
+        throw new Error("ManagerRegistry, token, USDC required in config");
+      }
+      const price = process.env.BUYBACK_PRICE?.trim() || "0";
+      if (!/^\d+$/.test(price)) {
+        throw new Error(
+          `BUYBACK_PRICE="${price}" is not a non-negative integer in USDC's 6 decimals ` +
+            `(20000 = $0.02 per token; 0 leaves the buyback closed).`
+        );
+      }
+      console.log("Buyback price:", price === "0" ? "0 (closed, open it with setPrice)" : price);
+      return [config.ManagerRegistry, config.Token, config.USDC, price];
+    },
+    configKey: "Buyback",
+    configKeyImpl: "Buyback_impl",
+  },
   Token: {
     useProxy: false,
     getConstructorArgs: () => [],

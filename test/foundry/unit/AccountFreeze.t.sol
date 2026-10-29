@@ -190,10 +190,6 @@ contract AccountFreezeTest is Setup {
         _fundProject(pid);
         _repayFull(pid);
 
-        address admin = makeAddr("admin");
-        vm.prank(owner);
-        managerRegistry.setAdminStatus(admin, true);
-
         vm.prank(support);
         managerRegistry.freeze(user);
 
@@ -265,5 +261,156 @@ contract AccountFreezeTest is Setup {
         vm.prank(support);
         managerRegistry.freeze(recovery);
         assertTrue(managerRegistry.isFrozen(recovery));
+    }
+
+    // ── What it stops in the reward contracts ──
+
+    /// @dev Every claim in RewardSystem funnels through three internals, so the flag is read once
+    ///      per payout path rather than once per entry point. The user's own door first.
+    function test_frozenUserCannotClaimRewardSystemVesting() public {
+        uint256 pid = _createProject(1_000e6, 10_000e6);
+        _investAs(user, pid, 2_000e6, address(0));
+        _seedVesting(user, pid, 10_000e18);
+        _fundProject(pid);
+
+        vm.warp(block.timestamp + 5 weeks);
+
+        vm.prank(support);
+        managerRegistry.freeze(user);
+
+        vm.prank(user);
+        vm.expectRevert("Account frozen");
+        rewardSystem.claimVestingTokensForProject(pid);
+
+        vm.prank(support);
+        managerRegistry.unfreeze(user);
+        vm.prank(user);
+        rewardSystem.claimVestingTokensForProject(pid);
+        assertGt(token.balanceOf(user), 0, "the lift has to let the claim through");
+    }
+
+    /// @dev The support button is the one a check on msg.sender would let through: the admin is
+    ///      not frozen, the user is, and the money is the user's.
+    function test_anAdminCannotSendAFrozenUsersVesting() public {
+        uint256 pid = _createProject(1_000e6, 10_000e6);
+        _investAs(user, pid, 2_000e6, address(0));
+        _seedVesting(user, pid, 10_000e18);
+        _fundProject(pid);
+
+        vm.warp(block.timestamp + 5 weeks);
+
+        vm.prank(support);
+        managerRegistry.freeze(user);
+
+        vm.prank(admin);
+        vm.expectRevert("Account frozen");
+        rewardSystem.sendVestingTokensForProjectToUser(user, pid);
+    }
+
+    /// @dev The inviter's USDC is a separate path with its own internal, and it is read on the
+    ///      inviter — whose money it is — not on the investor who earned it for them.
+    function test_aFrozenInviterCannotTakeTheReferralUsdc() public {
+        uint256 pid = _createProject(1_000e6, 10_000e6);
+        _investAs(user, pid, 2_000e6, inviter);
+        _fundProject(pid);
+
+        vm.prank(support);
+        managerRegistry.freeze(inviter);
+
+        vm.prank(inviter);
+        vm.expectRevert("Account frozen");
+        rewardSystem.claimUSDCForProject(pid);
+
+        vm.prank(admin);
+        vm.expectRevert("Account frozen");
+        rewardSystem.sendUSDCForProjectToUser(inviter, pid);
+    }
+
+    /// @dev Rewards2 pays on its own schedule and has to refuse the same way. The fixture puts
+    ///      the cutover at the very beginning, so what a holder is owed here is the USDC half.
+    function test_frozenUserCannotClaimRewards2() public {
+        _seedRewards2(user, 10_000e18);
+        vm.warp(block.timestamp + 5 weeks);
+
+        vm.prank(support);
+        managerRegistry.freeze(user);
+
+        vm.prank(user);
+        vm.expectRevert("Account frozen");
+        rewards2.claimUsdc();
+
+        vm.prank(support);
+        managerRegistry.unfreeze(user);
+        uint256 before = usdc.balanceOf(user);
+        vm.prank(user);
+        rewards2.claimUsdc();
+        assertGt(usdc.balanceOf(user), before, "the lift has to let the claim through");
+    }
+
+    /// @dev The batches skip whoever they cannot pay rather than reverting, and a freeze is one
+    ///      more reason they cannot: the frozen holder keeps the vesting, the other one is paid.
+    function test_theRewards2BatchSkipsAFrozenUserAndPaysTheRest() public {
+        address other = makeAddr("otherHolder");
+        _seedRewards2(user, 10_000e18);
+        _seedRewards2(other, 10_000e18);
+
+        vm.warp(block.timestamp + 5 weeks);
+
+        vm.prank(support);
+        managerRegistry.freeze(user);
+
+        address[] memory users = new address[](2);
+        users[0] = user;
+        users[1] = other;
+
+        uint256 frozenBefore = usdc.balanceOf(user);
+
+        vm.prank(admin);
+        rewards2.claimUsdcBatch(users);
+
+        assertEq(usdc.balanceOf(user), frozenBefore, "the frozen holder was paid");
+        assertGt(usdc.balanceOf(other), 0, "and the batch stopped on them instead of going on");
+        (, uint256 claimed,,) = rewards2.vestings(user, 0);
+        assertEq(claimed, 0, "a skipped holder must keep the vesting");
+    }
+
+    /// @dev The flag is read on the address the money reaches, so a recovery lifts the block even
+    ///      while the old wallet stays flagged — the chain, not the freeze, decides where it goes.
+    function test_aRecoveryAddressIsPaidThoughTheOldWalletWasFrozen() public {
+        uint256 pid = _createProject(1_000e6, 10_000e6);
+        _investAs(user, pid, 2_000e6, address(0));
+        _seedVesting(user, pid, 10_000e18);
+        _fundProject(pid);
+
+        vm.warp(block.timestamp + 5 weeks);
+
+        vm.prank(support);
+        managerRegistry.freeze(user);
+
+        address recovery = makeAddr("recoveryWallet");
+        vm.prank(owner);
+        managerRegistry.setInvestorClaimAddress(user, recovery);
+
+        vm.prank(admin);
+        rewardSystem.sendVestingTokensForProjectToUser(user, pid);
+        assertGt(token.balanceOf(recovery), 0, "the payout must follow the chain");
+    }
+
+    /// @dev A Rewards2 grant with the money and the rate behind it, which is what a claim needs.
+    function _seedRewards2(address _user, uint256 _amount) internal {
+        address[] memory users = new address[](1);
+        users[0] = _user;
+        uint256[] memory amounts = new uint256[](1);
+        amounts[0] = _amount;
+
+        vm.startPrank(owner);
+        rewards2.seedVestings(users, amounts);
+        usdc.mint(address(rewards2), 1_000_000e6);
+        vm.stopPrank();
+
+        if (rewards2.redemptionRate() == 0) {
+            vm.prank(admin);
+            rewards2.setRedemptionRate(20_000);
+        }
     }
 }

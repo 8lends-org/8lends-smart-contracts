@@ -343,7 +343,7 @@ describe("🚀 8lends Protocol - General Flow Tests", function () {
     it("🔒 Rewards cannot be claimed before project activation", async function () {
       await expect(rewardSystem.connect(investor).claimUSDCForProject(0))
         .to.be.revertedWith("Project rewards not activated");
-      await expect(rewardSystem.connect(investor).claimTokensForProject(0))
+      await expect(rewardSystem.connect(investor).claimVestingUsdcForProject(0))
         .to.be.revertedWith("Project rewards not activated");
     });
 
@@ -376,11 +376,9 @@ describe("🚀 8lends Protocol - General Flow Tests", function () {
 
     it(`🏦 Treasury balance should be ${formatUnits(PLATFORM_PERCENT, 4)}% of investment`, async function () {
       const balanceOfTreasury = await usdcToken.balanceOf(await treasury.getAddress());
-      const burnedUSDC = (await rewardSystem.burnPercentage()) * project.totalInvested / await fundraise.BASIS_POINTS();
       log("💰 BALANCE OF TREASURY", formatUnits(balanceOfTreasury, 6));
       log("📊 PROJECT INVESTED", formatUnits(project.totalInvested, 6));
       log("📈 PLATFORM PERCENT", formatUnits(PLATFORM_PERCENT, 4));
-      log("🔥 BURNED USDC", formatUnits(burnedUSDC, 6));
       log("💵 EXPECTED BALANCE OF TREASURY", formatUnits(project.totalInvested * PLATFORM_PERCENT / await fundraise.BASIS_POINTS(), 6));
 
       expect(balanceOfTreasury).to.equal(project.totalInvested * PLATFORM_PERCENT / await fundraise.BASIS_POINTS());
@@ -388,20 +386,14 @@ describe("🚀 8lends Protocol - General Flow Tests", function () {
 
 
 
-    it("🚫 Investor has no USDC rewards — tokens only", async function () {
+    it("🚫 Investor accrues no USDC from RewardSystem", async function () {
+      // The welcome bonus moved to the WelcomeBonus contract, and referral USDC goes to the
+      // inviter, so an investor has nothing to claim here.
       const projectRewards = await rewardSystem.getProjectRewards(await investor.getAddress(), 0);
-
-      log("💵 PROJECT REWARDS TOTAL USDC", formatUnits(projectRewards.totalUSDC, 6));
-      log("🪙 PROJECT REWARDS TOTAL TOKENS", formatEther(projectRewards.totalTokens));
-
-      // USDC here is the referral reward and belongs to the inviter — see the next test. The
-      // investor's own side is tokens; WelcomeBonus is what pays a new user in USDC.
-      expect(projectRewards.totalUSDC).to.be.eq(0);
-      expect(projectRewards.totalTokens).to.be.greaterThan(0);
+      expect(projectRewards.totalUSDC).to.equal(0);
 
       await expect(rewardSystem.connect(investor).claimUSDCForProject(0))
         .to.be.revertedWith("No USDC rewards for this project");
-      await trackBalances("Investor has no USDC to claim");
     });
 
     it("🎁 Claim USDC rewards by inviter", async function () {
@@ -435,87 +427,11 @@ describe("🚀 8lends Protocol - General Flow Tests", function () {
       expect(projectRewards.totalUSDC).to.equal(0);
     });
 
-    it("🪙 Investor token rewards (6% tokens)", async() => {
-      const tokenPercentage = await rewardSystem.tokenPercentage();
-      log("📊 TOKEN PERCENTAGE", tokenPercentage);
-      const investorInfo = await fundraise.investorInfo(await investor.getAddress(), 0);
-      const investorInvestedAmount = investorInfo.investedAmount;
-      log("💵 INVESTOR INVESTED USDC", formatUnits(investorInvestedAmount, 6));
-      // investor vesting total amount
-      const investorVestingTotalAmount = await rewardSystem.getVestingInfoForProject(await investor.getAddress(), 0);
-      log("🪙 INVESTOR VESTING TOKEN TOTAL AMOUNT", formatEther(investorVestingTotalAmount.totalAmount));
-      log("✅ INVESTOR VESTING TOKEN CLAIMED AMOUNT", formatEther(investorVestingTotalAmount.claimedAmount));
-      log("🎯 INVESTOR VESTING TOKEN CLAIMABLE AMOUNT", formatEther(investorVestingTotalAmount.claimableAmount));
-      log("⏰ INVESTOR VESTING TOKEN START TIME", new Date(Number(investorVestingTotalAmount.startTime) * 1000).toLocaleString());
-      log("🔥 INVESTOR VESTING TOKEN IS ACTIVE", investorVestingTotalAmount.isActive);
-      expect(investorVestingTotalAmount.totalAmount).to.be.greaterThanOrEqual(investorInvestedAmount * tokenPercentage / 100n);
-    });
 
-    it("⏰ Skip 1 week and check claimable amount", async() => {
-      const BASIS_POINTS = await rewardSystem.BASIS_POINTS();
-      await time.increase(7 * 24 * 3600);
-      const investorInfo = await fundraise.investorInfo(await investor.getAddress(), 0);
-      const investorInvestedAmount = investorInfo.investedAmount;
-      const tokenPercentage = await rewardSystem.tokenPercentage();
 
-      const investorVestingTotalAmount = await rewardSystem.getVestingInfoForProject(await investor.getAddress(), 0);
-      log("🪙 INVESTOR VESTING TOKEN TOTAL AMOUNT", formatEther(investorVestingTotalAmount.totalAmount));
-      log("✅ INVESTOR VESTING TOKEN CLAIMED AMOUNT", formatEther(investorVestingTotalAmount.claimedAmount));
-      log("🎯 INVESTOR VESTING TOKEN CLAIMABLE AMOUNT", formatEther(investorVestingTotalAmount.claimableAmount));
 
-      // weekly correct amount
-      const weeklyUnlock = await rewardSystem.weeklyUnlock(); //25
-      log("📊 WEEKLY UNLOCK", formatUnits(weeklyUnlock,1));
-      log("💵 INVESTOR INVESTED USDC", formatUnits(investorInvestedAmount, 6));
-      log("📈 TOKEN PERCENTAGE", tokenPercentage/BASIS_POINTS * 100n);
 
-      const _expectedClaimableAmount = investorVestingTotalAmount.totalAmount * weeklyUnlock * 2n / BASIS_POINTS;
-      log("🎯 EXPECTED CLAIMABLE AMOUNT", formatEther(_expectedClaimableAmount));
-      expect(investorVestingTotalAmount.claimableAmount).to.be.eq(_expectedClaimableAmount);
-    });
 
-    it("🎁 Claim tokens by investor (balance should equal claimableAmount)", async () => {
-      const { claimableAmount } = await rewardSystem.getVestingInfoForProject(await investor.getAddress(), 0);
-      await rewardSystem.connect(investor).claimTokensForProject(0);
-      const balance = await token.balanceOf(await investor.getAddress());
-      expect(balance).to.be.eq(claimableAmount);
-      await trackBalances(`Investor claimed tokens (week 1 - %${Number(await rewardSystem.weeklyUnlock())/1e4})`);
-    });
-
-    it("✅ After claim, claimableAmount should be 0", async () => {
-      const { claimableAmount } = await rewardSystem.getVestingInfoForProject(await investor.getAddress(), 0);
-      const balance = await token.balanceOf(await investor.getAddress());
-      log("🪙 INVESTOR TOKEN BALANCE", formatEther(balance));
-      expect(claimableAmount).to.be.eq(0);
-    });
-
-    it("🚫 Try to claim tokens again (should fail)", async () => {
-      await expect(rewardSystem.connect(investor).claimTokensForProject(0)).to.be.revertedWith("No tokens to claim");
-    });
-
-    it("💱 Sell claimed tokens on DEX", async () => {
-      const tokensBefore = await token.balanceOf(await investor.getAddress());
-      expect(tokensBefore).to.be.greaterThan(0);
-      const usdcBefore = await usdcToken.balanceOf(await investor.getAddress());
-
-      await token.connect(investor).approve(await router.getAddress(), tokensBefore);
-      await router.connect(investor).swapExactTokensForTokens(
-        tokensBefore,
-        0,
-        [await token.getAddress(), await usdcToken.getAddress()],
-        await investor.getAddress(),
-        await time.latest() + 1000
-      );
-
-      // The whole balance goes in, and the proceeds come back as USDC
-      expect(await token.balanceOf(await investor.getAddress())).to.equal(0);
-      const usdcGained = (await usdcToken.balanceOf(await investor.getAddress())) - usdcBefore;
-      expect(usdcGained).to.be.greaterThan(0);
-
-      log("🪙 TOKENS SOLD", formatEther(tokensBefore));
-      log("📈 INVESTOR INCREMENTED USDC", formatUnits(usdcGained, 6));
-      await trackBalances("Sold claimed tokens on DEX");
-    });
 
     it("💱 Check token price on DEX", async () => {
       const path = [await usdcToken.getAddress(), await token.getAddress()];
@@ -598,10 +514,9 @@ describe("🚀 8lends Protocol - General Flow Tests", function () {
       await fundraise.connect(manager).cancelProject(projectId);
       expect((await fundraise.projects(projectId)).innerStruct.stage).to.equal(Stage.Canceled);
 
-      // Investing records the investor's token rewards; only reaching Funded activates them
+      // Investing accrues no token cashback any more, and cancellation activates nothing
       const projectRewards = await rewardSystem.getProjectRewards(await investor.getAddress(), projectId);
-      log("🪙 PROJECT REWARDS TOKENS", formatEther(projectRewards.totalTokens));
-      expect(projectRewards.totalTokens).to.be.greaterThan(0);
+      expect(projectRewards.totalTokens).to.equal(0);
       expect(projectRewards.isActivated).to.be.false;
 
       // Cannot claim rewards from canceled project
@@ -643,35 +558,7 @@ describe("🚀 8lends Protocol - General Flow Tests", function () {
       await trackBalances("Investor claimed principal + profit");
     });
 
-    it("⏰ Skip 40 weeks and claim all tokens", async () => {
-      await time.increase(40 * 7 * 24 * 3600);
-      await rewardSystem.connect(investor).claimTokensForProject(0);
-      const balance = await token.balanceOf(await investor.getAddress());
-      const { claimableAmount, totalAmount, claimedAmount } = await rewardSystem.getVestingInfoForProject(await investor.getAddress(), 0);
-      log("🪙 INVESTOR TOKEN BALANCE", formatEther(balance));
-      log("📊 INVESTOR TOKEN TOTAL AMOUNT", formatEther(totalAmount));
-      log("✅ INVESTOR TOKEN CLAIMED AMOUNT", formatEther(claimedAmount));
-      log("🎯 INVESTOR TOKEN CLAIMABLE AMOUNT", formatEther(claimableAmount));
 
-      // subtract 2.5% from totalAmount that was already claimed earlier
-      const totalAmountMinus25 = totalAmount - (totalAmount * 2n * 25n / 1000n);
-      expect(balance).to.be.eq(totalAmountMinus25); 
-      expect(claimedAmount).to.be.eq(totalAmount);
-      expect(claimableAmount).to.be.eq(0);
-      await trackBalances("after 40 weeks investor claimed all tokens");
-    });
-
-    it("Investor sold all tokens", async () => {
-      const investorBalanceTokens = await token.balanceOf(await investor.getAddress());
-      const investorBalanceUSDT = await usdcToken.balanceOf(await investor.getAddress());
-      await token.connect(investor).approve(await router.getAddress(), investorBalanceTokens);
-      await router.connect(investor).swapExactTokensForTokens(investorBalanceTokens, 0, [await token.getAddress(), await usdcToken.getAddress()], await investor.getAddress(), await time.latest() + 1000);
-      const investorBalanceUSDTAfterSwap = await usdcToken.balanceOf(await investor.getAddress());
-      const investorBalanceTokensAfterSwap = await token.balanceOf(await investor.getAddress());
-      expect(investorBalanceUSDTAfterSwap).to.be.greaterThan(investorBalanceUSDT);
-      expect(investorBalanceTokensAfterSwap).to.be.eq(0);
-      await trackBalances("Investor sold all tokens");
-    });
 
     // ========================================
     // 🔄 PROJECT MANAGEMENT TESTS
@@ -852,327 +739,31 @@ describe("🚀 8lends Protocol - General Flow Tests", function () {
     // 🔥 TOKEN BURNING TESTS
     // ========================================
 
-    it("🔥 Buy-back and burn on project activation keeps totalSupply flat", async function () {
-      const burnTestProjectId = await fundraise.projectCount();
-      await createProject();
 
-      const burnTestInvestmentAmount = ethers.parseUnits("20000", 6);
-      await usdcToken.mint(investor.address, burnTestInvestmentAmount);
-      await invest(burnTestProjectId, burnTestInvestmentAmount);
-
-      // _mintRewards mints this many reward tokens, then buys the same number off the pool and
-      // burns them. Read it before activation, since activation is what consumes it.
-      const tokensForMint = await rewardSystem.rewardTokensAmount(burnTestProjectId);
-      expect(tokensForMint).to.be.greaterThan(0);
-      expect(await rewardSystem.burnPercentage()).to.be.greaterThan(0);
-
-      const rewardSystemAddr = await rewardSystem.getAddress();
-      const supplyBefore = await token.totalSupply();
-      const poolTokensBefore = await token.balanceOf(poolAddress);
-      const poolUsdcBefore = await usdcToken.balanceOf(poolAddress);
-      const rsUsdcBefore = await usdcToken.balanceOf(rewardSystemAddr);
-      const rsTokensBefore = await token.balanceOf(rewardSystemAddr);
-
-      // Reaching Funded activates the project's rewards, which is what runs the buy-back
-      // @ts-expect-error overloaded in Fundraise: typechain types it only by full signature
-      await fundraise.connect(manager).transferFundsToBorrower(burnTestProjectId);
-
-      // The mint and the burn are deliberately paired, so supply does not move at all
-      expect(await token.totalSupply()).to.equal(supplyBefore);
-
-      // The burnt tokens come out of the pool, paid for with the RewardSystem's own USDC
-      const poolTokensAfter = await token.balanceOf(poolAddress);
-      expect(poolTokensAfter).to.equal(poolTokensBefore - tokensForMint);
-
-      const usdcSpent = rsUsdcBefore - (await usdcToken.balanceOf(rewardSystemAddr));
-      expect(usdcSpent).to.be.greaterThan(0);
-      expect(await usdcToken.balanceOf(poolAddress)).to.equal(poolUsdcBefore + usdcSpent);
-
-      // What stays behind is the minted rewards; the bought-back tokens are the ones burnt
-      expect(await token.balanceOf(rewardSystemAddr)).to.equal(rsTokensBefore + tokensForMint);
-
-      log("🪙 TOKENS MINTED AND BOUGHT BACK", formatEther(tokensForMint));
-      log("💵 USDC SPENT ON BUY-BACK", formatUnits(usdcSpent, 6));
-      await trackBalances("Buy-back and burn on project activation");
-    });
-
-    it("Add the vesting project and invest 1000", async () => {
-      vestingProjectId = await fundraise.projectCount();
-      await createProject("1000", "1000");
-
-      const investmentAmount = ethers.parseUnits("1000", 6);
-      await usdcToken.mint(await investor.getAddress(), investmentAmount);
-      await invest(vestingProjectId, investmentAmount);
-      // @ts-expect-error overloaded in Fundraise: typechain types it only by full signature
-      await fundraise.connect(manager).transferFundsToBorrower(vestingProjectId);
-
-      vestingTotalTokens = (
-        await rewardSystem.getVestingInfoForProject(await investor.getAddress(), vestingProjectId)
-      ).totalAmount;
-      expect(vestingTotalTokens).to.be.greaterThan(0);
-
-      await trackBalances("Added project 1 and invested 1000");
-    });
 
 
     // ========================================
     // 🎁 ADDITIONAL UNLOCK TESTS
     // ========================================
 
-    it("available for claim 2.5%", async () => {
-      const projectId = vestingProjectId;
-      const vestingInfo = await rewardSystem.getVestingInfoForProject(await investor.getAddress(), projectId);
-      expect(vestingInfo.claimableAmount).to.equal(vestingTotalTokens * 250n / 10000n);
-    });
-
-    it("Check investor vesting project info", async () => {
-      const projectId = vestingProjectId;
-      const investorVestingInfo = await rewardSystem.getVestingInfoForProject(await investor.getAddress(), projectId);
-      log("🎯 INVESTOR TOTAL TOKENS", formatEther(investorVestingInfo.totalAmount));
-      log("✅ INVESTOR CLAIMED", formatEther(investorVestingInfo.claimedAmount));
-      log("💰 INVESTOR CLAIMABLE", formatEther(investorVestingInfo.claimableAmount));
-      log("📊 TOTAL AT ACTIVATION", formatEther(vestingTotalTokens));
-      
-      expect(investorVestingInfo.totalAmount).to.equal(vestingTotalTokens);
-    });
-
-    it("Inviter accrues referral USDC, not vesting tokens", async () => {
-      const inviterAddr = await inviter.getAddress();
-      const rewards = await rewardSystem.getProjectRewards(inviterAddr, vestingProjectId);
-      const vesting = await rewardSystem.getVestingInfoForProject(inviterAddr, vestingProjectId);
-
-      // recordInvestment credits totalRewardsUSDC to the inviter and totalRewardsTokens to the
-      // investor, so the inviter's vesting total stays at zero however much they invite.
-      expect(rewards.totalUSDC).to.be.greaterThan(0);
-      expect(vesting.totalAmount).to.equal(0);
-
-      log("💵 INVITER REFERRAL USDC", formatUnits(rewards.totalUSDC, 6));
-    });
-
-    it("RewardSystem holds enough tokens to cover the vesting project", async () => {
-      const totalTokens = await token.balanceOf(await rewardSystem.getAddress());
-      const vesting = await rewardSystem.getVestingInfoForProject(await investor.getAddress(), vestingProjectId);
-      const unclaimed = vesting.totalAmount - vesting.claimedAmount;
-
-      log("💼 REWARD SYSTEM BALANCE", formatEther(totalTokens));
-      log("🎯 VESTING PROJECT UNCLAIMED", formatEther(unclaimed));
-
-      // A solvency check, not an equality: the balance also covers the other projects' rewards.
-      // Equality only held while this was the only project with rewards outstanding.
-      expect(unclaimed).to.be.greaterThan(0);
-      expect(totalTokens).to.be.greaterThanOrEqual(unclaimed);
-    });
-
-    it("claim 2.5%", async () => {
-      const projectId = vestingProjectId;
-      const balanceBefore = await token.balanceOf(await investor.getAddress());
-      await rewardSystem.connect(investor).claimTokensForProject(projectId);
-      const balanceAfter = await token.balanceOf(await investor.getAddress());
-      expect(balanceAfter).to.equal(balanceBefore + vestingTotalTokens * 250n / 10000n);
-      await trackBalances("Claimed 2.5%");
-    });
-
-    it("available for claim 0% after claim", async () => {
-      const projectId = vestingProjectId;
-      const vestingInfo = await rewardSystem.getVestingInfoForProject(await investor.getAddress(), projectId);
-      expect(vestingInfo.claimableAmount).to.equal(0);
-    });
-
-    it("🎁 Set additional unlock to 26%", async () => {
-      const additionalUnlock = 260000; // 26% in BASIS_POINTS
-      await rewardSystem.connect(manager).setAdditionalUnlock(additionalUnlock);
-      const currentAdditionalUnlock = await rewardSystem.additionalUnlockPercentage();
-      expect(currentAdditionalUnlock).to.equal(additionalUnlock);
-      log("📊 ADDITIONAL UNLOCK SET TO", Number(currentAdditionalUnlock) / 10000, "%");
-    });
 
 
-    it("claim additional unlock 26% and sell", async () => {
-      const projectId = vestingProjectId;
-      const balanceBefore = await token.balanceOf(await investor.getAddress());
-      const usdcBalanceBefore = await usdcToken.balanceOf(await investor.getAddress());
-
-      const claimableAmount = vestingTotalTokens * 2600n / 10000n;
-      
-      const amountsOut = await router.getAmountsOut(claimableAmount, [await token.getAddress(), await usdcToken.getAddress()]);
-      const minUsdcAmount = await rewardSystem.getClaimAndSellAmounts(await investor.getAddress(), [projectId]);
-      await rewardSystem.connect(investor).claimAndSellTokensForProjectBatch([projectId], minUsdcAmount.minUsdcAmount);
 
 
-      const balanceAfter = await token.balanceOf(await investor.getAddress());
-      const usdcBalanceAfter = await usdcToken.balanceOf(await investor.getAddress());
-      expect(usdcBalanceAfter).to.be.equals(usdcBalanceBefore + amountsOut[1]);
-      expect(balanceAfter).to.be.equals(balanceBefore);
-      await trackBalances("Claimed additional unlock 26% and sold");
-    });
-
-    it("available for claim 0% after claim and sell", async () => {
-      const projectId = vestingProjectId;
-      const vestingInfo = await rewardSystem.getVestingInfoForProject(await investor.getAddress(), projectId);
-      expect(vestingInfo.claimableAmount).to.equal(0);
-    });
-
-    it("set additional unlock to 0%", async () => {
-      await rewardSystem.connect(manager).setAdditionalUnlock(0);
-      const currentAdditionalUnlock = await rewardSystem.additionalUnlockPercentage();
-      expect(currentAdditionalUnlock).to.equal(0);
-      log("📊 ADDITIONAL UNLOCK SET TO", Number(currentAdditionalUnlock) / 10000, "%");
-    });
-
-    it("available for claim 0% after set additional unlock to 0%", async () => {
-      const projectId = vestingProjectId;
-      const vestingInfo = await rewardSystem.getVestingInfoForProject(await investor.getAddress(), projectId);
-      expect(vestingInfo.claimableAmount).to.equal(0);
-    });
-
-    it("skip 1 week and claim 2.5%", async () => {
-      const projectId = vestingProjectId;
-      await time.increase(7 * 24 * 3600);
-
-      // Another week unlocks another 2.5%. Compared with a few wei of slack, because the contract
-      // truncates per claim, so the running total drifts from one 250/10000 of the whole.
-      const before = await rewardSystem.getVestingInfoForProject(await investor.getAddress(), projectId);
-      expect(before.claimableAmount).to.be.closeTo(vestingTotalTokens * 250n / 10000n, 10n);
-
-      // The transfer itself must match what the contract reported, to the wei
-      const balanceBefore = await token.balanceOf(await investor.getAddress());
-      await rewardSystem.connect(investor).claimTokensForProject(projectId);
-      const balanceAfter = await token.balanceOf(await investor.getAddress());
-      expect(balanceAfter).to.equal(balanceBefore + before.claimableAmount);
-      await trackBalances("1w, claim 2.5%");
-    });
-
-    it("skip week, set additional unlock to 50% and claim 52.5%", async () => {
-      await time.increase(7 * 24 * 3600);
-      const projectId = vestingProjectId;
-      await rewardSystem.connect(manager).setAdditionalUnlock(500000);
-      const usdcBalanceBefore = await usdcToken.balanceOf(await investor.getAddress());
-      await rewardSystem.connect(investor).claimTokensForProject(projectId);
-      const balanceAfter = await token.balanceOf(await investor.getAddress());
-
-      const claimedTotal= vestingTotalTokens * (250n + 250n + 250n) / 10000n;
-      const usdcBalanceAfter = await usdcToken.balanceOf(await investor.getAddress());
-      await trackBalances("1w, unlock to 50%, claim 5.5%");
-      expect(usdcBalanceAfter).to.be.equals(usdcBalanceBefore);
-      expect(balanceAfter).to.be.equals(claimedTotal);
-    });
-
-    it("skip 20 weeks, sell remaining with 50% bonus", async () => {
-      const projectId = vestingProjectId;
-
-      // Skip to week 22
-
-      // Sell with additional unlock 50% (updates userMaxAdditionalUnlockUsed to 50%)
-      // Available: 55% (vesting) + 50% (additional) = 105% → cap at 100%
-      // Already claimed: 33.5%
-      // Will sell: 100% - 33.5% = 66.5%
-      const minUsdcAmount = await rewardSystem.getClaimAndSellAmounts(await investor.getAddress(), [projectId]);
-      await rewardSystem.connect(investor).claimAndSellTokensForProjectBatch([projectId], minUsdcAmount.minUsdcAmount);
-
-      await trackBalances("Sell remaining with 50% bonus");
-      
-      // Skip to end of vesting (week 42)
-      await time.increase(20 * 7 * 24 * 3600);
-
-      // Claim any remaining tokens (should be 0 if all was sold)
-      await rewardSystem.connect(investor).claimTokensForProjectBatch([projectId]);
-
-      await trackBalances("20w skip, claim remaining tokens");
-
-      
-      const vestingInfo = await rewardSystem.getVestingInfoForProject(await investor.getAddress(), projectId);
-      expect(vestingInfo.claimableAmount).to.equal(0);
-      expect(vestingInfo.totalAmount).to.equal(vestingTotalTokens);
-      expect(vestingInfo.claimedAmount).to.equal(vestingTotalTokens);
-
-      const balance = await token.balanceOf(await investor.getAddress());
-      
-      // On balance: 2.5% + 2.5% + 2.5% = 7.5%
-      // Sold: 26% + 66.5% = 92.5%
-      // Total: 100%
-      
-      
-      log("🪙 INVESTOR BALANCE", formatEther(balance));
-      log("🎯 EXPECTED ~50%", formatEther(vestingInfo.totalAmount / 2n));
-      
-      
-      expect(balance).to.be.equals(vestingInfo.totalAmount / 2n);
-    });
-
-    it("available for claim 0% after skip week, set additional unlock to 50% and claim 52.5%", async () => {
-      const projectId = vestingProjectId;
-      const vestingInfo = await rewardSystem.getVestingInfoForProject(await investor.getAddress(), projectId);
-      expect(vestingInfo.claimableAmount).to.equal(0);
-    });
-
-    it("try claim - should fail", async () => {
-      const projectId = vestingProjectId;
-      await time.increase(20 * 7 * 24 * 3600);
-
-      await expect(rewardSystem.connect(investor).claimTokensForProject(projectId)).to.be.revertedWith("No tokens to claim");
-
-      const balanceUsdcBefore = await usdcToken.balanceOf(await investor.getAddress());
-      const minUsdcAmount = await rewardSystem.getClaimAndSellAmounts(await investor.getAddress(), [projectId]);
-      await rewardSystem.connect(investor).claimAndSellTokensForProjectBatch([projectId], minUsdcAmount.minUsdcAmount);
-      const balanceUsdcAfter = await usdcToken.balanceOf(await investor.getAddress());
-      expect(balanceUsdcAfter).to.be.equals(balanceUsdcBefore);
-
-    });
-
-    it("investor sell all tokens with uniswap router", async () => {
-      const balanceBefore = await token.balanceOf(await investor.getAddress());
-      await token.connect(investor).approve(await router.getAddress(), balanceBefore);
-      await router.connect(investor).swapExactTokensForTokens(balanceBefore, 0, [await token.getAddress(), await usdcToken.getAddress()], await investor.getAddress(), await time.latest() + 1000);
-      const balanceAfter = await token.balanceOf(await investor.getAddress());
-      expect(balanceAfter).to.be.equals(0);
-      await trackBalances("Investor sold all tokens (2)");
-    });
 
 
-    it("🔥 Buy-back holds at different investment sizes", async function () {
-      // Runs the whole cycle twice at a 5x ratio, in one test, so the comparison does not depend
-      // on what other tests left behind.
-      const fundAndActivate = async (softCap: string, hardCap: string, amount: string) => {
-        const projectId = await fundraise.projectCount();
-        await createProject(softCap, hardCap);
 
-        const investment = ethers.parseUnits(amount, 6);
-        await usdcToken.mint(investor.address, investment);
-        await invest(projectId, investment);
 
-        // The buy-back is paid out of the RewardSystem's own USDC, so it has to be topped up or
-        // activation reverts with "Not enough USDC to buy tokens". Same as the funding test above.
-        await usdcToken.mint(await rewardSystem.getAddress(), investment);
 
-        const tokensForMint = await rewardSystem.rewardTokensAmount(projectId);
-        const supplyBefore = await token.totalSupply();
-        const poolTokensBefore = await token.balanceOf(poolAddress);
 
-        // @ts-expect-error overloaded in Fundraise: typechain types it only by full signature
-        await fundraise.connect(manager).transferFundsToBorrower(projectId);
 
-        const poolDrop = poolTokensBefore - (await token.balanceOf(poolAddress));
-        return { tokensForMint, poolDrop, supplyBefore, supplyAfter: await token.totalSupply() };
-      };
 
-      const small = await fundAndActivate("20000", "40000", "20000");
-      const large = await fundAndActivate("100000", "200000", "100000");
 
-      for (const run of [small, large]) {
-        // The invariant is size-independent: supply flat, and the buy-back takes exactly what
-        // was minted out of the pool.
-        expect(run.supplyAfter).to.equal(run.supplyBefore);
-        expect(run.poolDrop).to.equal(run.tokensForMint);
-        expect(run.tokensForMint).to.be.greaterThan(0);
-      }
 
-      // A bigger investment buys back more. Not asserted as exactly 5x: the reward is linear in
-      // USDC, but converting it to tokens uses the price, and the first buy-back moved the pool.
-      expect(large.tokensForMint).to.be.greaterThan(small.tokensForMint);
 
-      log("🪙 SMALL RUN TOKENS", formatEther(small.tokensForMint));
-      log("🪙 LARGE RUN TOKENS", formatEther(large.tokensForMint));
-      await trackBalances("Buy-back at different investment sizes");
-    });
+
+
+
+
   });
 });

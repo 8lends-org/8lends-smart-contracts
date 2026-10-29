@@ -283,14 +283,39 @@ export async function verifyOnExplorer(
   constructorArguments: unknown[] = []
 ): Promise<void> {
   console.log(`\n\uD83D\uDD0E Verifying ${address} on the explorer...`);
-  try {
-    await hre.run("verify:verify", { address, constructorArguments });
-    console.log("\u2705 Verified");
-  } catch (error: any) {
-    const message = String(error?.message ?? error);
-    const already = /already verified/i.test(message);
-    console.log(already ? "\u2705 Already verified" : `\u26A0\uFE0F  Verification skipped: ${message.split("\n")[0]}`);
+
+  // The explorer has to index the deployment before it can be verified, and right after a deploy
+  // it usually has not. A fixed wait would be either too short or a tax on every run, so retry
+  // instead and let the ones that are ready through immediately.
+  const waits = [0, 15, 45, 90];
+  let last = "";
+
+  for (const wait of waits) {
+    if (wait > 0) {
+      console.log(`   not indexed yet, retrying in ${wait}s`);
+      await new Promise(resolve => setTimeout(resolve, wait * 1000));
+    }
+    try {
+      await hre.run("verify:verify", { address, constructorArguments });
+      console.log("\u2705 Verified");
+      return;
+    } catch (error: any) {
+      last = String(error?.message ?? error);
+      if (/already (been )?verified/i.test(last)) {
+        console.log("\u2705 Already verified");
+        return;
+      }
+      // Anything the explorer will keep answering the same way: waiting cannot help.
+      if (/doesn't match any of your local contracts|constructor for|invalid api key/i.test(last)) {
+        break;
+      }
+    }
   }
+
+  // Printed whole, not clipped to a line: "Failed to send contract verification request" says
+  // nothing about which of the two it was, and the difference decides what to do about it.
+  console.log("\u26A0\uFE0F  Not verified. The record below is still written.");
+  for (const line of last.split("\n").slice(0, 6)) console.log(`   ${line}`);
 }
 
 /**

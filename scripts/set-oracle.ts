@@ -10,7 +10,7 @@ import { loadConfig } from "./utils/config";
 dotenv.config();
 
 // Target contract for setOracle(address) is selected via CONTRACT env var.
-type OracleTarget = "RewardSystem" | "Rewards2" | "Lending8" | "Fundraise";
+type OracleTarget = "Lending8" | "Fundraise";
 const CONTRACT: OracleTarget = process.env.CONTRACT as OracleTarget;
 
 /**
@@ -22,8 +22,6 @@ async function main(): Promise<void> {
     console.log("network: ", net.name);
 
     const config: {
-        RewardSystem: string;
-        Rewards2: string;
         Oracle: string;
         Lending8: string;
         Fundraise: string;
@@ -35,6 +33,9 @@ async function main(): Promise<void> {
 
     if(!config[CONTRACT]) {
         throw new Error(`❌ ${CONTRACT} is not set`);
+    }
+    if(CONTRACT !== "Lending8" && CONTRACT !== "Fundraise") {
+        throw new Error(`❌ ${CONTRACT} has no setOracle`);
     }
 
     const [signer] = await ethers.getSigners();

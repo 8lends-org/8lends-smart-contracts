@@ -16,6 +16,10 @@ contract ManagerRegistry is Initializable, OwnableUpgradeable, UUPSUpgradeable {
     mapping(address => address) public investorClaimAddresses; // investor => claimAddress
     address public rewards2Address;
     address public marketAddress;
+    /// TODO: rename at the next upgrade of this contract. The slot no longer belongs to
+    ///       LimitedSeller — it is the one seat besides the reward system that may call
+    ///       `setPoolStatusForReward`, held by `Buyback` while it keeps the inventory and wanted
+    ///       by `Seller` later. Renaming moves the getter, so warn the backend first.
     address public limitedSellerAddress;
     mapping(address => bool) public operators;
 
@@ -259,9 +263,8 @@ contract ManagerRegistry is Initializable, OwnableUpgradeable, UUPSUpgradeable {
         emit Rewards2AddressSet(_rewards2Address);
     }
 
-    /// @notice The old name for recipientOf, kept because deployed call sites read it.
-    /// @dev An alias, not a second rule. Rewards2, RewardSystem and LimitedSeller all pay through
-    ///      this getter, so it answers the head of the chain like recipientOf does.
+    /// @notice An alias for recipientOf, under the name deployed call sites know.
+    /// @dev TODO: remove at the next upgrade of this contract, once nothing on chain reads it.
     function getInvestorClaimAddress(address _investor) public view returns (address) {
         return recipientOf(_investor);
     }

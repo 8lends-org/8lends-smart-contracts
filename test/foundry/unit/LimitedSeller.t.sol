@@ -237,7 +237,7 @@ contract LimitedSellerTest is Test {
         assertEq(result.fundedProjectsInvestedTotal, 30_000e6);
         assertEq(result.alreadyBoughtTokensInUSDC, 0);
         // 30_000e6 * 60_000 / 1_000_000 = 1_800e6
-        assertEq(result.availableBuyTokensInUSDC, 1_800e6);
+        assertEq(result.availableBuyTokensInUSDC, 0, "purchases are closed");
         assertEq(result.percent, SELLER_PERCENT);
     }
 
@@ -299,171 +299,50 @@ contract LimitedSellerTest is Test {
         sig = abi.encodePacked(r, s, v);
     }
 
-    /// @dev Helper: sign and call limitedBuy for a given buyer (must be pranked already)
-    function _limitedBuyWithSig(address buyer, uint256 usdcAmount, uint256[] memory pids) internal {
-        uint256 nonce = limitedSeller.buyerNonce(buyer);
-        bytes memory sig = _signLimitedBuy(buyer, nonce);
-        limitedSeller.limitedBuy(usdcAmount, 0, pids, sig);
-    }
+    /// @dev The buy is closed, and the refusal comes before anything is read: a valid signature, a
+    ///      standing quota and approved money change nothing.
+    function test_limitedBuy_isClosed() public {
+        uint256[] memory pids = new uint256[](1);
+        pids[0] = 0;
 
-    function test_limitedBuy_success() public {
-        uint256 buyAmount = 1_000e6;
+        LimitedSeller.EstimateResult memory est = limitedSeller.estimateAvailableBuy(investor, pids);
+        assertGt(est.fundedProjectsInvestedTotal, 0, "the investor still has a funded position");
 
-        vm.prank(owner);
-        usdc.mint(investor, buyAmount);
+        uint256 nonceBefore = limitedSeller.buyerNonce(investor);
+        uint256 usdcBefore = usdc.balanceOf(investor);
+        bytes memory sig = _signLimitedBuy(investor, nonceBefore);
 
         vm.startPrank(investor);
-        usdc.approve(address(limitedSeller), buyAmount);
-
-        uint256[] memory pids = new uint256[](1);
-        pids[0] = PID;
-
-        _limitedBuyWithSig(investor, buyAmount, pids);
-        vm.stopPrank();
-
-        assertEq(limitedSeller.boughtUsdcByUser(investor), buyAmount);
-        assertEq(limitedSeller.totalBoughtInUSDC(), buyAmount);
-        assertGt(limitedSeller.totalBoughtInTokens(), 0);
-    }
-
-    function test_limitedBuy_revert_exceedsLimit() public {
-        uint256 buyAmount = 2_000e6; // exceeds 1_800e6 limit
-
-        vm.prank(owner);
-        usdc.mint(investor, buyAmount);
-
-        uint256 nonce = limitedSeller.buyerNonce(investor);
-        bytes memory sig = _signLimitedBuy(investor, nonce);
-
-        vm.startPrank(investor);
-        usdc.approve(address(limitedSeller), buyAmount);
-
-        uint256[] memory pids = new uint256[](1);
-        pids[0] = PID;
-
-        vm.expectRevert(LimitedSeller.ExceedsAvailableLimit.selector);
-        limitedSeller.limitedBuy(buyAmount, 0, pids, sig);
-        vm.stopPrank();
-    }
-
-    function test_limitedBuy_revert_emptyProjectIds() public {
-        uint256 nonce = limitedSeller.buyerNonce(investor);
-        bytes memory sig = _signLimitedBuy(investor, nonce);
-
-        uint256[] memory pids = new uint256[](0);
-        vm.prank(investor);
-        vm.expectRevert(LimitedSeller.EmptyProjectIds.selector);
+        usdc.approve(address(limitedSeller), 100e6);
+        vm.expectRevert(LimitedSeller.PurchasesClosed.selector);
         limitedSeller.limitedBuy(100e6, 0, pids, sig);
+        vm.stopPrank();
+
+        assertEq(usdc.balanceOf(investor), usdcBefore, "no USDC moved");
+        assertEq(limitedSeller.buyerNonce(investor), nonceBefore, "the signature is not spent");
     }
 
-    function test_limitedBuy_tracksMultiplePurchases() public {
-        uint256[] memory pids = new uint256[](1);
-        pids[0] = PID;
-
-        // First buy
-        vm.prank(owner);
-        usdc.mint(investor, 500e6);
-        vm.startPrank(investor);
-        usdc.approve(address(limitedSeller), 500e6);
-        _limitedBuyWithSig(investor, 500e6, pids);
-        vm.stopPrank();
-
-        // Second buy
-        vm.prank(owner);
-        usdc.mint(investor, 500e6);
-        vm.startPrank(investor);
-        usdc.approve(address(limitedSeller), 500e6);
-        _limitedBuyWithSig(investor, 500e6, pids);
-        vm.stopPrank();
-
-        assertEq(limitedSeller.boughtUsdcByUser(investor), 1_000e6);
-        assertEq(limitedSeller.totalBoughtInUSDC(), 1_000e6);
-    }
-
-    function test_limitedBuy_revert_managerRegistryNotSet() public {
-        vm.startPrank(owner);
-        LimitedSeller impl = new LimitedSeller();
-        bytes memory initData = abi.encodeCall(
-            LimitedSeller.initialize,
-            (address(mockFundraise), address(mockRouter), address(usdc), address(token), SELLER_PERCENT, address(0))
-        );
-        ERC1967Proxy proxy = new ERC1967Proxy(address(impl), initData);
-        LimitedSeller noRegistrySeller = LimitedSeller(address(proxy));
-        vm.stopPrank();
-
-        uint256[] memory pids = new uint256[](1);
-        pids[0] = PID;
-
-        uint256 nonce = noRegistrySeller.buyerNonce(investor);
-        bytes memory sig = _signLimitedBuy(investor, nonce);
-
+    /// @dev Nothing about the arguments can get past it, so the frontend cannot be told to retry.
+    function test_limitedBuy_isClosedWhateverTheArguments() public {
+        uint256[] memory empty = new uint256[](0);
         vm.prank(investor);
-        vm.expectRevert(LimitedSeller.ManagerRegistryNotSet.selector);
-        noRegistrySeller.limitedBuy(100e6, 0, pids, sig);
+        vm.expectRevert(LimitedSeller.PurchasesClosed.selector);
+        limitedSeller.limitedBuy(0, 0, empty, "");
     }
 
-    function test_limitedBuyWithSignature_success() public {
-        uint256 buyAmount = 1_000e6;
-
-        vm.prank(owner);
-        usdc.mint(investor, buyAmount);
-
-        uint256 nonce = limitedSeller.buyerNonce(investor);
-        bytes memory sig = _signLimitedBuy(investor, nonce);
-
-        vm.startPrank(investor);
-        usdc.approve(address(limitedSeller), buyAmount);
-
+    /// @dev The quota keeps accruing in storage, and the user's history still answers for itself.
+    ///      Only what is available to spend is gone.
+    function test_estimateAvailableBuy_showsNothingAvailableButKeepsHistory() public {
         uint256[] memory pids = new uint256[](1);
-        pids[0] = PID;
+        pids[0] = 0;
 
-        limitedSeller.limitedBuy(buyAmount, 0, pids, sig);
-        vm.stopPrank();
+        vm.prank(address(mockFundraise));
+        limitedSeller.addEarnedLimit(investor, 10_000e6);
 
-        assertEq(limitedSeller.buyerNonce(investor), nonce + 1);
-        assertEq(limitedSeller.boughtUsdcByUser(investor), buyAmount);
-    }
-
-    function test_limitedBuyWithSignature_revert_invalidSigner() public {
-        uint256 buyAmount = 1_000e6;
-        vm.prank(owner);
-        usdc.mint(investor, buyAmount);
-
-        (, uint256 wrongPk) = makeAddrAndKey("wrong");
-        bytes32 messageHash = keccak256(abi.encodePacked(investor, uint256(0)));
-        bytes32 ethSignedMessageHash = keccak256(
-            abi.encodePacked("\x19Ethereum Signed Message:\n32", messageHash)
-        );
-        (uint8 v, bytes32 r, bytes32 s) = vm.sign(wrongPk, ethSignedMessageHash);
-        bytes memory sig = abi.encodePacked(r, s, v);
-
-        vm.startPrank(investor);
-        usdc.approve(address(limitedSeller), buyAmount);
-        uint256[] memory pids = new uint256[](1);
-        pids[0] = PID;
-        vm.expectRevert("Not trusted signer");
-        limitedSeller.limitedBuy(buyAmount, 0, pids, sig);
-        vm.stopPrank();
-    }
-
-    function test_limitedBuyWithSignature_revert_replayNonce() public {
-        uint256 buyAmount = 500e6;
-        vm.prank(owner);
-        usdc.mint(investor, buyAmount * 2);
-
-        uint256 nonce = limitedSeller.buyerNonce(investor);
-        bytes memory sig = _signLimitedBuy(investor, nonce);
-
-        vm.startPrank(investor);
-        usdc.approve(address(limitedSeller), buyAmount * 2);
-        uint256[] memory pids = new uint256[](1);
-        pids[0] = PID;
-
-        limitedSeller.limitedBuy(buyAmount, 0, pids, sig);
-
-        vm.expectRevert("Not trusted signer");
-        limitedSeller.limitedBuy(buyAmount, 0, pids, sig);
-        vm.stopPrank();
+        LimitedSeller.EstimateResult memory result = limitedSeller.estimateAvailableBuy(investor, pids);
+        assertEq(result.availableBuyTokensInUSDC, 0, "purchases are closed");
+        assertEq(limitedSeller.earnedLimitUsdc(investor), 10_000e6 * SELLER_PERCENT / 1_000_000, "the quota is untouched");
+        assertGt(result.fundedProjectsInvestedTotal, 0, "and so is the history behind it");
     }
 
     // ═══════════════════════════════════════════════════════════════
@@ -533,22 +412,6 @@ contract LimitedSellerTest is Test {
     //                    EVENTS
     // ═══════════════════════════════════════════════════════════════
 
-    function test_limitedBuy_emitsBoughtEvent() public {
-        uint256 buyAmount = 1_000e6;
-        vm.prank(owner);
-        usdc.mint(investor, buyAmount);
-
-        vm.startPrank(investor);
-        usdc.approve(address(limitedSeller), buyAmount);
-        uint256[] memory pids = new uint256[](1);
-        pids[0] = PID;
-
-        vm.expectEmit(true, false, false, false);
-        emit LimitedSeller.Bought(investor, investor, buyAmount, 0, block.timestamp);
-        _limitedBuyWithSig(investor, buyAmount, pids);
-        vm.stopPrank();
-    }
-
     function test_setPercent_emitsEvent() public {
         vm.prank(owner);
         vm.expectEmit(false, false, false, true);
@@ -592,7 +455,7 @@ contract LimitedSellerTest is Test {
         LimitedSeller.EstimateResult memory result = limitedSeller.estimateAvailableBuy(buyer, pids);
         // primary = 150k - 100k = 50k, limit = 50k * 6% = 3000
         assertEq(result.fundedProjectsInvestedTotal, 50_000e6);
-        assertEq(result.availableBuyTokensInUSDC, 3_000e6);
+        assertEq(result.availableBuyTokensInUSDC, 0, "purchases are closed");
     }
 
     /// @notice Chain resale A→B→C: C gets no limit
@@ -610,50 +473,6 @@ contract LimitedSellerTest is Test {
         LimitedSeller.EstimateResult memory result = limitedSeller.estimateAvailableBuy(userC, pids);
         assertEq(result.fundedProjectsInvestedTotal, 0);
         assertEq(result.availableBuyTokensInUSDC, 0);
-    }
-
-    /// @notice Secondary buyer cannot execute limitedBuy
-    function test_secondaryMarket_limitedBuyReverts() public {
-        address buyer = makeAddr("secondaryBuyer2");
-
-        vm.prank(owner);
-        mockFundraise.setInvestorInfo(buyer, PID, 100_000e6, 0);
-        mockMarket.setSecondaryInvestedAmount(buyer, PID, 100_000e6);
-
-        vm.prank(owner);
-        usdc.mint(buyer, 1_000e6);
-
-        uint256 nonce = limitedSeller.buyerNonce(buyer);
-        bytes memory sig = _signLimitedBuy(buyer, nonce);
-
-        vm.startPrank(buyer);
-        usdc.approve(address(limitedSeller), 1_000e6);
-
-        uint256[] memory pids = new uint256[](1);
-        pids[0] = PID;
-
-        vm.expectRevert(LimitedSeller.ExceedsAvailableLimit.selector);
-        limitedSeller.limitedBuy(1_000e6, 0, pids, sig);
-        vm.stopPrank();
-    }
-
-    /// @notice Primary investor still works when market is set
-    function test_secondaryMarket_primaryInvestorStillWorks() public {
-        // investor has 30k primary, 0 secondary (default)
-        uint256 buyAmount = 1_000e6;
-        vm.prank(owner);
-        usdc.mint(investor, buyAmount);
-
-        vm.startPrank(investor);
-        usdc.approve(address(limitedSeller), buyAmount);
-
-        uint256[] memory pids = new uint256[](1);
-        pids[0] = PID;
-
-        _limitedBuyWithSig(investor, buyAmount, pids);
-        vm.stopPrank();
-
-        assertEq(limitedSeller.boughtUsdcByUser(investor), buyAmount);
     }
 
     // ═══════════════════════════════════════════════════════════════
@@ -763,7 +582,7 @@ contract LimitedSellerTest is Test {
         pids[0] = PID;
 
         LimitedSeller.EstimateResult memory result = limitedSeller.estimateAvailableBuy(investor, pids);
-        assertEq(result.availableBuyTokensInUSDC, 1_800e6);
+        assertEq(result.availableBuyTokensInUSDC, 0, "purchases are closed");
     }
 
     function test_estimateAvailableBuy_fallbackForLegacyUser() public {
@@ -776,108 +595,13 @@ contract LimitedSellerTest is Test {
 
         LimitedSeller.EstimateResult memory result = limitedSeller.estimateAvailableBuy(investor, pids);
         // Legacy: 30_000e6 * 6% = 1_800e6
-        assertEq(result.availableBuyTokensInUSDC, 1_800e6);
+        assertEq(result.availableBuyTokensInUSDC, 0, "purchases are closed");
     }
 
     // ═══════════════════════════════════════════════════════════════
     //           BUG FIX: sell investment does NOT reduce limit
     // ═══════════════════════════════════════════════════════════════
 
-    /// @notice Reproduces the reported bug scenario and verifies the fix
-    function test_bugFix_sellInvestmentDoesNotReduceLimit() public {
-        // Step 1: investor invests 4_800 USDC (simulated via addEarnedLimit)
-        vm.prank(address(mockFundraise));
-        limitedSeller.addEarnedLimit(investor, 4_800e6);
-        // earnedLimitUsdc = 4_800 * 6% = 288
-
-        uint256[] memory pids = new uint256[](1);
-        pids[0] = PID;
-
-        // Step 2: buy tokens for full limit (288 USDC)
-        vm.prank(owner);
-        usdc.mint(investor, 288e6);
-        vm.startPrank(investor);
-        usdc.approve(address(limitedSeller), 288e6);
-        _limitedBuyWithSig(investor, 288e6, pids);
-        vm.stopPrank();
-
-        assertEq(limitedSeller.boughtUsdcByUser(investor), 288e6);
-
-        // Step 3: investor sells investment on secondary market
-        // In the old code this would reduce fundedProjectsInvestedTotal
-        // With new code, earnedLimitUsdc stays at 288e6
-
-        // Simulate: investment goes down to 4_500 on-chain
-        vm.prank(owner);
-        mockFundraise.setInvestorInfo(investor, PID, 4_500e6, 0);
-
-        // Available should be 0 (288 earned - 288 bought = 0), NOT negative/broken
-        LimitedSeller.EstimateResult memory result = limitedSeller.estimateAvailableBuy(investor, pids);
-        assertEq(result.availableBuyTokensInUSDC, 0);
-
-        // Step 4: new investment of 5_000 USDC
-        vm.prank(address(mockFundraise));
-        limitedSeller.addEarnedLimit(investor, 5_000e6);
-        // earnedLimitUsdc = 288 + 300 = 588
-
-        // Now available = 588 - 288 = 300
-        result = limitedSeller.estimateAvailableBuy(investor, pids);
-        assertEq(result.availableBuyTokensInUSDC, 300e6);
-
-        // Step 5: investor can actually buy these 300 USDC
-        vm.prank(owner);
-        usdc.mint(investor, 300e6);
-        vm.startPrank(investor);
-        usdc.approve(address(limitedSeller), 300e6);
-        _limitedBuyWithSig(investor, 300e6, pids);
-        vm.stopPrank();
-
-        assertEq(limitedSeller.boughtUsdcByUser(investor), 588e6);
-    }
-
-    /// @notice Earned limit is independent of secondary market activity
-    function test_earnedLimit_ignoredSecondaryMarket() public {
-        address user = makeAddr("earnerUser");
-
-        // User earned limit via primary investment
-        vm.prank(address(mockFundraise));
-        limitedSeller.addEarnedLimit(user, 50_000e6); // → 3_000e6 earned
-
-        // User also bought something on secondary market (should not matter)
-        vm.prank(owner);
-        mockFundraise.setInvestorInfo(user, PID, 80_000e6, 0);
-        mockMarket.setSecondaryInvestedAmount(user, PID, 30_000e6);
-
-        uint256[] memory pids = new uint256[](1);
-        pids[0] = PID;
-
-        LimitedSeller.EstimateResult memory result = limitedSeller.estimateAvailableBuy(user, pids);
-        // Uses earnedLimitUsdc (3_000e6), NOT on-chain calc
-        assertEq(result.availableBuyTokensInUSDC, 3_000e6);
-    }
-
-    /// @notice Migrated user gets correct limit even after selling investment
-    function test_migratedUser_limitPreservedAfterSell() public {
-        // Migrate: user historically had 10_000 invested → 600 limit
-        address[] memory users = new address[](1);
-        users[0] = investor;
-        uint256[] memory limits = new uint256[](1);
-        limits[0] = 600e6;
-
-        vm.prank(owner);
-        limitedSeller.migrateEarnedLimits(users, limits);
-
-        // Simulate: investment was sold, on-chain shows less
-        vm.prank(owner);
-        mockFundraise.setInvestorInfo(investor, PID, 5_000e6, 0);
-
-        uint256[] memory pids = new uint256[](1);
-        pids[0] = PID;
-
-        // Should use migrated earnedLimitUsdc, not on-chain calc
-        LimitedSeller.EstimateResult memory result = limitedSeller.estimateAvailableBuy(investor, pids);
-        assertEq(result.availableBuyTokensInUSDC, 600e6);
-    }
 
     /// @dev The bound is inclusive: a hundred per cent is a legitimate setting, and only past it
     ///      does the setter refuse.

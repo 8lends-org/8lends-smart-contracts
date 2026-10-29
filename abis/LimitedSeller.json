@@ -105,18 +105,12 @@
   },
   {
     "inputs": [],
-    "name": "ReentrancyGuardReentrantCall",
+    "name": "PurchasesClosed",
     "type": "error"
   },
   {
-    "inputs": [
-      {
-        "internalType": "address",
-        "name": "token",
-        "type": "address"
-      }
-    ],
-    "name": "SafeERC20FailedOperation",
+    "inputs": [],
+    "name": "ReentrancyGuardReentrantCall",
     "type": "error"
   },
   {
@@ -463,28 +457,28 @@
     "inputs": [
       {
         "internalType": "uint256",
-        "name": "usdcAmount",
+        "name": "",
         "type": "uint256"
       },
       {
         "internalType": "uint256",
-        "name": "minTokensAmount",
+        "name": "",
         "type": "uint256"
       },
       {
         "internalType": "uint256[]",
-        "name": "projectIds",
+        "name": "",
         "type": "uint256[]"
       },
       {
         "internalType": "bytes",
-        "name": "_sig",
+        "name": "",
         "type": "bytes"
       }
     ],
     "name": "limitedBuy",
     "outputs": [],
-    "stateMutability": "nonpayable",
+    "stateMutability": "pure",
     "type": "function"
   },
   {

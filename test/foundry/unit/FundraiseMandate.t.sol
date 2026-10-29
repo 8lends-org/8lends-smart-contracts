@@ -460,10 +460,10 @@ contract FundraiseMandateTest is Setup {
         router.setRoute(investor, pid, address(escrow));
         _investAs(investor, pid, AMOUNT, inviter);
 
-        (, uint256 investorTokens, ) = rewardSystem.projectReferrals(investor, pid);
-        assertGt(investorTokens, 0, "the reward did accrue");
-        (, uint256 escrowTokens, ) = rewardSystem.projectReferrals(address(escrow), pid);
-        assertEq(escrowTokens, 0, "and not to the mandate");
+        (uint256 inviterUsdc, , ) = rewardSystem.projectReferrals(inviter, pid);
+        assertGt(inviterUsdc, 0, "the reward did accrue");
+        (uint256 escrowUsdc, , ) = rewardSystem.projectReferrals(address(escrow), pid);
+        assertEq(escrowUsdc, 0, "and not to the mandate");
     }
 
     /// The pre-upgrade behaviour, which is what makes deploying ahead of the router safe.

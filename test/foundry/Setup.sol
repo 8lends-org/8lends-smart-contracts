@@ -10,6 +10,8 @@ import {Token} from "../../contracts/token/8lnds/Token.sol";
 import {ManagerRegistry} from "../../contracts/core/ManagerRegistry.sol";
 import {RewardSystem} from "../../contracts/core/RewardSystem.sol";
 import {Rewards2} from "../../contracts/core/Rewards2.sol";
+import {Rewards2Harness} from "./mocks/Rewards2Harness.sol";
+import {RewardSystemHarness} from "./mocks/RewardSystemHarness.sol";
 import {Treasury} from "../../contracts/core/Treasury.sol";
 
 // OpenZeppelin proxy
@@ -28,8 +30,8 @@ abstract contract Setup is Test, Eip712Signing {
     Fundraise public fundraise;
     Token public token;
     ManagerRegistry public managerRegistry;
-    RewardSystem public rewardSystem;
-    Rewards2 public rewards2;
+    RewardSystemHarness public rewardSystem;
+    Rewards2Harness public rewards2;
     Treasury public treasury;
     MockUSDC public usdc;
     MockUniswapV2Router public mockRouter;
@@ -46,6 +48,10 @@ abstract contract Setup is Test, Eip712Signing {
     /// @dev Operator role only — deliberately NOT a manager, so tests can prove the
     ///      two roles are separate and a manager cannot call operator methods.
     address public operator;
+    /// @dev Admin role only, and held by nobody else: parameters and the claim-for-user buttons
+    ///      moved here from the manager and the owner, and a fixture that blurred the sets would
+    ///      pass whichever of the three still had the right.
+    address public admin;
 
     // backend = trusted signer (we need its private key for vm.sign)
     uint256 public backendPk;
@@ -66,6 +72,7 @@ abstract contract Setup is Test, Eip712Signing {
         inviter = makeAddr("inviter");
         attacker = makeAddr("attacker");
         operator = makeAddr("operator");
+        admin = makeAddr("admin");
         (backend, backendPk) = makeAddrAndKey("backend");
 
         // Foundry starts at timestamp=1. Set a realistic timestamp.
@@ -103,22 +110,24 @@ abstract contract Setup is Test, Eip712Signing {
 
         // ── Deploy RewardSystem (UUPS proxy) ──
         {
-            RewardSystem impl = new RewardSystem();
+            RewardSystemHarness impl = new RewardSystemHarness();
             bytes memory initData = abi.encodeCall(
                 RewardSystem.initialize,
                 (address(managerRegistry), address(token), address(usdc), address(mockRouter))
             );
             ERC1967Proxy proxy = new ERC1967Proxy(address(impl), initData);
-            rewardSystem = RewardSystem(address(proxy));
+            rewardSystem = RewardSystemHarness(address(proxy));
+            // The cutover stays where initialize put it: this block. Projects the fixture funds land
+            // on it, so they survive with their first week in the token era — the state the upgrade
+            // actually leaves behind. A project funded later is cancelled, which is the point.
         }
 
-        // ── Deploy MockOracle and configure on RewardSystem ──
+        // ── Deploy MockOracle — still priced for Fundraise, no longer read by RewardSystem ──
         mockOracle = new MockOracle();
         // 1 token = 0.01 USD → price = 0.01 * 1e8 = 1_000_000 (8 decimals)
         mockOracle.setPrice(address(token), 1_000_000);
         // USDC = 1.00 USD → price = 1e8 (8 decimals)
         mockOracle.setPrice(address(usdc), 1e8);
-        rewardSystem.setOracle(address(mockOracle));
 
         // ── Deploy Fundraise (UUPS proxy) ──
         {
@@ -133,13 +142,16 @@ abstract contract Setup is Test, Eip712Signing {
 
         // ── Deploy Rewards2 (UUPS proxy) ──
         {
-            Rewards2 impl = new Rewards2();
+            Rewards2Harness impl = new Rewards2Harness();
             bytes memory initData = abi.encodeCall(
                 Rewards2.initialize,
                 (address(managerRegistry), address(token), address(usdc), address(mockRouter))
             );
             ERC1967Proxy proxy = new ERC1967Proxy(address(impl), initData);
-            rewards2 = Rewards2(address(proxy));
+            rewards2 = Rewards2Harness(address(proxy));
+            // Default to vesting granted after the cutover, paid entirely in USDC. The token era
+            // before it is set up by the tests that are about it.
+            rewards2.setCutover(1);
         }
 
         // ── Configure ManagerRegistry ──
@@ -156,6 +168,9 @@ abstract contract Setup is Test, Eip712Signing {
         // is that a hot backend key cannot also create projects, so the test fixture must not
         // blur the two sets.
         managerRegistry.setOperatorStatus(operator, true);
+
+        // Admin role: platform parameters and the support buttons that move a payout forward.
+        managerRegistry.setAdminStatus(admin, true);
 
         managerRegistry.setContractAddresses(
             address(rewardSystem),
@@ -292,5 +307,38 @@ abstract contract Setup is Test, Eip712Signing {
 
         vm.prank(borrower);
         fundraise.makeRepayment(_pid, _amount);
+    }
+
+    /// @dev Investing no longer accrues token rewards, and nothing mints against them either, so
+    ///      vesting that predates the switch has to be seeded the way it now exists on chain: the
+    ///      obligation written by the owner, the tokens already sitting on the contract.
+    function _seedVesting(address _user, uint256 _pid, uint256 _amount) internal {
+        vm.prank(owner);
+        token.mint(address(rewardSystem), _amount);
+
+        address[] memory users = new address[](1);
+        uint256[] memory amounts = new uint256[](1);
+        uint256[] memory pids = new uint256[](1);
+        users[0] = _user;
+        amounts[0] = _amount;
+        pids[0] = _pid;
+
+        vm.prank(owner);
+        rewardSystem.seedVestings(users, amounts, pids);
+    }
+
+    /**
+     * The current block time, snapshotted so that a later `vm.warp` cannot move it.
+     *
+     * `uint256 t0 = block.timestamp` does not survive one. Reading the clock twice in a call can
+     * only give one answer on a real chain, so solc is entitled to drop the local and re-emit
+     * TIMESTAMP where it is used — and under the IR pipeline it does. A cheatcode warp breaks that
+     * premise: the value read back is the warped one, every arithmetic built on it silently moves,
+     * and the test goes on measuring a window it never set up.
+     *
+     * A cheatcode call cannot be folded away, so what it returns stays put.
+     */
+    function _now() internal view returns (uint256) {
+        return vm.getBlockTimestamp();
     }
 }

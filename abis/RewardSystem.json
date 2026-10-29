@@ -104,19 +104,6 @@
     "anonymous": false,
     "inputs": [
       {
-        "indexed": false,
-        "internalType": "uint256",
-        "name": "percentage",
-        "type": "uint256"
-      }
-    ],
-    "name": "AdditionalUnlockSet",
-    "type": "event"
-  },
-  {
-    "anonymous": false,
-    "inputs": [
-      {
         "indexed": true,
         "internalType": "address",
         "name": "user",
@@ -205,19 +192,6 @@
     "anonymous": false,
     "inputs": [
       {
-        "indexed": false,
-        "internalType": "address",
-        "name": "oracle",
-        "type": "address"
-      }
-    ],
-    "name": "OracleUpdated",
-    "type": "event"
-  },
-  {
-    "anonymous": false,
-    "inputs": [
-      {
         "indexed": true,
         "internalType": "address",
         "name": "previousOwner",
@@ -263,6 +237,19 @@
       }
     ],
     "name": "ProjectRewardsDeactivated",
+    "type": "event"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": false,
+        "internalType": "uint256",
+        "name": "rate",
+        "type": "uint256"
+      }
+    ],
+    "name": "RedemptionRateSet",
     "type": "event"
   },
   {
@@ -344,37 +331,6 @@
     "anonymous": false,
     "inputs": [
       {
-        "indexed": true,
-        "internalType": "address",
-        "name": "sender",
-        "type": "address"
-      },
-      {
-        "indexed": false,
-        "internalType": "uint256",
-        "name": "tokensSold",
-        "type": "uint256"
-      },
-      {
-        "indexed": false,
-        "internalType": "uint256",
-        "name": "usdcReceived",
-        "type": "uint256"
-      },
-      {
-        "indexed": true,
-        "internalType": "address",
-        "name": "recipient",
-        "type": "address"
-      }
-    ],
-    "name": "TokensSold",
-    "type": "event"
-  },
-  {
-    "anonymous": false,
-    "inputs": [
-      {
         "indexed": false,
         "internalType": "address",
         "name": "usdc",
@@ -382,19 +338,6 @@
       }
     ],
     "name": "USDCAddressUpdated",
-    "type": "event"
-  },
-  {
-    "anonymous": false,
-    "inputs": [
-      {
-        "indexed": false,
-        "internalType": "address",
-        "name": "router",
-        "type": "address"
-      }
-    ],
-    "name": "UniswapRouterUpdated",
     "type": "event"
   },
   {
@@ -439,19 +382,31 @@
         "type": "address"
       },
       {
+        "indexed": true,
+        "internalType": "uint256",
+        "name": "projectId",
+        "type": "uint256"
+      },
+      {
+        "indexed": false,
+        "internalType": "address",
+        "name": "to",
+        "type": "address"
+      },
+      {
         "indexed": false,
         "internalType": "uint256",
-        "name": "amount",
+        "name": "tokens",
         "type": "uint256"
       },
       {
         "indexed": false,
         "internalType": "uint256",
-        "name": "projectId",
+        "name": "usdc",
         "type": "uint256"
       }
     ],
-    "name": "VestingTokensClaimed",
+    "name": "VestingPaid",
     "type": "event"
   },
   {
@@ -468,14 +423,33 @@
         "internalType": "uint256",
         "name": "amount",
         "type": "uint256"
+      },
+      {
+        "indexed": false,
+        "internalType": "uint256",
+        "name": "projectId",
+        "type": "uint256"
       }
     ],
-    "name": "WelcomeBonusRecorded",
+    "name": "VestingTokensClaimed",
     "type": "event"
   },
   {
     "inputs": [],
     "name": "BASIS_POINTS",
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "MAX_REFERRAL_PERCENTAGE",
     "outputs": [
       {
         "internalType": "uint256",
@@ -541,76 +515,6 @@
     "type": "function"
   },
   {
-    "inputs": [],
-    "name": "additionalUnlockPercentage",
-    "outputs": [
-      {
-        "internalType": "uint256",
-        "name": "",
-        "type": "uint256"
-      }
-    ],
-    "stateMutability": "view",
-    "type": "function"
-  },
-  {
-    "inputs": [],
-    "name": "burnPercentage",
-    "outputs": [
-      {
-        "internalType": "uint256",
-        "name": "",
-        "type": "uint256"
-      }
-    ],
-    "stateMutability": "view",
-    "type": "function"
-  },
-  {
-    "inputs": [
-      {
-        "internalType": "uint256[]",
-        "name": "_projectIds",
-        "type": "uint256[]"
-      },
-      {
-        "internalType": "uint256",
-        "name": "_minUsdcAmount",
-        "type": "uint256"
-      }
-    ],
-    "name": "claimAndSellTokensForProjectBatch",
-    "outputs": [],
-    "stateMutability": "nonpayable",
-    "type": "function"
-  },
-  {
-    "inputs": [
-      {
-        "internalType": "uint256",
-        "name": "_projectId",
-        "type": "uint256"
-      }
-    ],
-    "name": "claimTokensForProject",
-    "outputs": [],
-    "stateMutability": "nonpayable",
-    "type": "function"
-  },
-  {
-    "inputs": [
-      {
-        "internalType": "uint256[]",
-        "name": "_projectIds",
-        "type": "uint256[]"
-      }
-    ],
-    "name": "claimTokensForProjectBatch",
-    "outputs": [],
-    "stateMutability": "nonpayable",
-    "type": "function"
-  },
-  {
     "inputs": [
       {
         "internalType": "uint256",
@@ -644,48 +548,20 @@
         "type": "uint256"
       }
     ],
-    "name": "deactivateProject",
+    "name": "claimVestingTokensForProject",
     "outputs": [],
     "stateMutability": "nonpayable",
     "type": "function"
   },
   {
     "inputs": [
-      {
-        "internalType": "address[]",
-        "name": "_users",
-        "type": "address[]"
-      },
-      {
-        "internalType": "uint256[]",
-        "name": "_amounts",
-        "type": "uint256[]"
-      }
-    ],
-    "name": "distributeTokens",
-    "outputs": [],
-    "stateMutability": "nonpayable",
-    "type": "function"
-  },
-  {
-    "inputs": [
-      {
-        "internalType": "address[]",
-        "name": "_users",
-        "type": "address[]"
-      },
-      {
-        "internalType": "uint256[]",
-        "name": "_amounts",
-        "type": "uint256[]"
-      },
       {
         "internalType": "uint256[]",
         "name": "_projectIds",
         "type": "uint256[]"
       }
     ],
-    "name": "distributeVestingTokens",
+    "name": "claimVestingTokensForProjectBatch",
     "outputs": [],
     "stateMutability": "nonpayable",
     "type": "function"
@@ -693,35 +569,53 @@
   {
     "inputs": [
       {
-        "internalType": "address",
-        "name": "_user",
-        "type": "address"
-      },
+        "internalType": "uint256",
+        "name": "_projectId",
+        "type": "uint256"
+      }
+    ],
+    "name": "claimVestingUsdcForProject",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
       {
         "internalType": "uint256[]",
         "name": "_projectIds",
         "type": "uint256[]"
       }
     ],
-    "name": "getClaimAndSellAmounts",
+    "name": "claimVestingUsdcForProjectBatch",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "cutover",
     "outputs": [
       {
         "internalType": "uint256",
-        "name": "totalTokensAmount",
-        "type": "uint256"
-      },
-      {
-        "internalType": "uint256",
-        "name": "expectedUsdcAmount",
-        "type": "uint256"
-      },
-      {
-        "internalType": "uint256",
-        "name": "minUsdcAmount",
+        "name": "",
         "type": "uint256"
       }
     ],
     "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "_projectId",
+        "type": "uint256"
+      }
+    ],
+    "name": "deactivateProject",
+    "outputs": [],
+    "stateMutability": "nonpayable",
     "type": "function"
   },
   {
@@ -829,6 +723,25 @@
   {
     "inputs": [
       {
+        "internalType": "uint256",
+        "name": "_tokenAmount",
+        "type": "uint256"
+      }
+    ],
+    "name": "getUSDCForTokens",
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
         "internalType": "address",
         "name": "_user",
         "type": "address"
@@ -840,11 +753,6 @@
         "internalType": "address",
         "name": "inviter",
         "type": "address"
-      },
-      {
-        "internalType": "bool",
-        "name": "isNewUser",
-        "type": "bool"
       }
     ],
     "stateMutability": "view",
@@ -863,6 +771,35 @@
       {
         "internalType": "uint256",
         "name": "",
+        "type": "uint256"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "address",
+        "name": "_user",
+        "type": "address"
+      },
+      {
+        "internalType": "uint256",
+        "name": "_projectId",
+        "type": "uint256"
+      }
+    ],
+    "name": "getVestingClaimable",
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "inTokens",
+        "type": "uint256"
+      },
+      {
+        "internalType": "uint256",
+        "name": "usdcAmount",
         "type": "uint256"
       }
     ],
@@ -932,11 +869,18 @@
       },
       {
         "internalType": "address",
-        "name": "_uniswapRouter",
+        "name": "",
         "type": "address"
       }
     ],
     "name": "initialize",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "initializeCutover",
     "outputs": [],
     "stateMutability": "nonpayable",
     "type": "function"
@@ -963,68 +907,6 @@
   {
     "inputs": [],
     "name": "managerRegistry",
-    "outputs": [
-      {
-        "internalType": "address",
-        "name": "",
-        "type": "address"
-      }
-    ],
-    "stateMutability": "view",
-    "type": "function"
-  },
-  {
-    "inputs": [],
-    "name": "minInvestmentForBonus",
-    "outputs": [
-      {
-        "internalType": "uint256",
-        "name": "",
-        "type": "uint256"
-      }
-    ],
-    "stateMutability": "view",
-    "type": "function"
-  },
-  {
-    "inputs": [
-      {
-        "internalType": "uint256",
-        "name": "_projectId",
-        "type": "uint256"
-      },
-      {
-        "internalType": "uint256",
-        "name": "_maxUSDNeeded",
-        "type": "uint256"
-      }
-    ],
-    "name": "mintRewardsForProject",
-    "outputs": [],
-    "stateMutability": "nonpayable",
-    "type": "function"
-  },
-  {
-    "inputs": [
-      {
-        "internalType": "uint256",
-        "name": "_amount",
-        "type": "uint256"
-      },
-      {
-        "internalType": "uint256",
-        "name": "_maxUSDNeeded",
-        "type": "uint256"
-      }
-    ],
-    "name": "mintRewardsTWAP",
-    "outputs": [],
-    "stateMutability": "nonpayable",
-    "type": "function"
-  },
-  {
-    "inputs": [],
-    "name": "oracle",
     "outputs": [
       {
         "internalType": "address",
@@ -1176,6 +1058,19 @@
     "type": "function"
   },
   {
+    "inputs": [],
+    "name": "redemptionRate",
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
     "inputs": [
       {
         "internalType": "address[]",
@@ -1274,42 +1169,6 @@
         "type": "uint256"
       }
     ],
-    "name": "sendTokensForProjectToUser",
-    "outputs": [],
-    "stateMutability": "nonpayable",
-    "type": "function"
-  },
-  {
-    "inputs": [
-      {
-        "internalType": "address[]",
-        "name": "_users",
-        "type": "address[]"
-      },
-      {
-        "internalType": "uint256[]",
-        "name": "_projectIds",
-        "type": "uint256[]"
-      }
-    ],
-    "name": "sendTokensForProjectToUserBatch",
-    "outputs": [],
-    "stateMutability": "nonpayable",
-    "type": "function"
-  },
-  {
-    "inputs": [
-      {
-        "internalType": "address",
-        "name": "_user",
-        "type": "address"
-      },
-      {
-        "internalType": "uint256",
-        "name": "_projectId",
-        "type": "uint256"
-      }
-    ],
     "name": "sendUSDCForProjectToUser",
     "outputs": [],
     "stateMutability": "nonpayable",
@@ -1336,12 +1195,35 @@
   {
     "inputs": [
       {
+        "internalType": "address",
+        "name": "_user",
+        "type": "address"
+      },
+      {
         "internalType": "uint256",
-        "name": "_percentage",
+        "name": "_projectId",
         "type": "uint256"
       }
     ],
-    "name": "setAdditionalUnlock",
+    "name": "sendVestingTokensForProjectToUser",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "address[]",
+        "name": "_users",
+        "type": "address[]"
+      },
+      {
+        "internalType": "uint256[]",
+        "name": "_projectIds",
+        "type": "uint256[]"
+      }
+    ],
+    "name": "sendVestingTokensForProjectToUserBatch",
     "outputs": [],
     "stateMutability": "nonpayable",
     "type": "function"
@@ -1350,11 +1232,34 @@
     "inputs": [
       {
         "internalType": "address",
-        "name": "_oracle",
+        "name": "_user",
         "type": "address"
+      },
+      {
+        "internalType": "uint256",
+        "name": "_projectId",
+        "type": "uint256"
       }
     ],
-    "name": "setOracle",
+    "name": "sendVestingUsdcForProjectToUser",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "address[]",
+        "name": "_users",
+        "type": "address[]"
+      },
+      {
+        "internalType": "uint256[]",
+        "name": "_projectIds",
+        "type": "uint256[]"
+      }
+    ],
+    "name": "sendVestingUsdcForProjectToUserBatch",
     "outputs": [],
     "stateMutability": "nonpayable",
     "type": "function"
@@ -1365,39 +1270,22 @@
         "internalType": "uint256",
         "name": "_referralPercentage",
         "type": "uint256"
-      },
-      {
-        "internalType": "uint256",
-        "name": "_burnPercentage",
-        "type": "uint256"
-      },
-      {
-        "internalType": "uint256",
-        "name": "_tokenPercentage",
-        "type": "uint256"
-      },
-      {
-        "internalType": "uint256",
-        "name": "_welcomeBonusAmount",
-        "type": "uint256"
-      },
-      {
-        "internalType": "uint256",
-        "name": "_minInvestmentForBonus",
-        "type": "uint256"
-      },
-      {
-        "internalType": "uint256",
-        "name": "_weeklyUnlock",
-        "type": "uint256"
-      },
-      {
-        "internalType": "uint256",
-        "name": "_vestingWeeks",
-        "type": "uint256"
       }
     ],
     "name": "setParameters",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "_rate",
+        "type": "uint256"
+      }
+    ],
+    "name": "setRedemptionRate",
     "outputs": [],
     "stateMutability": "nonpayable",
     "type": "function"
@@ -1416,19 +1304,6 @@
     "type": "function"
   },
   {
-    "inputs": [],
-    "name": "tokenPercentage",
-    "outputs": [
-      {
-        "internalType": "uint256",
-        "name": "",
-        "type": "uint256"
-      }
-    ],
-    "stateMutability": "view",
-    "type": "function"
-  },
-  {
     "inputs": [
       {
         "internalType": "address",
@@ -1439,19 +1314,6 @@
     "name": "transferOwnership",
     "outputs": [],
     "stateMutability": "nonpayable",
-    "type": "function"
-  },
-  {
-    "inputs": [],
-    "name": "uniswapRouter",
-    "outputs": [
-      {
-        "internalType": "contract IUniswapV2Router02",
-        "name": "",
-        "type": "address"
-      }
-    ],
-    "stateMutability": "view",
     "type": "function"
   },
   {
@@ -1507,19 +1369,6 @@
     "inputs": [
       {
         "internalType": "address",
-        "name": "_uniswapRouter",
-        "type": "address"
-      }
-    ],
-    "name": "updateUniswapRouterAddress",
-    "outputs": [],
-    "stateMutability": "nonpayable",
-    "type": "function"
-  },
-  {
-    "inputs": [
-      {
-        "internalType": "address",
         "name": "newImplementation",
         "type": "address"
       },
@@ -1542,6 +1391,30 @@
         "internalType": "contract IERC20",
         "name": "",
         "type": "address"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "address",
+        "name": "",
+        "type": "address"
+      },
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
+      }
+    ],
+    "name": "usdcEraClaimed",
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
       }
     ],
     "stateMutability": "view",
@@ -1612,8 +1485,21 @@
       },
       {
         "internalType": "bool",
-        "name": "isNewUser",
+        "name": "__deprecated_isNewUser",
         "type": "bool"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "version",
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
       }
     ],
     "stateMutability": "view",
@@ -1635,19 +1521,6 @@
   {
     "inputs": [],
     "name": "weeklyUnlock",
-    "outputs": [
-      {
-        "internalType": "uint256",
-        "name": "",
-        "type": "uint256"
-      }
-    ],
-    "stateMutability": "view",
-    "type": "function"
-  },
-  {
-    "inputs": [],
-    "name": "welcomeBonusAmount",
     "outputs": [
       {
         "internalType": "uint256",

@@ -183,18 +183,18 @@
   },
   "LimitedSeller": {
     "proxy": "0xed80c8286369b3C2561a6F8F11bd00Fc74600Ca3",
-    "impl": "0xaD9569208b83E050E6a50955d78096263134ffC0",
-    "buildHash": "0xf8cc501fb2559bce4183e77be029f5ff1c9f5f54ca7eb9d3ae6b22eb9cd4cae2",
+    "impl": "0x8A217e4528F0a8747a9983F84Cdb7BC0E2E4541c",
+    "buildHash": "0x3144001d89b119eb694ca23c8eda9a4287c965bd82dc33436f8f07b879405c14",
     "matchesDeployed": true,
-    "deployedFrom": "24be9bc",
-    "deployedAt": "May-29-2026",
+    "deployedFrom": "00146d7",
+    "deployedAt": "Oct-29-2026",
     "build": {
       "solc": "v0.8.23+commit.f704f362",
       "optimizer": {
         "enabled": true,
         "runs": 50,
         "details": {
-          "yul": false
+          "yul": true
         }
       },
       "evmVersion": "paris"
@@ -278,11 +278,11 @@
   },
   "RewardSystem": {
     "proxy": "0xD48f1d3EEC18d8B71ddF1575bAE160030878d705",
-    "impl": "0x222dc48dAe97d797B7Aa9E5BB741DD5a9d0D10e2",
-    "buildHash": "0x8ff2b189c03a265c031d7e5c62e74d7856b9138b71a12705d1ddf3669edabe06",
+    "impl": "0xa1F3e11d5383F487625ffCd559589642e5dA9811",
+    "buildHash": "0x7dfe99f858cd246213fb453651b7cc30313c7fa100850e50cbc881f3906a1fbd",
     "matchesDeployed": true,
-    "deployedFrom": "a01096c",
-    "deployedAt": "Oct-19-2026",
+    "deployedFrom": "00146d7",
+    "deployedAt": "Oct-29-2026",
     "build": {
       "solc": "v0.8.23+commit.f704f362",
       "optimizer": {
@@ -297,12 +297,22 @@
   },
   "Rewards2": {
     "proxy": "0xA841EE5340Dd851B595f95B0B2B0b677FD79D73F",
-    "impl": "0xB430d4E43518d9de37020CC6e4648dC73d07251B",
-    "buildHash": "0xdcbb6f4fcfe6daf842f8f2650cd73bd545c587a0c41e7cc98a9c071d1b6266e6",
-    "matchesDeployed": false,
-    "deployedFrom": null,
-    "deployedAt": "Apr-06-2026",
-    "build": null
+    "impl": "0x3F95b838C336064FC45A2E3bbe5b1910a5E25069",
+    "buildHash": "0x7aa9aaaf3936388fa9a9c958c75b29cc4f2be086a6d54ead4fca13dd87426b5d",
+    "matchesDeployed": true,
+    "deployedFrom": "00146d7",
+    "deployedAt": "Oct-29-2026",
+    "build": {
+      "solc": "v0.8.23+commit.f704f362",
+      "optimizer": {
+        "enabled": true,
+        "runs": 50,
+        "details": {
+          "yul": true
+        }
+      },
+      "evmVersion": "paris"
+    }
   },
   "Treasury": {
     "proxy": "0x287d9970b545eDca7800F441b0c4ECAD578Ba19F",
@@ -453,6 +463,25 @@
     "matchesDeployed": true,
     "deployedFrom": "205e8ee",
     "deployedAt": "Oct-22-2026",
+    "build": {
+      "solc": "v0.8.23+commit.f704f362",
+      "optimizer": {
+        "enabled": true,
+        "runs": 50,
+        "details": {
+          "yul": true
+        }
+      },
+      "evmVersion": "paris"
+    }
+  },
+  "Buyback": {
+    "proxy": "0x390F9c72a95801AEA9eAE7C9f4d1ae979cE1C715",
+    "impl": "0x4dE757CDb889868CA8DD6b03C4261547E14F7C1D",
+    "buildHash": "0x8c7ef858c15aac93ee10452eccba42ff9aa1e7757aca7b3c8361826d9635dff1",
+    "matchesDeployed": true,
+    "deployedFrom": "8d1063e",
+    "deployedAt": "Oct-27-2026",
     "build": {
       "solc": "v0.8.23+commit.f704f362",
       "optimizer": {

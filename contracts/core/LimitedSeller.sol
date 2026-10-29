@@ -14,9 +14,9 @@ import "../interfaces/protocol/IMarket.sol";
 
 /**
  * @title LimitedSeller
- * @notice Allows buying tokens from Uniswap V2 up to a limit: percent of user's
- *         total investment in Fundraise projects that are Funded or Repaid.
- *         Upgradeable via UUPS.
+ * @notice Bought 8LNDS from Uniswap V2 against a quota earned by investing. Purchases are closed:
+ *         `limitedBuy` refuses and the quota reports zero. What is left is the accrual, which keeps
+ *         running, and the history, which still answers for itself.
  */
 contract LimitedSeller is Initializable, UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuardUpgradeable {
     using SafeERC20 for IERC20;
@@ -43,10 +43,9 @@ contract LimitedSeller is Initializable, UUPSUpgradeable, OwnableUpgradeable, Re
     mapping(address => uint256) public buyerNonce;
     IMarket public market;
 
-    /// @notice Accumulated token-buy limit in USDC per user (monotonically increasing).
-    /// Accrued via addEarnedLimit() when a user invests through Fundraise.
-    /// For pre-upgrade users whose earnedLimitUsdc is 0, estimateAvailableBuy
-    /// falls back to the legacy on-chain calculation.
+    /// @notice Quota earned in USDC, per user, only ever growing. Accrues on each investment
+    ///         through Fundraise and is spent by nothing: purchases are closed, so the number is a
+    ///         record rather than a right.
     mapping(address => uint256) public earnedLimitUsdc;
 
     event Bought(
@@ -66,6 +65,7 @@ contract LimitedSeller is Initializable, UUPSUpgradeable, OwnableUpgradeable, Re
     error InvalidReceiver();
     error ManagerRegistryNotSet();
     error OnlyFundraise();
+    error PurchasesClosed();
 
     /// @custom:oz-upgrades-unsafe-allow constructor
     constructor() {
@@ -78,7 +78,7 @@ contract LimitedSeller is Initializable, UUPSUpgradeable, OwnableUpgradeable, Re
      * @param _router Uniswap V2 router address.
      * @param _usdc USDC token address.
      * @param _token Token (8LND) address.
-     * @param _percent Limit in basis points (e.g. 600 for 6%).
+     * @param _percent Share of an investment that becomes quota, in BASIS_POINTS: 60000 is 6%.
      * @param _managerRegistry ManagerRegistry contract address (can be set later via setManagerRegistry).
      */
     function initialize(
@@ -121,11 +121,9 @@ contract LimitedSeller is Initializable, UUPSUpgradeable, OwnableUpgradeable, Re
 
 
     /**
-     * @notice Returns the buy limit for a user based on Fundraise investments.
-     * @dev For users with earnedLimitUsdc > 0 (post-upgrade or migrated),
-     *      the limit is taken from the accumulated earnedLimitUsdc.
-     *      For pre-upgrade users (earnedLimitUsdc == 0), falls back to
-     *      legacy on-chain calculation from current investment state.
+     * @notice What the user invested and what they bought while buying was open.
+     * @dev `availableBuyTokensInUSDC` is always zero — see the tail of the body for why the other
+     *      two fields are still computed.
      * @param user User address.
      * @param projectIds Project IDs to consider (must be non-empty).
      */
@@ -162,92 +160,18 @@ contract LimitedSeller is Initializable, UUPSUpgradeable, OwnableUpgradeable, Re
             }
         }
 
-        uint256 limitUsdc = earnedLimitUsdc[user];
+        // availableBuyTokensInUSDC stays zero: purchases are closed, so nothing is available
+        // whatever the quota adds up to. The quota itself is left in storage, and the two fields
+        // above are the user's history, which still answers for itself.
+    }
 
-        if (limitUsdc == 0) {
-            // Legacy fallback for pre-upgrade users not yet migrated
-            limitUsdc = (result.fundedProjectsInvestedTotal * percent) / BASIS_POINTS;
-        }
-
-        if (limitUsdc > result.alreadyBoughtTokensInUSDC) {
-            result.availableBuyTokensInUSDC = limitUsdc - result.alreadyBoughtTokensInUSDC;
-        }
+    /// @notice Closed. The liquidity this bought from is gone, and there is no other path until the
+    ///         new seller ships, so the call refuses before it touches a signature or any money.
+    function limitedBuy(uint256, uint256, uint256[] memory, bytes memory) external pure {
+        revert PurchasesClosed();
     }
 
 
-    /**
-     * @notice Buy tokens with USDC within the user's limit. User must approve this contract for usdcAmount.
-     * @param usdcAmount USDC amount to spend (6 decimals).
-     * @param minTokensAmount Minimum tokens to receive (slippage protection).
-     * @param projectIds Project IDs to consider for the limit (must be non-empty).
-     */
-    function _limitedBuy(
-        uint256 usdcAmount,
-        uint256 minTokensAmount,
-        uint256[] memory projectIds
-    ) internal {
-        if (projectIds.length == 0) revert EmptyProjectIds();
-        if (address(managerRegistry) == address(0)) revert ManagerRegistryNotSet();
-        EstimateResult memory est = this.estimateAvailableBuy(msg.sender, projectIds);
-        if (usdcAmount > est.availableBuyTokensInUSDC) revert ExceedsAvailableLimit();
-
-        address[] memory path = new address[](2);
-        path[0] = address(usdc);
-        path[1] = address(token);
-
-        usdc.safeTransferFrom(msg.sender, address(this), usdcAmount);
-        usdc.forceApprove(address(router), usdcAmount);
-
-        address receiver = IManagerRegistry(managerRegistry).getInvestorClaimAddress(msg.sender);
-        bool isPoolPrevStatus = IManagerRegistry(managerRegistry).isPool(receiver);
-        uint256 balanceBefore = token.balanceOf(receiver);
-
-        IManagerRegistry(managerRegistry).setPoolStatusForReward(receiver, true);
-        router.swapExactTokensForTokens(
-            usdcAmount,
-            minTokensAmount,
-            path,
-            receiver,
-            block.timestamp + 300
-        );
-        IManagerRegistry(managerRegistry).setPoolStatusForReward(receiver, isPoolPrevStatus);
-
-        uint256 tokensReceived = token.balanceOf(receiver) - balanceBefore;
-        if (tokensReceived < minTokensAmount) revert InsufficientTokensReceived();
-
-        boughtUsdcByUser[msg.sender] += usdcAmount;
-        totalBoughtInUSDC += usdcAmount;
-        totalBoughtInTokens += tokensReceived;
-
-        emit Bought(msg.sender, receiver, usdcAmount, tokensReceived, block.timestamp);
-    }
-
-
-    function limitedBuy(uint256 usdcAmount, uint256 minTokensAmount, uint256[] memory projectIds, bytes memory _sig) external nonReentrant {
-        address trustedSignerAddr = fundraise.trustedSigner();
-        require(trustedSignerAddr != address(0), "Trusted signer not set");
-        uint256 nonce = buyerNonce[msg.sender];
-        bytes32 messageHash = keccak256(abi.encodePacked(msg.sender, nonce));
-        bytes32 ethSignedMessageHash = keccak256(
-            abi.encodePacked("\x19Ethereum Signed Message:\n32", messageHash)
-        );
-        (bytes32 r, bytes32 s, uint8 v) = _splitSignature(_sig);
-        require(uint256(s) <= 0x7FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF5D576E7357A4501DDFE92F46681B20A0, "Invalid signature s");
-        address signer = ecrecover(ethSignedMessageHash, v, r, s);
-        require(signer != address(0), "Invalid signature");
-        require(signer == trustedSignerAddr, "Not trusted signer");
-        buyerNonce[msg.sender] = nonce + 1;
-        _limitedBuy(usdcAmount, minTokensAmount, projectIds);
-    }
-
-    function _splitSignature(bytes memory sig) internal pure returns (bytes32 r, bytes32 s, uint8 v) {
-        require(sig.length == 65, "Invalid signature length");
-        assembly {
-            r := mload(add(sig, 32))
-            s := mload(add(sig, 64))
-            v := byte(0, mload(add(sig, 96)))
-        }
-    }
     /**
      * @notice Called by Fundraise when a user invests. Accrues the token-buy limit.
      * @param user Investor address.
@@ -274,9 +198,8 @@ contract LimitedSeller is Initializable, UUPSUpgradeable, OwnableUpgradeable, Re
         }
     }
 
-    /**
-     * @notice Set the limit in basis points (e.g. 600 for 6%). Owner only.
-     */
+    /// @notice In BASIS_POINTS: 60000 is 6%. Accrual keeps running while purchases are closed, so
+    ///         this still decides what the quota grows by.
     function setPercent(uint256 _percent) external onlyOwner {
         if (_percent > BASIS_POINTS) revert InvalidPercent();
         percent = _percent;
